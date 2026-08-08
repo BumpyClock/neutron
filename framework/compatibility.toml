@@ -3,7 +3,7 @@ schema = 1
 [framework]
 name = "gpui-component"
 version = "0.7.0"
-repository = "https://github.com/BumpyClock/gpui-component"
+repository = "https://github.com/BumpyClock/neutron"
 rust_msrv = "1.90"
 pinned_toolchain = "1.95.0"
 audit_toolchain = "1.97.1"
@@ -11,8 +11,7 @@ previous_release = "0.6.0"
 previous_release_gpui_rev = "2a03ae6e789b77e98f9d9bd5489758a082313c75"
 
 [gpui]
-repository = "https://github.com/BumpyClock/gpui"
-rev = "198635ca8435c38dd4dfe796089145cdbefae36c"
+engine_path = "engine"
 zed_repository = "https://github.com/zed-industries/zed"
 zed_upstream_base = "2c4e44704c37ee87e59ac84e3e17388178b28545"
 

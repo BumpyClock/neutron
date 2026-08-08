@@ -31,7 +31,8 @@ class Stage1SourceManifestTests(unittest.TestCase):
         for relative_path in (
             "Cargo.toml",
             "Cargo.lock",
-            "compatibility.toml",
+            "engine/fork.toml",
+            "framework/compatibility.toml",
             ".github/workflows/stage1.yml",
         ):
             path = root / relative_path
@@ -78,7 +79,7 @@ class Stage1SourceManifestTests(unittest.TestCase):
         environment = {key: value for key, value in os.environ.items() if key not in GITHUB_VARIABLES}
         environment |= {
             "PYTHONDONTWRITEBYTECODE": "1",
-            "GITHUB_REPOSITORY": "BumpyClock/gpui-component",
+            "GITHUB_REPOSITORY": "BumpyClock/neutron",
             "GITHUB_SHA": commit,
             "GITHUB_REF": "refs/heads/test",
             "GITHUB_EVENT_NAME": "push",
@@ -115,6 +116,17 @@ class Stage1SourceManifestTests(unittest.TestCase):
         manifest = json.loads((root / "artifacts/source-manifest.json").read_text())
         verification = json.loads((root / "artifacts/source-verification.json").read_text())
         self.assertEqual(manifest["source"]["head_commit"], commit)
+        self.assertEqual(
+            set(manifest["source"]["identity_file_sha256"]),
+            {
+                "Cargo.toml",
+                "Cargo.lock",
+                "engine/fork.toml",
+                "framework/compatibility.toml",
+                ".github/workflows/stage1.yml",
+            },
+        )
+        self.assertEqual(manifest["workflow"]["github_repository"], "BumpyClock/neutron")
         self.assertTrue(manifest["source"]["source_clean"])
         self.assertEqual(verification["outcome"], "passed")
         self.assertFalse((root / "tooling/__pycache__").exists())

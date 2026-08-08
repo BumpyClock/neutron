@@ -8,12 +8,11 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 # Compatibility
 
 - Framework: `gpui-component` `0.7.0`
-- Framework repository: `https://github.com/BumpyClock/gpui-component`
+- Framework repository: `https://github.com/BumpyClock/neutron`
 - Declared Rust MSRV: `1.90` (not exercised by this audit)
 - Repository-pinned toolchain: `1.95.0` (not installed in this environment)
 - Audit host toolchain: `1.97.1`
-- GPUI repository: `https://github.com/BumpyClock/gpui`
-- GPUI commit: `198635ca8435c38dd4dfe796089145cdbefae36c`
+- Engine path: `engine`
 - Zed upstream: `https://github.com/zed-industries/zed`
 - Zed upstream base: `2c4e44704c37ee87e59ac84e3e17388178b28545`
 
@@ -28,7 +27,7 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 
 ## Consumption modes
 
-**Git source.** Select an immutable `gpui-component` tag or commit. Its source manifest uses the exact GPUI Git revision and the matching exact registry version. Do not select a separate GPUI revision.
+**Monorepo source.** Use this repository checkout. Framework dependencies resolve from `engine` with exact engine package versions. Do not select a separate engine revision.
 
 **crates.io.** Once registry readiness is true, select the published framework version. Cargo's normalized package manifests omit the Git location and resolve the same exact engine versions from crates.io. Git and registry sources must represent identical engine source and public behavior.
 

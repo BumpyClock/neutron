@@ -22,6 +22,8 @@ const VALID_REGISTRY_STATUSES: &[&str] = &[
 const VALID_EVIDENCE_STATUSES: &[&str] = &["verified", "not-verified", "not-applicable", "blocked"];
 const VALID_MATURITY: &[&str] = &["supported", "preview", "experimental"];
 const REGISTRY_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+const ENGINE_DOMAIN: &str = "BumpyClock/neutron/engine";
+const FRAMEWORK_DOMAIN: &str = "BumpyClock/neutron/framework";
 
 #[derive(Debug, Deserialize)]
 struct Compatibility {
@@ -46,8 +48,7 @@ struct Framework {
 
 #[derive(Debug, Deserialize)]
 struct Gpui {
-    repository: String,
-    rev: String,
+    engine_path: String,
     zed_repository: String,
     zed_upstream_base: String,
     packages: Vec<GpuiPackage>,
@@ -87,14 +88,16 @@ struct Platform {
 
 #[derive(Default)]
 struct Options {
-    gpui_path: Option<PathBuf>,
     require_registry: bool,
 }
 
 fn main() -> Result<()> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let framework_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .context("xtask must be inside the workspace")?;
+    let repository_root = framework_root
+        .parent()
+        .context("framework must be inside the repository workspace")?;
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
         print_help();
@@ -104,22 +107,22 @@ fn main() -> Result<()> {
     match command.as_str() {
         "compatibility" => {
             let Some(action) = args.next() else {
-                bail!("usage: cargo xtask compatibility <generate|check> [--gpui-path PATH]");
+                bail!("usage: cargo run -p framework-xtask -- compatibility <generate|check>");
             };
-            let options = parse_options(args)?;
+            parse_options(args)?;
             match action.as_str() {
-                "generate" => generate(root, options.gpui_path.as_deref()),
-                "check" => check(root, options.gpui_path.as_deref()),
+                "generate" => generate(framework_root, repository_root),
+                "check" => check(framework_root, repository_root),
                 _ => bail!("unknown compatibility action: {action}"),
             }
         }
         "publish-plan" => {
             let options = parse_options(args)?;
-            publish_plan(root, options.gpui_path.as_deref(), options.require_registry)
+            publish_plan(framework_root, repository_root, options.require_registry)
         }
         "release-check" => {
             let options = parse_options(args)?;
-            release_check(root, &options)
+            release_check(framework_root, repository_root, &options)
         }
         "--help" | "-h" | "help" => {
             print_help();
@@ -133,10 +136,10 @@ fn print_help() {
     println!(
         "\
 Usage:
-  cargo xtask compatibility generate [--gpui-path PATH]
-  cargo xtask compatibility check [--gpui-path PATH]
-  cargo xtask publish-plan [--gpui-path PATH] [--require-registry]
-  cargo xtask release-check [--gpui-path PATH] [--require-registry]"
+  cargo run -p framework-xtask -- compatibility generate
+  cargo run -p framework-xtask -- compatibility check
+  cargo run -p framework-xtask -- publish-plan [--require-registry]
+  cargo run -p framework-xtask -- release-check [--require-registry]"
     );
 }
 
@@ -144,13 +147,6 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options> {
     let mut options = Options::default();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--gpui-path" => {
-                options.gpui_path = Some(
-                    args.next()
-                        .map(PathBuf::from)
-                        .context("--gpui-path requires a path")?,
-                );
-            }
             "--require-registry" => options.require_registry = true,
             _ => bail!("unknown option: {arg}"),
         }
@@ -165,34 +161,33 @@ fn load(root: &Path) -> Result<Compatibility> {
     toml::from_str(&source).with_context(|| format!("invalid {}", path.display()))
 }
 
-fn generate(root: &Path, gpui_path: Option<&Path>) -> Result<()> {
-    let compatibility = load(root)?;
-    let report = validate(root, &compatibility, gpui_path, false);
+fn generate(framework_root: &Path, repository_root: &Path) -> Result<()> {
+    let compatibility = load(framework_root)?;
+    let report = validate(framework_root, repository_root, &compatibility, false);
     print_warnings(&report.warnings);
     if !report.errors.is_empty() {
         return Err(validation_error(report.errors));
     }
     let output = render(&compatibility);
-    fs::write(root.join(GENERATED_FILE), output)
+    fs::write(framework_root.join(GENERATED_FILE), output)
         .with_context(|| format!("failed to write {GENERATED_FILE}"))?;
     println!("generated {GENERATED_FILE}");
     Ok(())
 }
 
-fn check(root: &Path, gpui_path: Option<&Path>) -> Result<()> {
-    let compatibility = load(root)?;
-    let mut report = validate(root, &compatibility, gpui_path, true);
-    validate_generated(root, &compatibility, &mut report.errors);
+fn check(framework_root: &Path, repository_root: &Path) -> Result<()> {
+    let compatibility = load(framework_root)?;
+    let mut report = validate(framework_root, repository_root, &compatibility, true);
+    validate_generated(framework_root, &compatibility, &mut report.errors);
     print_warnings(&report.warnings);
     if !report.errors.is_empty() {
         return Err(validation_error(report.errors));
     }
     println!(
-        "compatibility valid: {} {} -> {}#{}",
+        "compatibility valid: {} {} -> {}",
         compatibility.framework.name,
         compatibility.framework.version,
-        compatibility.gpui.repository,
-        compatibility.gpui.rev
+        compatibility.gpui.engine_path
     );
     Ok(())
 }
@@ -231,15 +226,15 @@ fn print_warnings(warnings: &[String]) {
 }
 
 fn validate(
-    root: &Path,
+    framework_root: &Path,
+    repository_root: &Path,
     compatibility: &Compatibility,
-    gpui_path: Option<&Path>,
     check_generated: bool,
 ) -> Validation {
     let mut report = Validation::default();
     validate_metadata(compatibility, &mut report.errors);
 
-    let root_manifest_path = root.join("Cargo.toml");
+    let root_manifest_path = repository_root.join("Cargo.toml");
     let root_manifest = match read_toml(&root_manifest_path) {
         Ok(manifest) => manifest,
         Err(error) => {
@@ -248,16 +243,19 @@ fn validate(
         }
     };
     validate_root_manifest(&root_manifest, compatibility, &mut report.errors);
-    validate_all_manifests(root, compatibility, &root_manifest_path, &mut report.errors);
-    validate_lockfile(root, compatibility, &mut report.errors);
-    validate_toolchain(root, compatibility, &mut report.errors);
-    validate_publishable_dependencies(root, &mut report.errors);
+    validate_all_manifests(
+        repository_root,
+        framework_root,
+        compatibility,
+        &root_manifest_path,
+        &mut report.errors,
+    );
+    validate_lockfile(repository_root, compatibility, &mut report.errors);
+    validate_toolchain(repository_root, compatibility, &mut report.errors);
+    validate_publishable_dependencies(repository_root, framework_root, &mut report.errors);
+    validate_engine_checkout(repository_root, compatibility, &mut report);
 
-    if let Some(gpui_path) = gpui_path {
-        validate_gpui_checkout(gpui_path, compatibility, &mut report);
-    }
-
-    if check_generated && !root.join(GENERATED_FILE).is_file() {
+    if check_generated && !framework_root.join(GENERATED_FILE).is_file() {
         report.errors.push(format!(
             "{GENERATED_FILE} is missing; run `cargo xtask compatibility generate`"
         ));
@@ -296,11 +294,8 @@ fn validate_metadata(compatibility: &Compatibility, errors: &mut Vec<String>) {
     if !is_full_sha(&compatibility.framework.previous_release_gpui_rev) {
         errors.push("framework.previous_release_gpui_rev must be a full commit SHA".into());
     }
-    if !is_full_sha(&compatibility.gpui.rev) {
-        errors.push("gpui.rev must be a full commit SHA".into());
-    }
-    if compatibility.gpui.repository != "https://github.com/BumpyClock/gpui" {
-        errors.push("gpui.repository must be https://github.com/BumpyClock/gpui".into());
+    if compatibility.gpui.engine_path != "engine" {
+        errors.push("gpui.engine_path must be `engine`".into());
     }
     if compatibility.gpui.zed_repository != "https://github.com/zed-industries/zed" {
         errors.push("gpui.zed_repository must be https://github.com/zed-industries/zed".into());
@@ -412,23 +407,6 @@ fn validate_root_manifest(
     let Some(workspace) = workspace else {
         return;
     };
-    let package = table_at_table(workspace, "package", "[workspace.package]", errors);
-    if let Some(package) = package {
-        check_string(
-            package,
-            "version",
-            &compatibility.framework.version,
-            "workspace package version",
-            errors,
-        );
-        check_string(
-            package,
-            "rust-version",
-            &compatibility.framework.rust_msrv,
-            "workspace rust-version",
-            errors,
-        );
-    }
     let dependencies = table_at_table(
         workspace,
         "dependencies",
@@ -459,13 +437,14 @@ fn validate_root_manifest(
 }
 
 fn validate_all_manifests(
-    root: &Path,
+    repository_root: &Path,
+    framework_root: &Path,
     compatibility: &Compatibility,
     root_manifest_path: &Path,
     errors: &mut Vec<String>,
 ) {
     let mut manifests = Vec::new();
-    collect_manifests(root, &mut manifests, errors);
+    collect_manifests(framework_root, &mut manifests, errors);
     for path in manifests {
         let Ok(manifest) = read_toml(&path) else {
             continue;
@@ -475,9 +454,32 @@ fn validate_all_manifests(
                 return;
             }
             let is_workspace = section == "workspace.dependencies";
+            for (name, value) in dependencies {
+                if compatibility
+                    .gpui
+                    .packages
+                    .iter()
+                    .any(|package| package.dependency == *name)
+                {
+                    continue;
+                }
+                if value
+                    .as_table()
+                    .and_then(|table| table.get("git"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|git| {
+                        normalized_git_repository(git) == "https://github.com/BumpyClock/gpui"
+                    })
+                {
+                    errors.push(format!(
+                        "{} [{section}]: dependency `{name}` retains obsolete BumpyClock/gpui Git source",
+                        relative(repository_root, &path)
+                    ));
+                }
+            }
             for package in &compatibility.gpui.packages {
                 if let Some(value) = dependencies.get(&package.dependency) {
-                    let label = format!("{} [{section}]", relative(root, &path));
+                    let label = format!("{} [{section}]", relative(repository_root, &path));
                     validate_dependency(
                         &label,
                         &package.dependency,
@@ -522,28 +524,23 @@ fn validate_dependency(
         return;
     }
 
-    if table.contains_key("branch") || table.contains_key("tag") {
+    if table.contains_key("git")
+        || table.contains_key("rev")
+        || table.contains_key("branch")
+        || table.contains_key("tag")
+    {
         errors.push(format!(
-            "{location}: GPUI dependency `{dependency}` must use only a full `rev`, not branch/tag"
+            "{location}: GPUI dependency `{dependency}` must not use a Git source"
         ));
     }
-    match table.get("git").and_then(Value::as_str) {
-        Some(git) if git == compatibility.gpui.repository => {}
-        Some(git) => errors.push(format!(
-            "{location}: GPUI dependency `{dependency}` uses noncanonical Git URL `{git}`"
+    let expected_path = format!("{}/{}", compatibility.gpui.engine_path, package.crate_path);
+    match table.get("path").and_then(Value::as_str) {
+        Some(path) if path == expected_path => {}
+        Some(path) => errors.push(format!(
+            "{location}: GPUI dependency `{dependency}` path `{path}`, expected `{expected_path}`"
         )),
         None => errors.push(format!(
-            "{location}: GPUI dependency `{dependency}` is missing `git`"
-        )),
-    }
-    match table.get("rev").and_then(Value::as_str) {
-        Some(rev) if rev == compatibility.gpui.rev && is_full_sha(rev) => {}
-        Some(rev) => errors.push(format!(
-            "{location}: GPUI dependency `{dependency}` uses revision `{rev}`, expected `{}`",
-            compatibility.gpui.rev
-        )),
-        None => errors.push(format!(
-            "{location}: GPUI dependency `{dependency}` is missing `rev`"
+            "{location}: GPUI dependency `{dependency}` is missing `path`"
         )),
     }
     let expected_version = format!("={}", package.version);
@@ -597,33 +594,30 @@ fn validate_lockfile(root: &Path, compatibility: &Compatibility, errors: &mut Ve
         errors.push("Cargo.lock has no package entries".into());
         return;
     };
-    let canonical_repository = normalized_git_repository(&compatibility.gpui.repository);
-    let canonical_sources: Vec<_> = entries
-        .iter()
-        .filter_map(Value::as_table)
-        .filter_map(|package| {
-            let source = package.get("source").and_then(Value::as_str)?;
-            (normalized_git_repository(source) == canonical_repository).then_some((package, source))
-        })
-        .collect();
-    for (package, source) in &canonical_sources {
-        if resolved_git_revision(source) != Some(compatibility.gpui.rev.as_str()) {
+    for package in entries.iter().filter_map(Value::as_table) {
+        if package
+            .get("source")
+            .and_then(Value::as_str)
+            .is_some_and(|source| {
+                normalized_git_repository(source) == "https://github.com/BumpyClock/gpui"
+            })
+        {
             errors.push(format!(
-                "Cargo.lock package `{}` uses canonical GPUI source at revision other than {}: `{source}`",
+                "Cargo.lock retains obsolete BumpyClock/gpui source for `{}`",
                 package
                     .get("name")
                     .and_then(Value::as_str)
-                    .unwrap_or("<missing>"),
-                compatibility.gpui.rev
+                    .unwrap_or("<missing>")
             ));
         }
     }
-    let canonical_names: BTreeSet<_> = canonical_sources
+    let engine_names: BTreeSet<_> = compatibility
+        .gpui
+        .packages
         .iter()
-        .filter_map(|(package, _)| package.get("name").and_then(Value::as_str))
-        .map(normalize_package)
+        .map(|package| normalize_package(&package.registry_package))
         .collect();
-    for name in canonical_names {
+    for name in engine_names {
         let sources: BTreeSet<_> = entries
             .iter()
             .filter_map(Value::as_table)
@@ -633,7 +627,12 @@ fn validate_lockfile(root: &Path, compatibility: &Compatibility, errors: &mut Ve
                     .and_then(Value::as_str)
                     .is_some_and(|package_name| normalize_package(package_name) == name)
             })
-            .filter_map(|package| package.get("source").and_then(Value::as_str))
+            .map(|package| {
+                package
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .unwrap_or("local")
+            })
             .collect();
         if sources.len() > 1 {
             errors.push(format!(
@@ -649,21 +648,13 @@ fn validate_lockfile(root: &Path, compatibility: &Compatibility, errors: &mut Ve
             .filter(|package| {
                 package.get("name").and_then(Value::as_str)
                     == Some(expected.registry_package.as_str())
-                    && package
-                        .get("source")
-                        .and_then(Value::as_str)
-                        .is_some_and(|source| {
-                            normalized_git_repository(source) == canonical_repository
-                                && resolved_git_revision(source)
-                                    == Some(compatibility.gpui.rev.as_str())
-                        })
+                    && package.get("source").is_none()
             })
             .collect();
         if matches.len() != 1 {
             errors.push(format!(
-                "Cargo.lock must resolve exactly one Git package `{}` at {}; found {}",
+                "Cargo.lock must resolve exactly one local engine package `{}`; found {}",
                 expected.registry_package,
-                compatibility.gpui.rev,
                 matches.len()
             ));
             continue;
@@ -697,15 +688,19 @@ fn validate_toolchain(root: &Path, compatibility: &Compatibility, errors: &mut V
     }
 }
 
-fn validate_publishable_dependencies(root: &Path, errors: &mut Vec<String>) {
-    let metadata = match cargo_metadata(root) {
+fn validate_publishable_dependencies(
+    repository_root: &Path,
+    framework_root: &Path,
+    errors: &mut Vec<String>,
+) {
+    let metadata = match cargo_metadata(repository_root) {
         Ok(metadata) => metadata,
         Err(error) => {
             errors.push(error.to_string());
             return;
         }
     };
-    validate_publishable_metadata(&metadata, errors);
+    validate_publishable_metadata(&domain_metadata(metadata, framework_root), errors);
 }
 
 fn validate_publishable_metadata(metadata: &CargoMetadata, errors: &mut Vec<String>) {
@@ -751,45 +746,21 @@ fn validate_publishable_metadata(metadata: &CargoMetadata, errors: &mut Vec<Stri
     }
 }
 
-fn validate_gpui_checkout(
-    gpui_path: &Path,
+fn validate_engine_checkout(
+    repository_root: &Path,
     compatibility: &Compatibility,
     report: &mut Validation,
 ) {
-    if !gpui_path.join("Cargo.toml").is_file() {
-        report.errors.push(format!(
-            "--gpui-path {} has no Cargo.toml",
-            gpui_path.display()
-        ));
+    let engine_path = repository_root.join(&compatibility.gpui.engine_path);
+    if !engine_path.is_dir() {
+        report
+            .errors
+            .push(format!("engine path {} is missing", engine_path.display()));
         return;
-    }
-    match command_output(
-        Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(gpui_path),
-    ) {
-        Ok(head) if head.trim() == compatibility.gpui.rev => {}
-        Ok(head) => report.warnings.push(format!(
-            "local GPUI checkout is a development override at {}, not release-compatible pin {}",
-            head.trim(),
-            compatibility.gpui.rev
-        )),
-        Err(error) => report.errors.push(error.to_string()),
-    }
-    match command_output(
-        Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(gpui_path),
-    ) {
-        Ok(status) if status.trim().is_empty() => {}
-        Ok(_) => report
-            .warnings
-            .push("local GPUI checkout has uncommitted changes and is development-only".into()),
-        Err(error) => report.errors.push(error.to_string()),
     }
 
     for package in &compatibility.gpui.packages {
-        let path = gpui_path.join(&package.crate_path).join("Cargo.toml");
+        let path = engine_path.join(&package.crate_path).join("Cargo.toml");
         match read_toml(&path) {
             Ok(manifest) => {
                 let actual_name = value_string(&manifest, &["package", "name"]);
@@ -797,7 +768,7 @@ fn validate_gpui_checkout(
                 if actual_name != Some(package.registry_package.as_str()) {
                     report.errors.push(format!(
                         "{} package name is `{}`, expected `{}`",
-                        relative(gpui_path, &path),
+                        relative(repository_root, &path),
                         actual_name.unwrap_or("<missing>"),
                         package.registry_package
                     ));
@@ -805,7 +776,7 @@ fn validate_gpui_checkout(
                 if actual_version != Some(package.version.as_str()) {
                     report.errors.push(format!(
                         "{} package version is `{}`, expected `{}`",
-                        relative(gpui_path, &path),
+                        relative(repository_root, &path),
                         actual_version.unwrap_or("<missing>"),
                         package.version
                     ));
@@ -815,7 +786,7 @@ fn validate_gpui_checkout(
         }
     }
 
-    let fork_path = gpui_path.join("fork.toml");
+    let fork_path = engine_path.join("fork.toml");
     if fork_path.is_file() {
         match read_toml(&fork_path) {
             Ok(fork) => {
@@ -837,20 +808,20 @@ fn validate_gpui_checkout(
     } else {
         report
             .errors
-            .push(format!("{} is missing fork.toml", gpui_path.display()));
+            .push(format!("{} is missing fork.toml", engine_path.display()));
     }
-    validate_root_patches(gpui_path, report);
+    validate_root_patches(repository_root, report);
 }
 
-fn validate_root_patches(gpui_path: &Path, report: &mut Validation) {
-    let manifest = match read_toml(&gpui_path.join("Cargo.toml")) {
+fn validate_root_patches(repository_root: &Path, report: &mut Validation) {
+    let manifest = match read_toml(&repository_root.join("Cargo.toml")) {
         Ok(manifest) => manifest,
         Err(error) => {
             report.errors.push(error.to_string());
             return;
         }
     };
-    let metadata = match cargo_metadata_full(gpui_path) {
+    let metadata = match cargo_metadata_full(repository_root) {
         Ok(metadata) => metadata,
         Err(error) => {
             report.errors.push(error.to_string());
@@ -861,8 +832,8 @@ fn validate_root_patches(gpui_path: &Path, report: &mut Validation) {
         .into_values()
         .collect();
     for package in patches {
-        report.errors.push(format!(
-            "GPUI workspace root patch for `{package}` affects the publishable dependency graph but is not inherited by Git consumers or packaged manifests"
+        report.warnings.push(format!(
+            "root patch for `{package}` affects the publishable engine graph and blocks packaged consumers"
         ));
     }
 }
@@ -874,15 +845,14 @@ fn render(compatibility: &Compatibility) -> String {
     );
     output.push_str("# Compatibility\n\n");
     output.push_str(&format!(
-        "- Framework: `{}` `{}`\n- Framework repository: `{}`\n- Declared Rust MSRV: `{}` (not exercised by this audit)\n- Repository-pinned toolchain: `{}` (not installed in this environment)\n- Audit host toolchain: `{}`\n- GPUI repository: `{}`\n- GPUI commit: `{}`\n- Zed upstream: `{}`\n- Zed upstream base: `{}`\n\n",
+        "- Framework: `{}` `{}`\n- Framework repository: `{}`\n- Declared Rust MSRV: `{}` (not exercised by this audit)\n- Repository-pinned toolchain: `{}` (not installed in this environment)\n- Audit host toolchain: `{}`\n- Engine path: `{}`\n- Zed upstream: `{}`\n- Zed upstream base: `{}`\n\n",
         compatibility.framework.name,
         compatibility.framework.version,
         compatibility.framework.repository,
         compatibility.framework.rust_msrv,
         compatibility.framework.pinned_toolchain,
         compatibility.framework.audit_toolchain,
-        compatibility.gpui.repository,
-        compatibility.gpui.rev,
+        compatibility.gpui.engine_path,
         compatibility.gpui.zed_repository,
         compatibility.gpui.zed_upstream_base,
     ));
@@ -913,9 +883,10 @@ fn render(compatibility: &Compatibility) -> String {
         ));
     }
     output.push_str("\n## Consumption modes\n\n");
-    output.push_str(
-        "**Git source.** Select an immutable `gpui-component` tag or commit. Its source manifest uses the exact GPUI Git revision and the matching exact registry version. Do not select a separate GPUI revision.\n\n",
-    );
+    output.push_str(&format!(
+        "**Monorepo source.** Use this repository checkout. Framework dependencies resolve from `{}` with exact engine package versions. Do not select a separate engine revision.\n\n",
+        compatibility.gpui.engine_path
+    ));
     output.push_str(
         "**crates.io.** Once registry readiness is true, select the published framework version. Cargo's normalized package manifests omit the Git location and resolve the same exact engine versions from crates.io. Git and registry sources must represent identical engine source and public behavior.\n\n",
     );
@@ -997,6 +968,8 @@ struct CargoPackage {
     id: String,
     name: String,
     version: String,
+    #[serde(default)]
+    manifest_path: PathBuf,
     source: Option<String>,
     publish: Option<Vec<String>>,
     description: Option<String>,
@@ -1031,9 +1004,13 @@ struct PlanNode {
     non_registry_blocker: bool,
 }
 
-fn publish_plan(root: &Path, gpui_path: Option<&Path>, require_registry: bool) -> Result<()> {
-    let compatibility = load(root)?;
-    let nodes = build_plan(root, gpui_path, &compatibility)?;
+fn publish_plan(
+    framework_root: &Path,
+    repository_root: &Path,
+    require_registry: bool,
+) -> Result<()> {
+    let compatibility = load(framework_root)?;
+    let nodes = build_plan(repository_root, &compatibility)?;
     println!(
         "repository\tpackage\tregistry package\tversion\tregistry\tprerequisites\tmetadata\tfull dry-run"
     );
@@ -1102,50 +1079,43 @@ fn require_registry_gate(nodes: &[PlanNode]) -> Result<()> {
     Ok(())
 }
 
-fn build_plan(
-    root: &Path,
-    gpui_path: Option<&Path>,
-    compatibility: &Compatibility,
-) -> Result<Vec<PlanNode>> {
+fn build_plan(root: &Path, compatibility: &Compatibility) -> Result<Vec<PlanNode>> {
     let mut nodes = BTreeMap::<String, PlanNode>::new();
-    if let Some(gpui_path) = gpui_path {
-        let metadata = cargo_metadata_full(gpui_path)?;
-        let manifest = read_toml(&gpui_path.join("Cargo.toml"))?;
-        let root_patches = resolved_git_root_patches(&manifest, &metadata);
-        let patch_reachability = root_patch_reachability(&metadata, &root_patches)?;
-        let fork_registry = fork_registry_statuses(gpui_path)?;
-        add_workspace_nodes(&metadata, "BumpyClock/gpui", &mut nodes, |package| {
-            compatibility
-                .gpui
-                .packages
-                .iter()
-                .find(|item| {
-                    normalize_package(&item.registry_package) == normalize_package(&package.name)
-                })
-                .map(|item| item.registry_status.clone())
-                .or_else(|| {
-                    fork_registry
-                        .get(&normalize_package(&package.name))
-                        .cloned()
-                })
-                .unwrap_or_else(|| "unknown".into())
-        })?;
-        for (package, patches) in patch_reachability {
-            let Some(node) = nodes.get_mut(&plan_id("BumpyClock/gpui", &package)) else {
-                continue;
-            };
-            node.full_dry_run = format!(
-                "blocked: non-inherited GPUI root patches: {}",
-                patches.into_iter().collect::<Vec<_>>().join(", ")
-            );
-            node.non_registry_blocker = true;
-        }
-    } else {
-        let resolved = cargo_metadata_full(root)?;
-        add_resolved_engine_nodes(&resolved, compatibility, &mut nodes);
+    let manifest = read_toml(&root.join("Cargo.toml"))?;
+    let full_metadata = cargo_metadata_full(root)?;
+    let root_patches = resolved_git_root_patches(&manifest, &full_metadata);
+    let engine_root = root.join(&compatibility.gpui.engine_path);
+    let engine_metadata = domain_metadata(full_metadata, &engine_root);
+    let patch_reachability = root_patch_reachability(&engine_metadata, &root_patches)?;
+    let fork_registry = fork_registry_statuses(&engine_root)?;
+    add_workspace_nodes(&engine_metadata, ENGINE_DOMAIN, &mut nodes, |package| {
+        compatibility
+            .gpui
+            .packages
+            .iter()
+            .find(|item| {
+                normalize_package(&item.registry_package) == normalize_package(&package.name)
+            })
+            .map(|item| item.registry_status.clone())
+            .or_else(|| {
+                fork_registry
+                    .get(&normalize_package(&package.name))
+                    .cloned()
+            })
+            .unwrap_or_else(|| "unknown".into())
+    })?;
+    for (package, patches) in patch_reachability {
+        let Some(node) = nodes.get_mut(&plan_id(ENGINE_DOMAIN, &package)) else {
+            continue;
+        };
+        node.full_dry_run = format!(
+            "blocked: non-inherited engine root patches: {}",
+            patches.into_iter().collect::<Vec<_>>().join(", ")
+        );
+        node.non_registry_blocker = true;
     }
 
-    let framework = cargo_metadata(root)?;
+    let framework = domain_metadata(cargo_metadata(root)?, &root.join("framework"));
     let framework_registry: BTreeMap<_, _> = framework
         .packages
         .iter()
@@ -1158,17 +1128,12 @@ fn build_plan(
             )
         })
         .collect();
-    add_workspace_nodes(
-        &framework,
-        "BumpyClock/gpui-component",
-        &mut nodes,
-        |package| {
-            framework_registry
-                .get(&normalize_package(&package.name))
-                .cloned()
-                .unwrap_or_else(|| "unknown".into())
-        },
-    )?;
+    add_workspace_nodes(&framework, FRAMEWORK_DOMAIN, &mut nodes, |package| {
+        framework_registry
+            .get(&normalize_package(&package.name))
+            .cloned()
+            .unwrap_or_else(|| "unknown".into())
+    })?;
 
     let engine_ids: BTreeMap<_, _> = compatibility
         .gpui
@@ -1177,12 +1142,12 @@ fn build_plan(
         .map(|package| {
             (
                 normalize_package(&package.registry_package),
-                plan_id("BumpyClock/gpui", &package.registry_package),
+                plan_id(ENGINE_DOMAIN, &package.registry_package),
             )
         })
         .collect();
     for package in &framework.packages {
-        let id = plan_id("BumpyClock/gpui-component", &package.name);
+        let id = plan_id(FRAMEWORK_DOMAIN, &package.name);
         let Some(node) = nodes.get_mut(&id) else {
             continue;
         };
@@ -1231,117 +1196,6 @@ fn fork_registry_statuses(gpui_path: &Path) -> Result<BTreeMap<String, String>> 
         .collect())
 }
 
-fn add_resolved_engine_nodes(
-    metadata: &CargoMetadata,
-    compatibility: &Compatibility,
-    nodes: &mut BTreeMap<String, PlanNode>,
-) {
-    let engine_packages: BTreeMap<_, _> = metadata
-        .packages
-        .iter()
-        .filter(|package| {
-            package.source.as_deref().is_some_and(|source| {
-                normalized_git_repository(source)
-                    == normalized_git_repository(&compatibility.gpui.repository)
-                    && resolved_git_revision(source) == Some(compatibility.gpui.rev.as_str())
-            })
-        })
-        .map(|package| (normalize_package(&package.name), package))
-        .collect();
-    let mut reachable = BTreeSet::new();
-    let mut pending: VecDeque<_> = compatibility
-        .gpui
-        .packages
-        .iter()
-        .map(|package| normalize_package(&package.registry_package))
-        .collect();
-    while let Some(name) = pending.pop_front() {
-        if !reachable.insert(name.clone()) {
-            continue;
-        }
-        let Some(package) = engine_packages.get(&name) else {
-            continue;
-        };
-        for dependency in package
-            .dependencies
-            .iter()
-            .filter(|dependency| dependency.kind.as_deref() != Some("dev"))
-        {
-            let dependency = normalize_package(&dependency.name);
-            if engine_packages.contains_key(&dependency) {
-                pending.push_back(dependency);
-            }
-        }
-    }
-    for package in engine_packages
-        .values()
-        .filter(|package| reachable.contains(&normalize_package(&package.name)))
-    {
-        let status = compatibility
-            .gpui
-            .packages
-            .iter()
-            .find(|item| {
-                normalize_package(&item.registry_package) == normalize_package(&package.name)
-            })
-            .map(|item| item.registry_status.clone())
-            .unwrap_or_else(|| {
-                if is_publishable(package) {
-                    "unavailable".into()
-                } else {
-                    "private".into()
-                }
-            });
-        let id = plan_id("BumpyClock/gpui", &package.name);
-        let prerequisites = package
-            .dependencies
-            .iter()
-            .filter(|dependency| dependency.kind.as_deref() != Some("dev"))
-            .filter_map(|dependency| {
-                engine_packages
-                    .get(&normalize_package(&dependency.name))
-                    .map(|prerequisite| plan_id("BumpyClock/gpui", &prerequisite.name))
-            })
-            .collect();
-        nodes.insert(
-            id.clone(),
-            PlanNode {
-                id,
-                repository: "BumpyClock/gpui".into(),
-                package: package.name.clone(),
-                registry_package: package.name.clone(),
-                version: package.version.clone(),
-                prerequisites,
-                metadata_ready: is_publishable(package)
-                    && package_metadata_ready(package)
-                    && status != "conflict",
-                registry_status: status.clone(),
-                full_dry_run: match status.as_str() {
-                    "published" => "possible".into(),
-                    "private" => "blocked: required engine package is private".into(),
-                    _ => "blocked: engine registry prerequisite unavailable".into(),
-                },
-                non_registry_blocker: false,
-            },
-        );
-    }
-    for package in &compatibility.gpui.packages {
-        let id = plan_id("BumpyClock/gpui", &package.registry_package);
-        nodes.entry(id.clone()).or_insert_with(|| PlanNode {
-            id,
-            repository: "BumpyClock/gpui".into(),
-            package: package.registry_package.clone(),
-            registry_package: package.registry_package.clone(),
-            version: package.version.clone(),
-            prerequisites: BTreeSet::new(),
-            metadata_ready: false,
-            registry_status: package.registry_status.clone(),
-            full_dry_run: "blocked: package is not publishable at the pinned GPUI commit".into(),
-            non_registry_blocker: true,
-        });
-    }
-}
-
 fn resolved_git_root_patches(
     manifest: &Value,
     metadata: &CargoMetadata,
@@ -1384,10 +1238,6 @@ fn normalized_git_repository(source: &str) -> String {
         .trim_end_matches('/')
         .trim_end_matches(".git")
         .to_owned()
-}
-
-fn resolved_git_revision(source: &str) -> Option<&str> {
-    source.rsplit_once('#').map(|(_, revision)| revision)
 }
 
 fn root_patch_reachability(
@@ -1524,8 +1374,8 @@ fn topological_sort(mut nodes: BTreeMap<String, PlanNode>) -> Result<Vec<PlanNod
 
 fn publication_phase(node: &PlanNode) -> u8 {
     match (node.repository.as_str(), node.package.as_str()) {
-        ("BumpyClock/gpui", _) => 0,
-        ("BumpyClock/gpui-component", "gpui-component") => 2,
+        (ENGINE_DOMAIN, _) => 0,
+        (FRAMEWORK_DOMAIN, "gpui-component") => 2,
         _ => 1,
     }
 }
@@ -1543,29 +1393,29 @@ fn cargo_headless_test_args() -> [&'static str; 8] {
     ]
 }
 
-fn release_check(root: &Path, options: &Options) -> Result<()> {
+fn release_check(framework_root: &Path, repository_root: &Path, options: &Options) -> Result<()> {
     println!("1/5 compatibility metadata and generated documentation");
-    check(root, options.gpui_path.as_deref())?;
+    check(framework_root, repository_root)?;
 
-    let compatibility = load(root)?;
+    let compatibility = load(framework_root)?;
     println!("2/5 source build");
     run(Command::new("cargo")
         .args(["check", "--locked", "--workspace", "--all-targets"])
-        .current_dir(root))?;
+        .current_dir(repository_root))?;
 
     println!("3/5 unit and headless tests");
     run(Command::new("cargo")
         .args(["test", "--locked", "--workspace", "--all-targets"])
-        .current_dir(root))?;
+        .current_dir(repository_root))?;
     run(Command::new("cargo")
         .args(cargo_headless_test_args())
-        .current_dir(root))?;
+        .current_dir(repository_root))?;
 
     println!("4/5 publication plan");
-    publish_plan(root, options.gpui_path.as_deref(), options.require_registry)?;
+    publish_plan(framework_root, repository_root, options.require_registry)?;
 
     println!("5/5 package file lists and normalized manifests");
-    let blockers = validate_packages(root, &compatibility, options.require_registry)?;
+    let blockers = validate_packages(repository_root, &compatibility, options.require_registry)?;
     if blockers.is_empty() {
         if options.require_registry {
             println!("code, manifest, package, and registry release checks passed");
@@ -1588,7 +1438,7 @@ fn validate_packages(
     compatibility: &Compatibility,
     require_registry: bool,
 ) -> Result<Vec<String>> {
-    let metadata = cargo_metadata(root)?;
+    let metadata = domain_metadata(cargo_metadata(root)?, &root.join("framework"));
     let mut blockers = Vec::new();
     let engine_registry_blocked = compatibility
         .gpui
@@ -1875,6 +1725,19 @@ fn cargo_metadata_full(root: &Path) -> Result<CargoMetadata> {
     serde_json::from_slice(&output.stdout).context("cargo metadata returned invalid JSON")
 }
 
+fn domain_metadata(mut metadata: CargoMetadata, domain_root: &Path) -> CargoMetadata {
+    let members: BTreeSet<_> = metadata.workspace_members.iter().cloned().collect();
+    metadata.packages.retain(|package| {
+        members.contains(&package.id) && package.manifest_path.starts_with(domain_root)
+    });
+    metadata.workspace_members = metadata
+        .packages
+        .iter()
+        .map(|package| package.id.clone())
+        .collect();
+    metadata
+}
+
 fn registry_probe(package: &str, version: &str) -> String {
     let mut child = match Command::new("cargo")
         .args([
@@ -2023,22 +1886,6 @@ fn table_at_table<'a>(
             errors.push(format!("{label} is missing or not a table"));
             None
         }
-    }
-}
-
-fn check_string(
-    table: &toml::map::Map<String, Value>,
-    key: &str,
-    expected: &str,
-    label: &str,
-    errors: &mut Vec<String>,
-) {
-    let actual = table.get(key).and_then(Value::as_str);
-    if actual != Some(expected) {
-        errors.push(format!(
-            "{label} is `{}`, expected `{expected}`",
-            actual.unwrap_or("<missing>")
-        ));
     }
 }
 

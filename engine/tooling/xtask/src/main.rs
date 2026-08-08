@@ -170,13 +170,18 @@ fn usage(code: i32) -> ! {
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
+        .join("../../..")
         .canonicalize()
         .expect("workspace root")
 }
 
+fn engine_root(root: &Path) -> PathBuf {
+    root.join("engine")
+}
+
 fn read_fork(root: &Path) -> Result<ForkMetadata, String> {
-    let text = fs::read_to_string(root.join("fork.toml")).map_err(|error| error.to_string())?;
+    let text = fs::read_to_string(engine_root(root).join("fork.toml"))
+        .map_err(|error| error.to_string())?;
     toml::from_str(&text).map_err(|error| format!("fork.toml: {error}"))
 }
 
@@ -310,7 +315,16 @@ fn cargo_metadata(root: &Path) -> Result<Vec<Package>, String> {
         .get("packages")
         .and_then(Value::as_array)
         .ok_or_else(|| "cargo metadata did not return packages".to_owned())?;
-    packages.iter().map(parse_package).collect()
+    let engine = engine_root(root);
+    packages
+        .iter()
+        .map(parse_package)
+        .filter(|package| {
+            package
+                .as_ref()
+                .is_ok_and(|package| package.manifest_path.starts_with(&engine))
+        })
+        .collect()
 }
 
 fn parse_package(value: &Value) -> Result<Package, String> {
@@ -1478,6 +1492,13 @@ mod tests {
         assert!(patches.contains("async-task"));
         assert!(patches.contains("calloop"));
         assert!(patches.contains("windows-capture"));
+    }
+
+    #[test]
+    fn workspace_root_retains_engine_domain_paths() {
+        let root = workspace_root();
+        assert!(root.join("Cargo.toml").is_file());
+        assert!(engine_root(&root).join("fork.toml").is_file());
     }
 
     #[test]

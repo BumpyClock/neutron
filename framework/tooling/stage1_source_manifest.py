@@ -18,7 +18,8 @@ SCHEMA_VERSION = 1
 IDENTITY_FILES = (
     "Cargo.toml",
     "Cargo.lock",
-    "compatibility.toml",
+    "engine/fork.toml",
+    "framework/compatibility.toml",
     ".github/workflows/stage1.yml",
 )
 

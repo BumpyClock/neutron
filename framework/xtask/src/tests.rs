@@ -8,11 +8,14 @@ const OLD_REV: &str = "2222222222222222222222222222222222222222";
 fn fixture() -> (TempDir, Compatibility) {
     let directory = TempDir::new().unwrap();
     let root = directory.path();
-    fs::create_dir_all(root.join("docs")).unwrap();
-    fs::create_dir_all(root.join("example/src")).unwrap();
-    fs::write(root.join("example/src/lib.rs"), "").unwrap();
+    let framework = root.join("framework");
+    fs::create_dir_all(framework.join("docs")).unwrap();
+    fs::create_dir_all(framework.join("example/src")).unwrap();
+    fs::create_dir_all(root.join("engine/crates/gpui/src")).unwrap();
+    fs::write(framework.join("example/src/lib.rs"), "").unwrap();
+    fs::write(root.join("engine/crates/gpui/src/lib.rs"), "").unwrap();
     fs::write(
-        root.join("compatibility.toml"),
+        framework.join("compatibility.toml"),
         format!(
             r#"
 schema = 1
@@ -26,8 +29,7 @@ audit_toolchain = "1.97.1"
 previous_release = "0.6.0"
 previous_release_gpui_rev = "{OLD_REV}"
 [gpui]
-repository = "https://github.com/BumpyClock/gpui"
-rev = "{REV}"
+engine_path = "engine"
 zed_repository = "https://github.com/zed-industries/zed"
 zed_upstream_base = "unknown"
 [[gpui.packages]]
@@ -62,18 +64,16 @@ notes = "fixture"
         format!(
             r#"
 [workspace]
-members = ["example"]
-[workspace.package]
-version = "0.7.0"
-rust-version = "1.90"
+resolver = "3"
+members = ["engine/crates/gpui", "framework/example"]
 [workspace.dependencies]
-gpui = {{ package = "bumpyclock-gpui", version = "=0.7.0", git = "https://github.com/BumpyClock/gpui", rev = "{REV}" }}
+gpui = {{ package = "bumpyclock-gpui", version = "=0.7.0", path = "engine/crates/gpui" }}
 "#
         ),
     )
     .unwrap();
     fs::write(
-        root.join("example/Cargo.toml"),
+        framework.join("example/Cargo.toml"),
         r#"
 [package]
 name = "example"
@@ -85,6 +85,16 @@ gpui.workspace = true
     )
     .unwrap();
     fs::write(
+        root.join("engine/crates/gpui/Cargo.toml"),
+        r#"
+[package]
+name = "bumpyclock-gpui"
+version = "0.7.0"
+edition = "2024"
+"#,
+    )
+    .unwrap();
+    fs::write(
         root.join("Cargo.lock"),
         format!(
             r#"
@@ -92,7 +102,10 @@ version = 4
 [[package]]
 name = "bumpyclock-gpui"
 version = "0.7.0"
-source = "git+https://github.com/BumpyClock/gpui?rev={REV}#{REV}"
+[[package]]
+name = "example"
+version = "0.1.0"
+dependencies = ["bumpyclock-gpui"]
 "#
         ),
     )
@@ -102,13 +115,20 @@ source = "git+https://github.com/BumpyClock/gpui?rev={REV}#{REV}"
         "[toolchain]\nchannel = \"1.95.0\"\n",
     )
     .unwrap();
-    let compatibility = load(root).unwrap();
-    fs::write(root.join(GENERATED_FILE), render(&compatibility)).unwrap();
+    fs::write(
+        root.join("engine/fork.toml"),
+        format!("upstream-base-commit = \"{REV}\"\n"),
+    )
+    .unwrap();
+    let compatibility = load(&framework).unwrap();
+    fs::write(framework.join(GENERATED_FILE), render(&compatibility)).unwrap();
     (directory, compatibility)
 }
 
 fn errors(root: &Path, compatibility: &Compatibility) -> String {
-    validate(root, compatibility, None, true).errors.join("\n")
+    validate(&root.join("framework"), root, compatibility, true)
+        .errors
+        .join("\n")
 }
 
 #[test]
@@ -118,46 +138,43 @@ fn accepts_coherent_fixture() {
 }
 
 #[test]
-fn rejects_different_revision() {
+fn rejects_wrong_engine_path() {
     let (directory, compatibility) = fixture();
-    fs::write(
-        directory.path().join("example/Cargo.toml"),
-        format!(
-            r#"
-[package]
-name = "example"
-version = "0.1.0"
-[dependencies]
-gpui = {{ package = "bumpyclock-gpui", version = "=0.7.0", git = "https://github.com/BumpyClock/gpui", rev = "{OLD_REV}" }}
-"#
-        ),
-    )
-    .unwrap();
-    assert!(errors(directory.path(), &compatibility).contains("uses revision"));
+    let path = directory.path().join("Cargo.toml");
+    let source = fs::read_to_string(&path).unwrap().replace(
+        "path = \"engine/crates/gpui\"",
+        "path = \"engine/crates/other\"",
+    );
+    fs::write(path, source).unwrap();
+    assert!(errors(directory.path(), &compatibility).contains("path `engine/crates/other`"));
 }
 
 #[test]
 fn rejects_floating_branch() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.toml");
-    let source = fs::read_to_string(&path)
-        .unwrap()
-        .replace(&format!("rev = \"{REV}\""), "branch = \"main\"");
+    let source = fs::read_to_string(&path).unwrap().replace(
+        "path = \"engine/crates/gpui\"",
+        &format!("git = \"https://github.com/BumpyClock/gpui\", rev = \"{REV}\""),
+    );
     fs::write(path, source).unwrap();
     let actual = errors(directory.path(), &compatibility);
-    assert!(actual.contains("not branch/tag"));
-    assert!(actual.contains("missing `rev`"));
+    assert!(actual.contains("must not use a Git source"));
+    assert!(actual.contains("missing `path`"));
 }
 
 #[test]
-fn rejects_git_only_dependency() {
+fn rejects_path_only_dependency() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.toml");
     let source = fs::read_to_string(&path)
         .unwrap()
         .replace("version = \"=0.7.0\", ", "");
     fs::write(path, source).unwrap();
-    assert!(errors(directory.path(), &compatibility).contains("Git-only"));
+    assert!(
+        errors(directory.path(), &compatibility)
+            .contains("is Git-only; exact `version` is required")
+    );
 }
 
 #[test]
@@ -172,7 +189,7 @@ fn rejects_non_exact_public_version() {
 }
 
 #[test]
-fn rejects_git_package_version_mismatch() {
+fn rejects_local_package_version_mismatch() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.lock");
     let source = fs::read_to_string(&path)
@@ -183,7 +200,7 @@ fn rejects_git_package_version_mismatch() {
 }
 
 #[test]
-fn rejects_any_canonical_gpui_lock_entry_at_another_revision() {
+fn rejects_obsolete_gpui_lock_entry() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.lock");
     let mut source = fs::read_to_string(&path).unwrap();
@@ -198,36 +215,49 @@ source = "git+https://github.com/BumpyClock/gpui?rev={OLD_REV}#{OLD_REV}"
     fs::write(path, source).unwrap();
     assert!(
         errors(directory.path(), &compatibility)
-            .contains("canonical GPUI source at revision other than")
+            .contains("retains obsolete BumpyClock/gpui source")
     );
 }
 
 #[test]
-fn rejects_lookalike_gpui_lock_source() {
+fn rejects_obsolete_gpui_dependency_alias() {
     let (directory, compatibility) = fixture();
-    let path = directory.path().join("Cargo.lock");
-    let source = fs::read_to_string(&path).unwrap().replace(
-        "https://github.com/BumpyClock/gpui?",
-        "https://github.com/BumpyClock/gpui-mirror?",
+    let path = directory.path().join("framework/example/Cargo.toml");
+    let source = format!(
+        "{}\nlegacy = {{ git = \"https://github.com/BumpyClock/gpui\", rev = \"{REV}\" }}\n",
+        fs::read_to_string(&path).unwrap()
     );
     fs::write(path, source).unwrap();
     assert!(
         errors(directory.path(), &compatibility)
-            .contains("Cargo.lock must resolve exactly one Git package")
+            .contains("retains obsolete BumpyClock/gpui Git source")
     );
+}
+
+#[test]
+fn rejects_duplicate_engine_source() {
+    let (directory, compatibility) = fixture();
+    let path = directory.path().join("Cargo.lock");
+    let mut source = fs::read_to_string(&path).unwrap();
+    source.push_str(&format!(
+        "\n[[package]]\nname = \"bumpyclock-gpui\"\nversion = \"0.7.0\"\nsource = \"git+https://github.com/BumpyClock/gpui?rev={REV}#{REV}\"\n"
+    ));
+    fs::write(path, source).unwrap();
+    assert!(errors(directory.path(), &compatibility).contains("duplicate engine package"));
 }
 
 #[test]
 fn reports_root_workspace_dependency_errors_once() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.toml");
-    let source = fs::read_to_string(&path)
-        .unwrap()
-        .replace(&format!("rev = \"{REV}\""), &format!("rev = \"{OLD_REV}\""));
+    let source = fs::read_to_string(&path).unwrap().replace(
+        "path = \"engine/crates/gpui\"",
+        "path = \"engine/crates/other\"",
+    );
     fs::write(path, source).unwrap();
     assert_eq!(
         errors(directory.path(), &compatibility)
-            .matches("uses revision")
+            .matches("path `engine/crates/other`")
             .count(),
         1
     );
@@ -249,12 +279,11 @@ fn accepts_implicit_package_identity_when_names_match() {
     let (_, mut compatibility) = fixture();
     compatibility.gpui.packages[0].dependency = "gpui".into();
     compatibility.gpui.packages[0].registry_package = "gpui".into();
-    let dependency: Value = toml::from_str(&format!(
+    let dependency: Value = toml::from_str(
         r#"version = "=0.7.0"
-git = "https://github.com/BumpyClock/gpui"
-rev = "{REV}"
-"#
-    ))
+path = "engine/crates/gpui"
+"#,
+    )
     .unwrap();
     let mut actual = Vec::new();
     validate_dependency(
@@ -320,8 +349,8 @@ fn rejects_engine_feature_drift() {
     let (directory, compatibility) = fixture();
     let path = directory.path().join("Cargo.toml");
     let source = fs::read_to_string(&path).unwrap().replace(
-        &format!("rev = \"{REV}\""),
-        &format!("rev = \"{REV}\", features = [\"drift\"]"),
+        "path = \"engine/crates/gpui\"",
+        "path = \"engine/crates/gpui\", features = [\"drift\"]",
     );
     fs::write(path, source).unwrap();
     assert!(errors(directory.path(), &compatibility).contains("features [\"drift\"]"));
@@ -330,9 +359,17 @@ fn rejects_engine_feature_drift() {
 #[test]
 fn detects_stale_generated_document() {
     let (directory, compatibility) = fixture();
-    fs::write(directory.path().join(GENERATED_FILE), "stale").unwrap();
+    fs::write(
+        directory.path().join("framework").join(GENERATED_FILE),
+        "stale",
+    )
+    .unwrap();
     let mut actual = Vec::new();
-    validate_generated(directory.path(), &compatibility, &mut actual);
+    validate_generated(
+        &directory.path().join("framework"),
+        &compatibility,
+        &mut actual,
+    );
     assert_eq!(actual.len(), 1);
     assert!(actual[0].contains("is stale"));
 }
@@ -340,13 +377,13 @@ fn detects_stale_generated_document() {
 #[test]
 fn rejects_missing_required_metadata_field() {
     let (directory, _) = fixture();
-    let path = directory.path().join(COMPATIBILITY_FILE);
+    let path = directory.path().join("framework").join(COMPATIBILITY_FILE);
     let source = fs::read_to_string(&path)
         .unwrap()
         .replace("rust_msrv = \"1.90\"\n", "");
     fs::write(path, source).unwrap();
     assert!(
-        load(directory.path())
+        load(&directory.path().join("framework"))
             .unwrap_err()
             .to_string()
             .contains("invalid")
@@ -399,7 +436,7 @@ fn topologically_sorts_publication_prerequisites() {
 
 #[test]
 fn orders_framework_support_packages_before_facade_without_fake_dependencies() {
-    let repository = "BumpyClock/gpui-component";
+    let repository = FRAMEWORK_DOMAIN;
     let macro_id = format!("{repository}/gpui_component_macros");
     let manifest_id = format!("{repository}/gpui_component_manifest");
     let facade_id = format!("{repository}/gpui_component");
@@ -457,6 +494,7 @@ fn finds_transitive_non_dev_root_patch_reachability() {
         id: id.into(),
         name: name.into(),
         version: "1.0.0".into(),
+        manifest_path: PathBuf::new(),
         source: (!workspace).then(|| "git+https://example.invalid/patch".into()),
         publish: None,
         description: Some("fixture".into()),
@@ -632,6 +670,7 @@ fn rejects_publishable_package_with_git_only_normal_dependency() {
         id: "published 1.0.0".into(),
         name: "published".into(),
         version: "1.0.0".into(),
+        manifest_path: PathBuf::new(),
         source: None,
         publish: None,
         description: Some("fixture".into()),
@@ -686,6 +725,7 @@ fn archive_fixture(manifest: &str, include_license: bool) -> (TempDir, CargoPack
             id: "fixture 1.0.0".into(),
             name: "fixture".into(),
             version: "1.0.0".into(),
+            manifest_path: PathBuf::new(),
             source: None,
             publish: None,
             description: Some("fixture".into()),

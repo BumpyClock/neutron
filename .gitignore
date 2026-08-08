@@ -1,0 +1,16 @@
+# Build output
+/target/
+**/target/
+
+# Local editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+
+# Tasque runtime data stays in sync-worktree storage or local ignore rules.
+.tasque/events.jsonl
+.tasque/state.json
+.tasque/state.json.tmp*
+.tasque/.lock
+.tasque/specs/
+.tasque/snapshots/

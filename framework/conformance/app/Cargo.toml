@@ -1,0 +1,29 @@
+[package]
+name = "gpui-component-conformance"
+description = "Native AppShell conformance executable."
+version.workspace = true
+publish = false
+edition.workspace = true
+
+[package.metadata.gpui-app]
+app_id = "com.gpui-component.conformance"
+display_name = "GPUI Component Conformance"
+categories = ["Development"]
+
+[features]
+wayland-conformance = ["gpui-component-app/wayland-conformance"]
+
+[dependencies]
+anyhow.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
+gpui-component.workspace = true
+gpui-component-app.workspace = true
+raw-window-handle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+gpui-component-manifest.workspace = true
+
+[lints]
+workspace = true

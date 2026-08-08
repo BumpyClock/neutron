@@ -1,0 +1,4 @@
+
+# Use bd merge for beads JSONL files
+.beads/issues.jsonl merge=beads
+.tasque/events.jsonl merge=union

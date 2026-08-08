@@ -1,0 +1,11 @@
+[package]
+name = "manifest-reexport"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Mirrors how gpui-component-app re-exports the identity macro. The downstream
+# fixture binary reaches `include_identity!` through this shim, proving that a
+# consumer needs the manifest crate only as a build dependency.
+[dependencies]
+gpui-component-manifest = { path = "../../../.." }

@@ -1,0 +1,50 @@
+[package]
+name = "gpui-component-app"
+description = "Application shell for gpui-component apps: AppShell builder, lifecycle events, identity, settings, windows, theme, menus."
+version.workspace = true
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Internal fixture; enable it explicitly for the harness-free headless test.
+test-support = []
+# Conformance-only Weston input seam; never enable in publishable application builds.
+wayland-conformance = ["gpui/test-support", "gpui_platform/test-support"]
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-manifest.workspace = true
+gpui-component-storage.workspace = true
+log.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+# EnvironmentPolicy::LoginShell's PATH repair. macOS/Linux only: Windows GUI
+# processes inherit PATH from the launching context, so the policy is a
+# documented no-op there and the crate is not pulled in.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+fix-path-env.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+serde_json.workspace = true
+tempfile.workspace = true
+wait-timeout.workspace = true
+
+# GPUI must construct its `App` on the main thread, which cargo's default test
+# harness (worker threads) cannot provide. This test drives the shell from its
+# own `main`, on the process main thread. Run it with `--features test-support`.
+[[test]]
+name = "headless"
+harness = false
+required-features = ["test-support"]
+
+[lints]
+workspace = true

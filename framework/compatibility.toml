@@ -1,0 +1,116 @@
+schema = 1
+
+[framework]
+name = "gpui-component"
+version = "0.7.0"
+repository = "https://github.com/BumpyClock/gpui-component"
+rust_msrv = "1.90"
+pinned_toolchain = "1.95.0"
+audit_toolchain = "1.97.1"
+previous_release = "0.6.0"
+previous_release_gpui_rev = "2a03ae6e789b77e98f9d9bd5489758a082313c75"
+
+[gpui]
+repository = "https://github.com/BumpyClock/gpui"
+rev = "198635ca8435c38dd4dfe796089145cdbefae36c"
+zed_repository = "https://github.com/zed-industries/zed"
+zed_upstream_base = "2c4e44704c37ee87e59ac84e3e17388178b28545"
+
+[[gpui.packages]]
+dependency = "gpui"
+registry_package = "bumpyclock-gpui"
+version = "0.1.0"
+crate_path = "crates/gpui"
+public_api = true
+features = ["font-kit"]
+registry_status = "selected-unpublished"
+registry_note = "bumpyclock-gpui 0.1.0 is the owner-selected facade identity but is not reserved or published on crates.io"
+
+[[gpui.packages]]
+dependency = "gpui_platform"
+registry_package = "gpui_platform"
+version = "0.1.0"
+crate_path = "crates/gpui_platform"
+public_api = true
+features = ["font-kit"]
+registry_status = "unavailable"
+registry_note = "no owner-authorized BumpyClock/gpui publication identity is established"
+
+[[gpui.packages]]
+dependency = "gpui-macros"
+registry_package = "gpui_macros"
+version = "0.1.0"
+crate_path = "crates/gpui_macros"
+public_api = true
+features = []
+registry_status = "conflict"
+registry_note = "gpui-macros 0.1.0 exists on crates.io but is an external, source-conflicting identity; latest is 0.2.2"
+
+[[gpui.packages]]
+dependency = "sum-tree"
+registry_package = "sum_tree"
+version = "0.1.0"
+crate_path = "crates/sum_tree"
+public_api = true
+features = []
+registry_status = "unavailable"
+registry_note = "sum_tree 0.1.0 has no owner-authorized crates.io identity; zed-sum-tree 0.2.0 is a different engine source"
+
+[release]
+crates_io_ready = false
+blockers = [
+    "owner must approve remaining crates.io identities for BumpyClock/gpui packages",
+    "BumpyClock control of existing Longbridge crates.io identities gpui-component, gpui-component-assets, gpui-component-macros, and gpui-wry is unverified",
+    "exact engine versions must be published before framework packages",
+    "gpui-component-app remains private because fix-path-env is a Git-only normal dependency with no registry release",
+    "GPUI root patches for async-task, calloop, and windows-capture are not inherited by Git consumers or packaged manifests",
+    "Lucide-derived bundled icon source, version, license, and notice require owner review before framework publication",
+]
+
+[[platforms]]
+name = "macOS"
+target = "aarch64-apple-darwin"
+build = "verified"
+unit = "verified"
+headless = "verified"
+native_runtime = "not-verified"
+renderer = "not-verified"
+package = "not-verified"
+maturity = "preview"
+notes = "Locked workspace build, unit suite, and AppShell headless harness passed locally. All six Stage 1 macos-metal scenarios passed local source-blind validation, including exact AppKit display/window groups, Metal backend-accepted evidence, and the external pbpaste clipboard handshake. No immutable retained CI evidence references that local run, so published native-runtime and renderer status remain not-verified."
+
+[[platforms]]
+name = "Windows"
+target = "x86_64-pc-windows-msvc"
+build = "not-verified"
+unit = "not-verified"
+headless = "not-verified"
+native_runtime = "not-verified"
+renderer = "not-verified"
+package = "not-verified"
+maturity = "experimental"
+notes = "The Stage 1 WARP job is configured but has not run. Native Windows lifecycle/window/presentation runtime remains unrun for this compatibility line, and WM_QUERYENDSESSION/WM_ENDSESSION are unsupported."
+
+[[platforms]]
+name = "Linux X11"
+target = "x86_64-unknown-linux-gnu"
+build = "not-verified"
+unit = "not-verified"
+headless = "not-verified"
+native_runtime = "not-verified"
+renderer = "not-verified"
+package = "not-verified"
+maturity = "experimental"
+notes = "The Stage 1 Xvfb/lavapipe job is configured but has not run. Source and compile evidence exist; live Linux X11 lifecycle/window/presentation runtime remains unrun."
+
+[[platforms]]
+name = "Linux Wayland"
+target = "x86_64-unknown-linux-gnu"
+build = "not-verified"
+unit = "not-verified"
+headless = "not-verified"
+native_runtime = "not-verified"
+renderer = "not-verified"
+package = "not-verified"
+maturity = "experimental"
+notes = "The Stage 1 normal-Weston and private clipboard-fixture topology is configured but has not run in GitHub Actions. A pinned Weston 16 build, normal compositor readiness probe, and fixture TAP probe passed in Ubuntu 24.04 Docker; live GPUI Wayland lifecycle/window/presentation runtime remains unrun."

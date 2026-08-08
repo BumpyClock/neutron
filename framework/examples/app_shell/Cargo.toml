@@ -1,0 +1,27 @@
+[package]
+name = "app_shell"
+description = "Conformance example for the AppShell platform."
+version.workspace = true
+publish = false
+edition.workspace = true
+
+[package.metadata.gpui-app]
+app_id = "com.gpui-component.app-shell-example"
+display_name = "App Shell Example"
+categories = ["Development"]
+
+[dependencies]
+anyhow.workspace = true
+gpui-component-app.workspace = true
+gpui-component-assets.workspace = true
+log.workspace = true
+serde.workspace = true
+
+# Only a build dependency: `build.rs` calls `emit_identity()`. The runtime
+# `include_identity!()` (re-exported by gpui-component-app) resolves the manifest
+# schema types via macro `$crate`, so no runtime dependency is needed here.
+[build-dependencies]
+gpui-component-manifest.workspace = true
+
+[lints]
+workspace = true

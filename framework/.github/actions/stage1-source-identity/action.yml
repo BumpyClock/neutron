@@ -1,0 +1,20 @@
+name: Stage 1 source identity
+description: Record or verify exact source identity in a Stage 1 artifact directory
+inputs:
+  artifact-dir:
+    description: Evidence artifact directory
+    required: true
+  mode:
+    description: record or verify
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        if command -v python3 >/dev/null 2>&1; then
+          python3 tooling/stage1_source_manifest.py "${{ inputs.mode }}" --artifact-dir "${{ inputs.artifact-dir }}"
+        else
+          python tooling/stage1_source_manifest.py "${{ inputs.mode }}" --artifact-dir "${{ inputs.artifact-dir }}"
+        fi

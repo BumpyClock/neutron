@@ -1,0 +1,25 @@
+[package]
+name = "downstream-fixture-app"
+version = "0.4.2"
+edition = "2024"
+publish = false
+
+# No runtime dependency on gpui-component-manifest. This fixture proves that an
+# app reaching `include_identity!` through a re-export (here the local
+# `manifest-reexport` shim, mirroring gpui-component-app) needs the manifest
+# crate only as a BUILD dependency: macro `$crate` resolves the schema types to
+# gpui-component-manifest transitively via the shim.
+[dependencies]
+manifest-reexport = { path = "manifest-reexport" }
+
+[build-dependencies]
+gpui-component-manifest = { path = "../../.." }
+
+[package.metadata.gpui-app]
+app_id = "com.example.downstreamfixture"
+display_name = "Downstream Fixture"
+url_schemes = ["fixtureapp"]
+categories = ["Development"]
+
+[workspace]
+members = ["manifest-reexport"]

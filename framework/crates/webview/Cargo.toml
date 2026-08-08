@@ -1,0 +1,24 @@
+[package]
+name = "gpui-wry"
+description = "WebView support for GPUI, based on Wry."
+keywords = ["webview", "gpui","wry"]
+license = "Apache-2.0"
+documentation = "https://docs.rs/gpui-component"
+homepage = "https://BumpyClock.github.io/gpui-component"
+repository = "https://github.com/BumpyClock/gpui-component/tree/main/crates/webview"
+readme = "README.md"
+edition.workspace = true
+publish = true
+version.workspace = true
+rust-version.workspace = true
+
+[features]
+inspector = ["wry/devtools"]
+
+[lib]
+doctest = false
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+wry = { version = "0.53.3", package = "lb-wry" }

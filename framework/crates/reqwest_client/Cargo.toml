@@ -1,6 +1,7 @@
 [package]
-name = "reqwest_client"
+name = "framework-reqwest-client"
 version = "0.5.1"
+rust-version = "1.95.0"
 license = "Apache-2.0"
 publish = false
 edition.workspace = true
@@ -12,6 +13,7 @@ workspace = true
 test-support = []
 
 [lib]
+name = "reqwest_client"
 path = "src/reqwest_client.rs"
 doctest = true
 

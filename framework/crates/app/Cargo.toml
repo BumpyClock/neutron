@@ -1,12 +1,12 @@
 [package]
 name = "gpui-component-app"
 description = "Application shell for gpui-component apps: AppShell builder, lifecycle events, identity, settings, windows, theme, menus."
-version.workspace = true
+version = "0.7.0"
 edition.workspace = true
 publish = false
-rust-version.workspace = true
+rust-version = "1.95.0"
 license.workspace = true
-repository.workspace = true
+repository = "https://github.com/BumpyClock/gpui-component"
 
 [features]
 # Internal fixture; enable it explicitly for the harness-free headless test.

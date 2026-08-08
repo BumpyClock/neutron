@@ -1,5 +1,0 @@
-[alias]
-xtask = "run --locked --package xtask --"
-
-[target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "link-arg=/STACK:8000000"]

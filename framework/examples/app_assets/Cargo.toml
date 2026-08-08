@@ -2,6 +2,7 @@
 name = "app_assets"
 description = "Example to load icons or images from assets folder."
 version = "0.5.1"
+rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 

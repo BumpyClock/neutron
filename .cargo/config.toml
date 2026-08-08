@@ -1,0 +1,50 @@
+[build]
+# v0 mangling scheme provides more detailed backtraces around closures
+rustflags = ["-C", "symbol-mangling-version=v0", "--cfg", "tokio_unstable"]
+
+[alias]
+engine-xtask = "run --package engine-xtask --"
+framework-xtask = "run --locked --package framework-xtask --"
+perf-test = ["test", "--profile", "release-fast", "--lib", "--bins", "--tests", "--all-features", "--config", "target.'cfg(true)'.runner='cargo run -p perf --release'", "--config", "target.'cfg(true)'.rustflags=[\"--cfg\", \"perf_enabled\"]"]
+perf-compare = ["run", "--profile", "release-fast", "-p", "perf", "--config", "target.'cfg(true)'.rustflags=[\"--cfg\", \"perf_enabled\"]", "--", "compare"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C",
+    "symbol-mangling-version=v0",
+    "--cfg",
+    "tokio_unstable",
+    "--cfg",
+    "windows_slim_errors",
+    "-C",
+    "target-feature=+crt-static",
+    "-C",
+    "link-arg=/STACK:8000000",
+]
+
+[target.'cfg(all(target_os = "windows", not(all(target_arch = "x86_64", target_env = "msvc"))))']
+rustflags = [
+    "-C",
+    "symbol-mangling-version=v0",
+    "--cfg",
+    "tokio_unstable",
+    "--cfg",
+    "windows_slim_errors",
+    "-C",
+    "target-feature=+crt-static",
+]
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+    "-C", "link-arg=--shared-memory",
+    "-C", "link-arg=--max-memory=1073741824",
+    "-C", "link-arg=--import-memory",
+    "-C", "link-arg=--export=__wasm_init_tls",
+    "-C", "link-arg=--export=__tls_size",
+    "-C", "link-arg=--export=__tls_align",
+    "-C", "link-arg=--export=__tls_base",
+]
+
+[env]
+MACOSX_DEPLOYMENT_TARGET = "10.15.7"

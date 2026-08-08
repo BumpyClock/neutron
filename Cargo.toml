@@ -1,41 +1,67 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/gpui",
-    "crates/gpui_linux",
-    "crates/gpui_macos",
-    "crates/gpui_macros",
-    "crates/gpui_platform",
-    "crates/gpui_shared_string",
-    "crates/gpui_wgpu",
-    "crates/gpui_windows",
-    "crates/gpui_tokio",
-    "crates/gpui_util",
-    "crates/gpui_web",
-    "crates/collections",
-    "crates/refineable",
-    "crates/refineable/derive_refineable",
-    "crates/scheduler",
-    "crates/sum_tree",
-    "crates/util",
-    "crates/util_macros",
-    "crates/http_client",
-    "crates/http_client_tls",
-    "crates/reqwest_client",
-    "crates/media",
-    "crates/zlog",
-    "crates/ztracing",
-    "crates/ztracing_macro",
-    "tooling/perf",
-    "tooling/xtask",
+    "engine/crates/gpui",
+    "engine/crates/gpui_linux",
+    "engine/crates/gpui_macos",
+    "engine/crates/gpui_macros",
+    "engine/crates/gpui_platform",
+    "engine/crates/gpui_shared_string",
+    "engine/crates/gpui_wgpu",
+    "engine/crates/gpui_windows",
+    "engine/crates/gpui_tokio",
+    "engine/crates/gpui_util",
+    "engine/crates/gpui_web",
+    "engine/crates/collections",
+    "engine/crates/refineable",
+    "engine/crates/refineable/derive_refineable",
+    "engine/crates/scheduler",
+    "engine/crates/sum_tree",
+    "engine/crates/util",
+    "engine/crates/util_macros",
+    "engine/crates/http_client",
+    "engine/crates/http_client_tls",
+    "engine/crates/reqwest_client",
+    "engine/crates/media",
+    "engine/crates/zlog",
+    "engine/crates/ztracing",
+    "engine/crates/ztracing_macro",
+    "engine/tooling/perf",
+    "engine/tooling/xtask",
+    "framework/crates/app",
+    "framework/crates/app-manifest",
+    "framework/crates/app-storage",
+    "framework/crates/macros",
+    "framework/crates/story",
+    "framework/crates/ui",
+    "framework/crates/assets",
+    "framework/crates/reqwest_client",
+    "framework/crates/webview",
+    "framework/conformance/app",
+    "framework/examples/app_assets",
+    "framework/examples/app_shell",
+    "framework/examples/app_shell_background",
+    "framework/examples/hello_world",
+    "framework/examples/input",
+    "framework/examples/window_title",
+    "framework/examples/dialog_overlay",
+    "framework/examples/webview",
+    "framework/examples/system_monitor",
+    "framework/examples/focus_trap",
+    "framework/xtask",
 ]
-default-members = ["crates/gpui"]
+default-members = [
+    "engine/crates/gpui",
+    "framework/crates/ui",
+    "framework/crates/story",
+    "framework/crates/assets",
+]
+exclude = ["engine/crates/gpui_web/examples/hello_web"]
 
 [workspace.package]
 publish = false
 edition = "2024"
-rust-version = "1.95.0"
-repository = "https://github.com/BumpyClock/gpui"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 
@@ -43,32 +69,42 @@ repository = "https://github.com/BumpyClock/gpui"
 # Workspace member crates
 #
 
-collections = { path = "crates/collections", version = "=0.1.0" }
-derive_refineable = { path = "crates/refineable/derive_refineable", version = "=0.1.0" }
-gpui = { package = "bumpyclock-gpui", path = "crates/gpui", version = "=0.1.0", default-features = false }
-gpui_linux = { path = "crates/gpui_linux", version = "=0.1.0", default-features = false }
-gpui_macos = { path = "crates/gpui_macos", version = "=0.1.0", default-features = false }
-gpui_macros = { path = "crates/gpui_macros", version = "=0.1.0" }
-gpui_platform = { path = "crates/gpui_platform", version = "=0.1.0", default-features = false }
-gpui_shared_string = { path = "crates/gpui_shared_string", version = "=0.1.0" }
-gpui_wgpu = { path = "crates/gpui_wgpu", version = "=0.1.0" }
-gpui_windows = { path = "crates/gpui_windows", version = "=0.1.0", default-features = false }
-gpui_tokio = { path = "crates/gpui_tokio", version = "=0.1.0" }
-gpui_util = { path = "crates/gpui_util", version = "=0.1.0" }
-gpui_web = { path = "crates/gpui_web", version = "=0.1.0" }
-http_client = { path = "crates/http_client", version = "=0.1.0" }
-http_client_tls = { path = "crates/http_client_tls", version = "=0.1.0" }
-media = { path = "crates/media", version = "=0.1.0" }
-perf = { path = "tooling/perf", version = "=0.1.0" }
-refineable = { path = "crates/refineable", version = "=0.1.0" }
-reqwest_client = { path = "crates/reqwest_client", version = "=0.1.0" }
-scheduler = { path = "crates/scheduler", version = "=0.1.0" }
-sum_tree = { path = "crates/sum_tree", version = "=0.1.0" }
-util = { path = "crates/util", version = "=0.1.0" }
-util_macros = { path = "crates/util_macros", version = "=0.1.0" }
-zlog = { path = "crates/zlog", version = "=0.1.0" }
-ztracing = { path = "crates/ztracing", version = "=0.1.0" }
-ztracing_macro = { path = "crates/ztracing_macro", version = "=0.1.0" }
+collections = { path = "engine/crates/collections", version = "=0.1.0" }
+derive_refineable = { path = "engine/crates/refineable/derive_refineable", version = "=0.1.0" }
+gpui = { package = "bumpyclock-gpui", path = "engine/crates/gpui", version = "=0.1.0", default-features = false, features = ["font-kit"] }
+gpui_linux = { path = "engine/crates/gpui_linux", version = "=0.1.0", default-features = false }
+gpui_macos = { path = "engine/crates/gpui_macos", version = "=0.1.0", default-features = false }
+gpui_macros = { path = "engine/crates/gpui_macros", version = "=0.1.0" }
+gpui_platform = { path = "engine/crates/gpui_platform", version = "=0.1.0", default-features = false, features = ["font-kit"] }
+gpui_shared_string = { path = "engine/crates/gpui_shared_string", version = "=0.1.0" }
+gpui_wgpu = { path = "engine/crates/gpui_wgpu", version = "=0.1.0" }
+gpui_windows = { path = "engine/crates/gpui_windows", version = "=0.1.0", default-features = false }
+gpui_tokio = { path = "engine/crates/gpui_tokio", version = "=0.1.0" }
+gpui_util = { path = "engine/crates/gpui_util", version = "=0.1.0" }
+gpui_web = { path = "engine/crates/gpui_web", version = "=0.1.0" }
+http_client = { path = "engine/crates/http_client", version = "=0.1.0" }
+http_client_tls = { path = "engine/crates/http_client_tls", version = "=0.1.0" }
+media = { path = "engine/crates/media", version = "=0.1.0" }
+perf = { path = "engine/tooling/perf", version = "=0.1.0" }
+refineable = { path = "engine/crates/refineable", version = "=0.1.0" }
+reqwest_client = { package = "engine-reqwest-client", path = "engine/crates/reqwest_client", version = "=0.1.0" }
+scheduler = { path = "engine/crates/scheduler", version = "=0.1.0" }
+sum_tree = { path = "engine/crates/sum_tree", version = "=0.1.0" }
+util = { path = "engine/crates/util", version = "=0.1.0" }
+util_macros = { path = "engine/crates/util_macros", version = "=0.1.0" }
+zlog = { path = "engine/crates/zlog", version = "=0.1.0" }
+ztracing = { path = "engine/crates/ztracing", version = "=0.1.0" }
+ztracing_macro = { path = "engine/crates/ztracing_macro", version = "=0.1.0" }
+
+gpui-component = { path = "framework/crates/ui", version = "=0.7.0" }
+gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
+gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+gpui-component-macros = { path = "framework/crates/macros", version = "=0.7.0" }
+gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
+gpui-component-storage = { path = "framework/crates/app-storage", version = "=0.7.0" }
+gpui-macros = { package = "gpui_macros", path = "engine/crates/gpui_macros", version = "=0.1.0" }
+story = { path = "framework/crates/story" }
+sum-tree = { package = "sum_tree", path = "engine/crates/sum_tree", version = "=0.1.0" }
 
 #
 # External crates
@@ -107,12 +143,11 @@ core-foundation = "=0.10.0"
 core-foundation-sys = "0.8.6"
 core-video = { version = "0.4.3", features = ["metal"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-ctor = "1.0.6"
 derive_more = "0.99.17"
-dirs = "4.0"
 dunce = "1.0"
 env_logger = "0.11"
 futures = "0.3"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", rev = "c4c45d503ea115a839aae718d02f79e7c7f0f673" }
 futures-concurrency = "7.7.1"
 futures-lite = "1.13"
 git2 = { version = "0.20.1", default-features = false }
@@ -129,6 +164,8 @@ inventory = "0.3.19"
 itertools = "0.14.0"
 libc = "0.2"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+lsp-types = { version = "0.97.0", features = ["proposed"] }
+notify = "8.2.0"
 mach2 = "0.5"
 metal = "0.29"
 objc = "0.2"
@@ -173,6 +210,9 @@ postage = { version = "0.5", features = ["futures-traits"] }
 pretty_assertions = { version = "1.3.0", features = ["unstable"] }
 proc-macro2 = "1.0.93"
 profiling = "1"
+raw-window-handle = "0.6.2"
+ropey = { version = "=2.0.0-beta.1", features = ["metric_lines_lf", "metric_utf16"] }
+rust-i18n = "3"
 proptest = { git = "https://github.com/proptest-rs/proptest", rev = "3dca198a8fef1b32e3a66f1e1897c955b4dc5b5b", features = ["attr-macro"] }
 pollster = "0.4.0"
 quote = "1.0.9"
@@ -198,10 +238,11 @@ rust-embed = { version = "8.4", features = ["include-exclude"] }
 rustc-hash = "2.1.0"
 rustls = { version = "0.23.26" }
 rustls-platform-verifier = "0.5.0"
-schemars = { version = "1.0", features = ["indexmap2"] }
+schemars = { version = "1.2.0", features = ["indexmap2"] }
 semver = { version = "1.0", features = ["serde"] }
-serde = { version = "1.0.221", features = ["derive", "rc"] }
-serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "1.0.149", features = ["preserve_order", "raw_value"] }
+serde_repr = "0.1"
 serde_json_lenient = { version = "0.2", features = [
     "preserve_order",
     "raw_value",
@@ -210,22 +251,24 @@ serde_urlencoded = "0.7"
 sha2 = "0.10"
 shlex = "1.3.0"
 slotmap = "1.0.6"
-smallvec = { version = "1.6", features = ["union", "const_new"] }
+smallvec = { version = "1.15.1", features = ["union", "const_new"] }
 smol = "2.0"
 stacksafe = "0.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.101", features = ["full", "extra-traits", "visit-mut"] }
 take-until = "0.2.0"
+toml = "0.9"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tokio = { version = "1" }
-tracing = "0.1.40"
+tracing = "0.1.44"
 unicase = "2.6"
 unicode-general-category = "1.1.0"
 unicode-segmentation = "1.10"
 url = "2.2"
 usvg = { version = "0.46.0", default-features = false }
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
+wait-timeout = "0.2.1"
 walkdir = "2.5"
 wasm-bindgen = "0.2.113"
 web-time = "1.1.0"
@@ -237,59 +280,6 @@ windows-registry = "0.5"
 nix = "0.29"
 scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "=0.0.8-zed" }
 
-[workspace.dependencies.windows]
-version = "0.61"
-features = [
-    "Foundation_Numerics",
-    "Storage_Search",
-    "Storage_Streams",
-    "System_Threading",
-    "UI_ViewManagement",
-    "Wdk_System_SystemServices",
-    "Win32_Globalization",
-    "Win32_Graphics_Direct3D",
-    "Win32_Graphics_DirectManipulation",
-    "Win32_Graphics_Direct3D11",
-    "Win32_Graphics_Direct3D_Fxc",
-    "Win32_Graphics_DirectComposition",
-    "Win32_Graphics_DirectWrite",
-    "Win32_Graphics_Dwm",
-    "Win32_Graphics_Dxgi",
-    "Win32_Graphics_Dxgi_Common",
-    "Win32_Graphics_Gdi",
-    "Win32_Graphics_Imaging",
-    "Win32_Graphics_Hlsl",
-    "Win32_Networking_WinSock",
-    "Win32_Media",
-    "Win32_Security",
-    "Win32_Security_Credentials",
-    "Win32_Security_Cryptography",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Com",
-    "Win32_System_Com_StructuredStorage",
-    "Win32_System_Console",
-    "Win32_System_DataExchange",
-    "Win32_System_IO",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_Ole",
-    "Win32_System_Performance",
-    "Win32_System_Pipes",
-    "Win32_System_SystemInformation",
-    "Win32_System_SystemServices",
-    "Win32_System_Threading",
-    "Win32_System_Variant",
-    "Win32_System_WinRT",
-    "Win32_UI_Controls",
-    "Win32_UI_HiDpi",
-    "Win32_UI_Input_Ime",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_Input_Pointer",
-    "Win32_UI_Shell",
-    "Win32_UI_Shell_Common",
-    "Win32_UI_Shell_PropertiesSystem",
-    "Win32_UI_WindowsAndMessaging",
-]
 
 [patch.crates-io]
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
@@ -300,6 +290,7 @@ windows-capture = { git = "https://github.com/zed-industries/windows-capture.git
 split-debuginfo = "unpacked"
 incremental = false
 codegen-units = 16
+debug = "limited"
 
 [profile.dev.build-override]
 codegen-units = 16
@@ -313,9 +304,11 @@ syn = { opt-level = 3 }
 proc-macro2 = { opt-level = 3 }
 taffy = { opt-level = 3 }
 resvg = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
 collections = { codegen-units = 1 }
 refineable = { codegen-units = 1 }
-reqwest_client = { codegen-units = 1 }
+engine-reqwest-client = { codegen-units = 1 }
 
 [profile.release]
 debug = "limited"
@@ -332,6 +325,9 @@ codegen-units = 16
 unexpected_cfgs = { level = "allow" }
 
 [workspace.lints.clippy]
+almost_complete_range = "allow"
+arc_with_non_send_sync = "allow"
+borrowed_box = "allow"
 dbg_macro = "deny"
 todo = "deny"
 declare_interior_mutable_const = "deny"
@@ -340,6 +336,11 @@ disallowed_methods = "deny"
 style = { level = "allow", priority = -1 }
 type_complexity = "allow"
 let_underscore_future = "allow"
+manual_is_multiple_of = "allow"
+map_entry = "allow"
+module_inception = "allow"
+non_canonical_partial_ord_impl = "allow"
+reversed_empty_ranges = "allow"
 single_range_in_vec_init = "allow"
 too_many_arguments = "allow"
 large_enum_variant = "allow"
@@ -351,3 +352,9 @@ ignored = [
     "cbindgen",
     "serde",
 ]
+
+[workspace.metadata.typos]
+files.extend-exclude = ["**/fixtures/*"]
+
+[workspace.metadata.typos.default.extend-identifiers]
+consts = "consts"

@@ -1,10 +1,10 @@
 [package]
 name = "gpui-component-macros"
 description = "Macros for GPUI Component."
-version.workspace = true
-rust-version.workspace = true
+version = "0.7.0"
+rust-version = "1.90"
 license = "Apache-2.0"
-repository.workspace = true
+repository = "https://github.com/BumpyClock/gpui-component"
 documentation = "https://docs.rs/gpui-component-macros"
 homepage = "https://BumpyClock.github.io/gpui-component"
 readme = "README.md"

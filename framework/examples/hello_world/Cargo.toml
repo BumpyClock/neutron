@@ -2,6 +2,7 @@
 name = "hello_world"
 description = "A minimal example of application development with GPUI Component."
 version = "0.5.1"
+rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 

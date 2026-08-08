@@ -9,8 +9,8 @@ repository = "https://github.com/BumpyClock/gpui-component/tree/main/crates/webv
 readme = "README.md"
 edition.workspace = true
 publish = true
-version.workspace = true
-rust-version.workspace = true
+version = "0.7.0"
+rust-version = "1.95.0"
 
 [features]
 inspector = ["wry/devtools"]

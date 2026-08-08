@@ -1,16 +1,16 @@
 [package]
 name = "gpui-component-storage"
 description = "Foundation storage layer for gpui-component apps: platform paths, atomic writes, schema-versioned envelopes, debounced stores. No GPUI dependency."
-version.workspace = true
+version = "0.7.0"
 edition.workspace = true
 publish = true
-rust-version.workspace = true
+rust-version = "1.90"
 license.workspace = true
-repository.workspace = true
+repository = "https://github.com/BumpyClock/gpui-component"
 readme = "README.md"
 
 [dependencies]
-dirs.workspace = true
+dirs = "6"
 log.workspace = true
 serde.workspace = true
 thiserror.workspace = true

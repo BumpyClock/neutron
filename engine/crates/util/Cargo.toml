@@ -1,8 +1,8 @@
 [package]
 name = "util"
 version = "0.1.0"
-rust-version.workspace = true
-repository.workspace = true
+rust-version = "1.95.0"
+repository = "https://github.com/BumpyClock/gpui"
 readme = "README.md"
 edition.workspace = true
 publish = true
@@ -48,7 +48,7 @@ util_macros = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-fs.workspace = true
-dirs.workspace = true
+dirs = "4.0"
 git2 = { workspace = true, optional = true }
 smol.workspace = true
 walkdir.workspace = true

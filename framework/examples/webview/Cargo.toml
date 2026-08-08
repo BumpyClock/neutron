@@ -2,6 +2,7 @@
 name = "webview"
 description = "A minimal example of webview inside the GPUI application."
 version = "0.5.0"
+rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 

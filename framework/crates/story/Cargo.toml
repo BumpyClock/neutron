@@ -1,6 +1,7 @@
 [package]
 name = "gpui-component-story"
 version = "0.5.1"
+rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 
@@ -16,7 +17,7 @@ gpui-component = { workspace = true, features = [
 ] }
 gpui-component-app.workspace = true
 gpui-component-assets.workspace = true
-reqwest_client = { path = "../reqwest_client" }
+reqwest_client = { package = "framework-reqwest-client", path = "../reqwest_client" }
 
 autocorrect = "2.14.2"
 chrono = "0.4"

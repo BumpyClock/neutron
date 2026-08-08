@@ -1,8 +1,8 @@
 [package]
 name = "sum_tree"
 version = "0.1.0"
-rust-version.workspace = true
-repository.workspace = true
+rust-version = "1.95.0"
+repository = "https://github.com/BumpyClock/gpui"
 readme = "README.md"
 edition.workspace = true
 publish = true
@@ -24,7 +24,7 @@ ztracing.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-ctor.workspace = true
+ctor = "1.0.6"
 rand.workspace = true
 zlog.workspace = true
 

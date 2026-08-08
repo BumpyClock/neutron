@@ -375,6 +375,15 @@ fn detects_stale_generated_document() {
 }
 
 #[test]
+fn generated_compatibility_document_uses_explicit_command() {
+    let (_, compatibility) = fixture();
+    let document = render(&compatibility);
+
+    assert!(document.contains("cargo run --locked -p framework-xtask -- compatibility generate"));
+    assert!(!document.contains("cargo xtask"));
+}
+
+#[test]
 fn rejects_missing_required_metadata_field() {
     let (directory, _) = fixture();
     let path = directory.path().join("framework").join(COMPATIBILITY_FILE);

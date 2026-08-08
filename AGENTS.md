@@ -274,26 +274,26 @@ The root workspace should have declarations equivalent to:
 [workspace.dependencies]
 gpui = {
     package = "bumpyclock-gpui",
-    path = "../engine/crates/gpui",
+    path = "engine/crates/gpui",
     version = "=0.1.0",
     features = ["font-kit"]
 }
 
 gpui_platform = {
-    path = "../engine/crates/gpui_platform",
+    path = "engine/crates/gpui_platform",
     version = "=0.1.0",
     features = ["font-kit"]
 }
 
 gpui-macros = {
     package = "gpui_macros",
-    path = "../engine/crates/gpui_macros",
+    path = "engine/crates/gpui_macros",
     version = "=0.1.0"
 }
 
 sum-tree = {
     package = "sum_tree",
-    path = "../engine/crates/sum_tree",
+    path = "engine/crates/sum_tree",
     version = "=0.1.0"
 }
 ```

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3",
+  "featureId": "feat_library_4d4b6dfac8",
+  "title": "Backtrace future wrapper duplicates normal error logging future",
+  "category": "maintainability",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "risk",
+  "evidence": [
+    {
+      "path": "crates/gpui_util/src/lib.rs",
+      "startLine": 301,
+      "endLine": 326,
+      "symbol": "LogErrorFuture",
+      "quote": null
+    },
+    {
+      "path": "crates/gpui_util/src/lib.rs",
+      "startLine": 328,
+      "endLine": 352,
+      "symbol": "LogErrorWithBacktraceFuture",
+      "quote": null
+    }
+  ],
+  "reasoning": "LogErrorFuture and LogErrorWithBacktraceFuture have the same state layout and identical poll control flow. Only the error formatting differs at the logging call. This creates duplicate unsafe pin-projection code, so any future pin-safety or polling behavior change must be made twice and kept in sync.",
+  "reproduction": null,
+  "recommendation": "Consolidate both wrappers into one local future implementation with a small formatting mode or shared poll helper, reusing DebugAsDisplay only at the error-formatting boundary.",
+  "whyTestsDoNotAlreadyCoverThis": "No linked tests are included for this feature, and behavior tests would not detect maintenance cost from duplicated unsafe poll code.",
+  "suggestedRegressionTest": null,
+  "minimumFixScope": "crates/gpui_util/src/lib.rs",
+  "status": "fixed",
+  "history": [
+    {
+      "runId": "20260609T035322-d0d0ed",
+      "kind": "revalidate",
+      "status": "fixed",
+      "note": null,
+      "reasoning": "Current code no longer has duplicated poll control flow from original evidence. LogErrorFuture still starts at crates/gpui_util/src/lib.rs:301, LogErrorWithBacktraceFuture moved to :320, and both poll impls now delegate to shared poll_log_error_future at :337-358. Only formatting closures differ at :313-315 and :331-333. git diff confirms duplicate match/Poll blocks were removed and centralized. cargo fmt passes. cargo check/test could not run because read-only sandbox cannot open target/debug/.cargo-lock, but this maintainability finding is resolved by current code evidence.",
+      "commands": [
+        "git status --short",
+        "rg -n \"LogErrorFuture|LogErrorWithBacktraceFuture|log_err|log_err_with_backtrace|DebugAsDisplay\" crates/gpui_util/src/lib.rs",
+        "nl -ba crates/gpui_util/src/lib.rs | sed -n '260,370p'",
+        "ast-grep --lang rust -p 'struct LogErrorFuture<$A, $B> { $$$ }' crates/gpui_util/src/lib.rs && ast-grep --lang rust -p 'struct LogErrorWithBacktraceFuture<$A, $B> { $$$ }' crates/gpui_util/src/lib.rs",
+        "ast-grep --lang rust -p 'impl<$A, $B> Future for $T { $$$ }' crates/gpui_util/src/lib.rs",
+        "cargo test -p gpui_util --lib",
+        "git diff -- crates/gpui_util/src/lib.rs",
+        "rg -n \"fn poll_log_error_future|Pin::new_unchecked|unsafe \\\\{ self.get_unchecked_mut\\\\(\\\\) \\\\}\" crates/gpui_util/src/lib.rs",
+        "clawpatch --help | sed -n '1,120p'",
+        "clawpatch revalidate --help | sed -n '1,160p'",
+        "rg -n \"fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3|LogErrorWithBacktraceFuture|poll_log_error_future\" .clawpatch crates/gpui_util/src/lib.rs",
+        "find .clawpatch -maxdepth 3 -type f | sed -n '1,120p'",
+        "clawpatch show --finding fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3 --json",
+        "cargo fmt --all --check",
+        "cargo check -p gpui_util"
+      ],
+      "createdAt": "2026-06-09T03:54:58.830Z"
+    }
+  ],
+  "signature": "sig_feat-library-4d4b6dfac8_a6be76b1de",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260609T035033-f1797a",
+  "createdAt": "2026-06-09T03:50:53.497Z",
+  "updatedAt": "2026-06-09T03:54:58.830Z"
+}

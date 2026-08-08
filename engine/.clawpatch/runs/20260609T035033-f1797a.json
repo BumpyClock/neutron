@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260609T035033-f1797a",
+  "command": "review",
+  "args": [
+    "review",
+    "--mode",
+    "deslopify",
+    "--limit",
+    "10",
+    "--reasoning-effort",
+    "high",
+    "--jobs",
+    "10",
+    "--json"
+  ],
+  "rootPath": "/Users/adityasharma/Projects/gpui",
+  "headSha": "1c2f0fb6c8e6eaeb186219cae33958ee3dddb8e0",
+  "startedAt": "2026-06-09T03:50:33.118Z",
+  "finishedAt": "2026-06-09T03:51:12.465Z",
+  "status": "completed",
+  "claimedFeatureIds": [
+    "feat_cli-command_3b0436e283",
+    "feat_config_062b3c2b38",
+    "feat_config_7afc533f22",
+    "feat_config_902602e3e1",
+    "feat_config_a5ac0cd10a",
+    "feat_library_0aac2e5a47",
+    "feat_library_12edbccd75",
+    "feat_library_4d4b6dfac8",
+    "feat_library_97901ecbe2",
+    "feat_library_a4c19fb62c"
+  ],
+  "findingIds": [
+    "fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3",
+    "fnd_sig-feat-cli-command-3b0436e283-_4f592efb4d",
+    "fnd_sig-feat-config-7afc533f22-9ad41_c0175a193b"
+  ],
+  "patchAttemptIds": [],
+  "errors": []
+}

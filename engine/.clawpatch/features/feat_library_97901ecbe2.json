@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_97901ecbe2",
+  "title": "Rust library ztracing_macro",
+  "summary": "Rust library crate at crates/ztracing_macro/src/lib.rs.",
+  "kind": "library",
+  "source": "rust-library",
+  "confidence": "high",
+  "entrypoints": [
+    {
+      "path": "crates/ztracing_macro/src/lib.rs",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "crates/ztracing_macro/src/lib.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "library"
+  ],
+  "trustBoundaries": [],
+  "status": "reviewed",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "0 finding(s); prompt=6440 bytes; approxTokens=1610; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:41.967Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:41.967Z"
+}

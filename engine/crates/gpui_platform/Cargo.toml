@@ -1,0 +1,51 @@
+[package]
+name = "gpui_platform"
+version = "0.1.0"
+rust-version.workspace = true
+repository.workspace = true
+description = "Platform selection facade for the standalone GPUI framework."
+readme = "README.md"
+edition.workspace = true
+publish = true
+license = "Apache-2.0"
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/gpui_platform.rs"
+
+[features]
+default = ["wayland", "x11"]
+font-kit = ["gpui_macos/font-kit"]
+test-support = [
+  "gpui/test-support",
+  "gpui_linux/wayland-conformance",
+  "gpui_macos/test-support",
+]
+screen-capture = ["gpui/screen-capture", "gpui_macos/screen-capture", "gpui_windows/screen-capture", "gpui_linux/screen-capture"]
+runtime_shaders = ["gpui_macos/runtime_shaders"]
+wayland = ["gpui_linux/wayland"]
+wayland-conformance = ["gpui/wayland-conformance", "gpui_linux/wayland-conformance"]
+x11 = ["gpui/x11", "gpui_linux/x11"]
+
+[dependencies]
+gpui.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+gpui_macos = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows.workspace = true
+gpui = { workspace = true, features = ["windows-manifest"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+gpui_linux.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui_web.workspace = true
+console_error_panic_hook = "0.1.7"

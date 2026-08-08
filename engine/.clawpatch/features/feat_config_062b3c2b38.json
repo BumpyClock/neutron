@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_config_062b3c2b38",
+  "title": "Project config rust-toolchain.toml",
+  "summary": "Build, release, or quality configuration in rust-toolchain.toml.",
+  "kind": "config",
+  "source": "shared-infra-heuristic",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "rust-toolchain.toml",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "rust-toolchain.toml",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "config"
+  ],
+  "trustBoundaries": [
+    "process-exec",
+    "filesystem"
+  ],
+  "status": "reviewed",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "0 finding(s); prompt=6459 bytes; approxTokens=1615; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:41.521Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:41.521Z"
+}

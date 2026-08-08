@@ -1,0 +1,15 @@
+[package]
+name = "ztracing_macro"
+version = "0.1.0"
+rust-version.workspace = true
+repository.workspace = true
+description = "Tracing macros used by the standalone GPUI framework."
+readme = "README.md"
+edition.workspace = true
+publish = true
+license = "GPL-3.0-or-later"
+
+[lib]
+proc-macro = true
+
+[dependencies]

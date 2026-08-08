@@ -1,0 +1,31 @@
+name: Install Linux dependencies
+description: Install the native libraries required to build and test GPUI on Linux
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          clang \
+          pkg-config \
+          libfontconfig-dev \
+          libfreetype-dev \
+          mesa-vulkan-drivers \
+          libvulkan-dev \
+          libxkbcommon-dev \
+          libxkbcommon-x11-dev \
+          libwayland-dev \
+          libx11-xcb-dev \
+          libxcb1-dev \
+          libxcb-shape0-dev \
+          libxcb-xfixes0-dev \
+          libxcb-randr0-dev \
+          libxcb-xinput-dev \
+          libxcb-cursor-dev \
+          libxcb-sync-dev \
+          libxcb-render0-dev \
+          libxcb-present-dev \
+          xauth \
+          xvfb

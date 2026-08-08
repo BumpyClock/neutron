@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_0aac2e5a47",
+  "title": "C/C++ source group crates",
+  "summary": "C/C++/CUDA source files under crates not owned by a build target.",
+  "kind": "library",
+  "source": "c-cpp-group",
+  "confidence": "low",
+  "entrypoints": [
+    {
+      "path": "crates/media/src/bindings.h",
+      "symbol": "crates",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "crates/media/src/bindings.h",
+      "reason": "source group member"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "c",
+    "source-group"
+  ],
+  "trustBoundaries": [
+    "filesystem"
+  ],
+  "status": "reviewed",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "0 finding(s); prompt=6495 bytes; approxTokens=1624; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:41.965Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:41.965Z"
+}

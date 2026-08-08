@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260609T035322-d0d0ed",
+  "command": "revalidate",
+  "args": [
+    "revalidate",
+    "--finding",
+    "fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3",
+    "--include-dirty",
+    "--reasoning-effort",
+    "high",
+    "--json"
+  ],
+  "rootPath": "/Users/adityasharma/Projects/gpui",
+  "headSha": "1c2f0fb6c8e6eaeb186219cae33958ee3dddb8e0",
+  "startedAt": "2026-06-09T03:53:22.701Z",
+  "finishedAt": "2026-06-09T03:54:58.836Z",
+  "status": "completed",
+  "claimedFeatureIds": [],
+  "findingIds": [
+    "fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3"
+  ],
+  "patchAttemptIds": [],
+  "errors": []
+}

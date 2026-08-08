@@ -1,0 +1,26 @@
+[package]
+name = "ztracing"
+version = "0.1.0"
+rust-version.workspace = true
+repository.workspace = true
+description = "Tracing support used by the standalone GPUI framework."
+readme = "README.md"
+edition.workspace = true
+publish = true
+license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+[features]
+tracy = ["tracing-tracy", "tracy-client"]
+
+[dependencies]
+zlog.workspace = true
+tracing.workspace = true
+
+tracing-subscriber = "0.3.22"
+tracing-tracy = { version = "0.11.4", optional = true, features = ["enable", "ondemand"] }
+tracy-client = { version = "0.18.2", optional = true, features = ["enable", "ondemand"] }
+
+ztracing_macro.workspace = true

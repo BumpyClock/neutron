@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_config_a5ac0cd10a",
+  "title": "Project config Cargo.lock",
+  "summary": "Build, release, or quality configuration in Cargo.lock.",
+  "kind": "config",
+  "source": "shared-infra-heuristic",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "Cargo.lock",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "Cargo.lock",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "config"
+  ],
+  "trustBoundaries": [
+    "process-exec",
+    "filesystem"
+  ],
+  "status": "reviewed",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "0 finding(s); prompt=35993 bytes; approxTokens=8999; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:43.599Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:43.599Z"
+}

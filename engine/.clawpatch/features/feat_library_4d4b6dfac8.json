@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_4d4b6dfac8",
+  "title": "Rust library gpui_util",
+  "summary": "Rust library crate at crates/gpui_util/src/lib.rs.",
+  "kind": "library",
+  "source": "rust-library",
+  "confidence": "high",
+  "entrypoints": [
+    {
+      "path": "crates/gpui_util/src/lib.rs",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "crates/gpui_util/src/lib.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "library"
+  ],
+  "trustBoundaries": [],
+  "status": "fixed",
+  "lock": null,
+  "findingIds": [
+    "fnd_sig-feat-library-4d4b6dfac8-a6be_2065acefb3"
+  ],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "1 finding(s); prompt=19308 bytes; approxTokens=4827; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:53.499Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:54:58.836Z"
+}

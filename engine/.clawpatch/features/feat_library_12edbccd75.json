@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_12edbccd75",
+  "title": "Rust library perf",
+  "summary": "Rust library crate at tooling/perf/src/lib.rs.",
+  "kind": "library",
+  "source": "rust-library",
+  "confidence": "high",
+  "entrypoints": [
+    {
+      "path": "tooling/perf/src/lib.rs",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "tooling/perf/src/lib.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "library"
+  ],
+  "trustBoundaries": [],
+  "status": "reviewed",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "0 finding(s); prompt=6474 bytes; approxTokens=1619; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:40.801Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:40.801Z"
+}

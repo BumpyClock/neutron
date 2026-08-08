@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_test-suite_a20a893749",
+  "title": "Rust integration test gpui_macros/render_test",
+  "summary": "Rust integration test entrypoint at crates/gpui_macros/tests/render_test.rs.",
+  "kind": "test-suite",
+  "source": "rust-integration-test",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "crates/gpui_macros/tests/render_test.rs",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "crates/gpui_macros/tests/render_test.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "test"
+  ],
+  "trustBoundaries": [],
+  "status": "pending",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:27.990Z"
+}

@@ -1,0 +1,209 @@
+schema-version = 1
+upstream-repository = "https://github.com/zed-industries/zed"
+upstream-base-commit = "2c4e44704c37ee87e59ac84e3e17388178b28545"
+last-synchronization-date = "2026-07-09"
+fork-repository = "https://github.com/BumpyClock/gpui"
+
+# This is a selective semantic sync, not a contiguous merge. Keep entries at
+# the maintained-area level so future syncs have a small, reviewable ledger.
+[[patch-clusters]]
+id = "standalone-foundation"
+area = "workspace and dependency extraction"
+status = "fork-only"
+reason = "The fork is a standalone GPUI workspace rather than the Zed application workspace."
+
+[[patch-clusters]]
+id = "overlay-and-blur"
+area = "overlay surfaces and blur rendering"
+status = "fork-only"
+reason = "Overlay surface, retained-layer, and backdrop-blur contracts are maintained by this fork."
+
+[[patch-clusters]]
+id = "accessibility-contracts"
+area = "accessibility and semantic input"
+status = "fork-only"
+reason = "Stable IDs, rollback, and listener ownership are fork contracts that must survive syncs."
+
+[[patch-clusters]]
+id = "platform-adaptations"
+area = "Linux, macOS, Windows, and web backends"
+status = "temporary"
+reason = "Backend adaptations are reconciled selectively and require platform-session validation."
+
+[[patch-clusters]]
+id = "scheduler-contracts"
+area = "task scheduling and lifecycle"
+status = "fork-only"
+reason = "Fork panic and Send-only output behavior are deliberate standalone contracts."
+
+# Registry identities are intentionally not claimed by this repository. These
+# entries make the package map auditable. `selected-unpublished` records the
+# owner's selected facade name without claiming a crates.io reservation;
+# `provisional` remains a candidate only, never a reservation.
+[[registry-packages]]
+workspace = "gpui"
+package = "bumpyclock-gpui"
+registry = "bumpyclock-gpui"
+version = "0.1.0"
+status = "selected-unpublished"
+
+[[registry-packages]]
+workspace = "gpui_macros"
+registry = "gpui_macros"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-macros"
+
+[[registry-packages]]
+workspace = "gpui_platform"
+registry = "gpui_platform"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-platform"
+
+[[registry-packages]]
+workspace = "gpui_linux"
+registry = "gpui_linux"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-linux"
+
+[[registry-packages]]
+workspace = "gpui_macos"
+registry = "gpui_macos"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-macos"
+
+[[registry-packages]]
+workspace = "gpui_windows"
+registry = "gpui_windows"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-windows"
+
+[[registry-packages]]
+workspace = "gpui_wgpu"
+registry = "gpui_wgpu"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-wgpu"
+
+[[registry-packages]]
+workspace = "gpui_web"
+registry = "gpui_web"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-web"
+
+[[registry-packages]]
+workspace = "gpui_tokio"
+registry = "gpui_tokio"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-tokio"
+
+[[registry-packages]]
+workspace = "gpui_shared_string"
+registry = "gpui_shared_string"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-shared-string"
+
+[[registry-packages]]
+workspace = "gpui_util"
+registry = "gpui_util"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-util"
+
+[[registry-packages]]
+workspace = "collections"
+registry = "collections"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-collections"
+
+[[registry-packages]]
+workspace = "http_client"
+registry = "http_client"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-http-client"
+
+[[registry-packages]]
+workspace = "media"
+registry = "media"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-media"
+
+[[registry-packages]]
+workspace = "util"
+registry = "util"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-util"
+
+[[registry-packages]]
+workspace = "util_macros"
+registry = "util_macros"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-util-macros"
+
+[[registry-packages]]
+workspace = "refineable"
+registry = "refineable"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-refineable"
+
+[[registry-packages]]
+workspace = "derive_refineable"
+registry = "derive_refineable"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-derive-refineable"
+
+[[registry-packages]]
+workspace = "scheduler"
+registry = "scheduler"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-scheduler"
+
+[[registry-packages]]
+workspace = "sum_tree"
+registry = "sum_tree"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-sum-tree"
+
+[[registry-packages]]
+workspace = "zlog"
+registry = "zlog"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-zlog"
+
+[[registry-packages]]
+workspace = "ztracing"
+registry = "ztracing"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-ztracing"
+
+[[registry-packages]]
+workspace = "ztracing_macro"
+registry = "ztracing_macro"
+version = "0.1.0"
+status = "unavailable"
+provisional = "bumpyclock-gpui-ztracing-macro"
+
+[[registry-packages]]
+workspace = "perf"
+registry = "perf"
+version = "0.1.0"
+status = "conflict"
+provisional = "bumpyclock-gpui-perf"

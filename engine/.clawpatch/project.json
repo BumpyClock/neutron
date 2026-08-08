@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "projectId": "prj_https-github-com-bumpyclock-gpui_10c6d8e5b4",
+  "name": "gpui",
+  "rootPath": "/Users/adityasharma/Projects/gpui",
+  "git": {
+    "remoteUrl": "https://github.com/BumpyClock/gpui.git",
+    "defaultBranch": "main",
+    "currentBranch": "05-15-26-upstream-sync",
+    "headSha": "1c2f0fb6c8e6eaeb186219cae33958ee3dddb8e0"
+  },
+  "detected": {
+    "languages": [
+      "rust"
+    ],
+    "frameworks": [],
+    "packageManagers": [
+      "cargo"
+    ],
+    "commands": {
+      "typecheck": "cargo check --workspace --all-targets",
+      "lint": null,
+      "format": "cargo fmt --all --check",
+      "test": "cargo test --workspace"
+    }
+  },
+  "createdAt": "2026-06-09T03:50:20.073Z",
+  "updatedAt": "2026-06-09T03:50:20.073Z"
+}

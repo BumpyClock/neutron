@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-cli-command-3b0436e283-_4f592efb4d",
+  "featureId": "feat_cli-command_3b0436e283",
+  "title": "Dead tilde fallback in hyperfine lookup",
+  "category": "maintainability",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "risk",
+  "evidence": [
+    {
+      "path": "tooling/perf/src/main.rs",
+      "startLine": 416,
+      "endLine": 429,
+      "symbol": "hyp_binary",
+      "quote": null
+    }
+  ],
+  "reasoning": "`Command::new` does not run through a shell, so `~/.cargo/bin/hyperfine` is treated as a literal executable path. That fallback cannot find the normal Cargo bin install location, yet every lookup carries the extra branch and failed process attempt. Setup docs already require `hyperfine` in PATH, so this path is accidental complexity with runtime cost and misleading maintenance surface.",
+  "reproduction": null,
+  "recommendation": "Delete the `HYP_HOME` fallback and keep one PATH lookup, or replace it with a real absolute home-dir lookup only if non-PATH installs are a supported contract.",
+  "whyTestsDoNotAlreadyCoverThis": "No linked tests exercise hyperfine discovery, and deslopify review is limited to this owned file excerpt.",
+  "suggestedRegressionTest": null,
+  "minimumFixScope": "Simplify `hyp_binary` to one `Command::new(\"hyperfine\")` probe unless repo wants explicit absolute-path discovery.",
+  "status": "fixed",
+  "history": [
+    {
+      "runId": "20260609T035322-e82086",
+      "kind": "revalidate",
+      "status": "fixed",
+      "note": null,
+      "reasoning": "Original evidence path still exists at tooling/perf/src/main.rs:416. Current hyp_binary is lines 417-423 and now probes only Command::new(\"hyperfine\") via PATH, then returns Command::new(\"hyperfine\"). HYP_HOME and \"~/.cargo/bin/hyperfine\" no longer appear in tooling/Cargo.toml/README.md search surface. Setup comment still says hyperfine must be in shell path, so current code matches stated contract. git diff shows dirty worktree change deleting original tilde fallback, so fixed in current repository but not necessarily committed. cargo fmt --all --check and git diff --check pass. cargo check/test could not run because read-only sandbox cannot open target/debug/.cargo-lock: \"Operation not permitted (os error 1)\". clawpatch revalidate CLI also could not write .clawpatch/runs tmp file due EPERM.",
+      "commands": [
+        "test -f ~/.agents/AGENTS.local.md && sed -n '1,220p' ~/.agents/AGENTS.local.md || true",
+        "sed -n '1,220p' /Users/adityasharma/Projects/dotfiles/skills/clawpatch/SKILL.md",
+        "sed -n '1,220p' /Users/adityasharma/Projects/dotfiles/skills/verify-this/SKILL.md",
+        "git status --short",
+        "test -f AGENTS.md && sed -n '1,220p' AGENTS.md || true",
+        "test -f AGENTS.local.md && sed -n '1,220p' AGENTS.local.md || true",
+        "clawpatch --help",
+        "clawpatch revalidate --help",
+        "nl -ba tooling/perf/src/main.rs | sed -n '390,450p'",
+        "rg -n \"hyperfine|hyp_binary|HYP_HOME|cargo/bin\" tooling/perf src crates docs README.md Cargo.toml .clawpatch 2>/dev/null",
+        "git diff -- tooling/perf/src/main.rs",
+        "clawpatch show --finding fnd_sig-feat-cli-command-3b0436e283-_4f592efb4d --json",
+        "sed -n '1,220p' tooling/perf/Cargo.toml",
+        "ast-grep --lang rust -p 'Command::new($ARG)' tooling/perf/src/main.rs",
+        "sed -n '1,32p' tooling/perf/src/main.rs",
+        "rg -n \"\\[\\[bin\\]\\]|name = \\\"perf\\\"|tooling/perf\" Cargo.toml tooling/perf/Cargo.toml .cargo/config.toml 2>/dev/null",
+        "cargo fmt --all --check",
+        "cargo test -p perf",
+        "cargo check -p perf --all-targets",
+        "clawpatch revalidate --finding fnd_sig-feat-cli-command-3b0436e283-_4f592efb4d --include-dirty --reasoning-effort high --json",
+        "rg -n \"HYP_HOME|~/.cargo/bin/hyperfine\" tooling Cargo.toml README.md",
+        "rg -n \"Command::new\\(|hyp_binary|hyperfine\" tooling/perf/src/main.rs",
+        "git diff --check -- tooling/perf/src/main.rs"
+      ],
+      "createdAt": "2026-06-09T03:55:04.389Z"
+    }
+  ],
+  "signature": "sig_feat-cli-command-3b0436e283_f4f2e4dad9",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260609T035033-f1797a",
+  "createdAt": "2026-06-09T03:50:53.515Z",
+  "updatedAt": "2026-06-09T03:55:04.389Z"
+}

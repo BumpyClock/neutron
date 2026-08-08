@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_cli-command_3b0436e283",
+  "title": "Rust command perf",
+  "summary": "Rust executable command at tooling/perf/src/main.rs.",
+  "kind": "cli-command",
+  "source": "rust-command",
+  "confidence": "high",
+  "entrypoints": [
+    {
+      "path": "tooling/perf/src/main.rs",
+      "symbol": "main",
+      "route": null,
+      "command": "perf"
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "tooling/perf/src/main.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "cli"
+  ],
+  "trustBoundaries": [
+    "user-input",
+    "filesystem",
+    "process-exec",
+    "network"
+  ],
+  "status": "fixed",
+  "lock": null,
+  "findingIds": [
+    "fnd_sig-feat-cli-command-3b0436e283-_4f592efb4d"
+  ],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260609T035033-f1797a",
+      "kind": "review",
+      "summary": "1 finding(s); prompt=31227 bytes; approxTokens=7807; includedFiles=1; omittedFiles=0",
+      "provider": "codex",
+      "model": null,
+      "reasoningEffort": "high",
+      "createdAt": "2026-06-09T03:50:53.516Z"
+    }
+  ],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:55:04.397Z"
+}

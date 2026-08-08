@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_test-suite_d062e8fe0e",
+  "title": "Rust integration test gpui/cursor_style",
+  "summary": "Rust integration test entrypoint at crates/gpui/tests/cursor_style.rs.",
+  "kind": "test-suite",
+  "source": "rust-integration-test",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "crates/gpui/tests/cursor_style.rs",
+      "symbol": null,
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "crates/gpui/tests/cursor_style.rs",
+      "reason": "entrypoint"
+    }
+  ],
+  "contextFiles": [],
+  "tests": [],
+  "tags": [
+    "rust",
+    "test"
+  ],
+  "trustBoundaries": [],
+  "status": "pending",
+  "lock": null,
+  "findingIds": [],
+  "patchAttemptIds": [],
+  "analysisHistory": [],
+  "createdAt": "2026-06-09T03:50:27.990Z",
+  "updatedAt": "2026-06-09T03:50:27.990Z"
+}

@@ -151,5 +151,5 @@ impl Render for Example {
 [rust-embed]: https://docs.rs/rust-embed/latest/rust_embed/
 [IconName]: https://docs.rs/gpui_component/latest/gpui_component/icon/enum.IconName.html
 [Icon]: https://docs.rs/gpui_component/latest/gpui_component/icon/struct.Icon.html
-[assets]: https://github.com/BumpyClock/gpui-component/tree/main/crates/assets/assets/
+[assets]: https://github.com/BumpyClock/neutron/tree/main/framework/crates/assets/assets/
 [gpui-component-assets]: https://crates.io/crates/gpui-component-assets

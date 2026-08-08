@@ -30,15 +30,15 @@ For a native application, start with the experimental AppShell layer:
 
 ```toml
 [dependencies]
-gpui-component-app = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
-gpui-component-assets = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
+gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 
 [build-dependencies]
-gpui-component-manifest = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 ```
 
-The framework tag selects its GPUI revision. Do not add a separate GPUI
-dependency; see [Installation](./installation.md) for release status.
+The root workspace selects its exact engine path dependencies. Do not add a
+separate engine dependency; see [Installation](./installation.md) for release status.
 
 Declare `[package.metadata.gpui-app]` and the two-line identity `build.rs`
 described in [Building an Application](./app-shell.md), then create the window:
@@ -90,9 +90,9 @@ Settings/About controls and Windows/Linux menu-bar placement.
 
 ## Community & Support
 
-- [GitHub Repository](https://github.com/BumpyClock/gpui-component)
-- [Issue Tracker](https://github.com/BumpyClock/gpui-component/issues)
-- [Contributing Guide](https://github.com/BumpyClock/gpui-component/blob/main/CONTRIBUTING.md)
+- [GitHub Repository](https://github.com/BumpyClock/neutron)
+- [Issue Tracker](https://github.com/BumpyClock/neutron/issues)
+- [Contributing Guide](https://github.com/BumpyClock/neutron/blob/main/framework/CONTRIBUTING.md)
 
 ## License
 

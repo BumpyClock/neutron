@@ -1,4 +1,15 @@
-This is a hard fork of GPUI from zed's original repository, with the goal of creating a standalone extraction of the GPU-accelerated UI framework. 
+# Engine domain
 
-- When we need to pull upstream changes from zed's original repository, clone https://github.com/zed-industries/zed in /tmp/zed, and then read relevant files related to GPUI from there, and copy the relevant code over. 
-- When theare are conflicts work with me to resolve. We must maintain the changes we have made to the code in this repository, and also pull in any relevant upstream changes from zed's original repository. When there is a conflict work with me to resolve it.
+`engine/` owns the generic GPUI mechanisms: application state, rendering, text,
+input, event loops, windows, platform adapters, accessibility, and renderer
+evidence. Engine crates must not depend on framework crates.
+
+GPUI is a selective semantic fork of [Zed](https://github.com/zed-industries/zed).
+Use `engine/fork.toml` as the machine-readable provenance record and
+`engine/UPSTREAM.md` for sync rules. For an upstream review, use a read-only
+checkout in `/tmp/zed`, compare the affected GPUI code, preserve fork contracts,
+and run the root engine and framework checks.
+
+Use root-relative paths and exact package versions for local engine consumers.
+Keep package identities, license notices, and publication blockers unchanged
+unless the root migration task names them.

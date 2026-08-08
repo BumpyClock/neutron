@@ -392,7 +392,7 @@ SettingItem::new(
     "GitHub Repository",
     SettingControl::element(OpenURLSettingField {
         label: "Repository...".into(),
-        url: "https://github.com/BumpyClock/gpui-component".into(),
+        url: "https://github.com/BumpyClock/neutron".into(),
     })
 )
 ```

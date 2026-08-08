@@ -23,7 +23,7 @@
         <div class="mt-6 text-(--muted-foreground)">
             More contributors not shown here. See the full
             <a
-                href="https://github.com/BumpyClock/gpui-component/graphs/contributors"
+                href="https://github.com/BumpyClock/neutron/graphs/contributors"
                 target="_blank"
             >
                 Contributors</a

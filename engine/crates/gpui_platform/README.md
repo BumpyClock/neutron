@@ -19,4 +19,4 @@ CPU/software adapter, and macOS returns an error rather than silently selecting 
 selection rules provide adapter evidence only; native window/display handles and presentation
 status are separate contracts.
 
-This package is part of the standalone [GPUI](https://github.com/BumpyClock/gpui) workspace.
+This package is part of the Neutron [GPUI engine](https://github.com/BumpyClock/neutron/tree/main/engine) workspace.

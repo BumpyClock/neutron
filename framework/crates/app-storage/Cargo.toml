@@ -6,7 +6,7 @@ edition.workspace = true
 publish = true
 rust-version = "1.90"
 license.workspace = true
-repository = "https://github.com/BumpyClock/gpui-component"
+repository = "https://github.com/BumpyClock/neutron"
 readme = "README.md"
 
 [dependencies]

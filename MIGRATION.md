@@ -75,7 +75,7 @@ The destination imported each domain as a separate committed snapshot before roo
 | Engine | `3fb021c9741ee4cc949992452bc53d0137ff37c1` | `f71e460f03ff9ae1f7213cb53b70377150d081f0` | `ca354d7` | `engine/` | 451 |
 | Framework | `fe92c21148bb0df45c93dfa85e8f64e28f44f710` | `3506ee82212342ba8ea47a9704937ce0615f991f` | `3fb021c9741ee4cc949992452bc53d0137ff37c1` | `framework/` | 805 |
 
-The source tree file counts are 451 for engine and 805 for framework. The counts match the destination snapshot paths. The snapshot commits contain no nested `.git` directory or submodule metadata. Their nested Cargo manifests and lockfiles are source artifacts; the approved root-workspace conversion removes nested workspace roots later.
+The source tree file counts are 451 for engine and 805 for framework. The counts match the destination snapshot paths. The snapshot commits contain no nested `.git` directory or submodule metadata. The root-workspace conversion removes nested product workspace roots; only the app-manifest downstream fixture and the WASM-only `hello_web` example retain isolated workspace metadata by policy.
 
 These destination commits are immutable import facts. They are not final Stage 0 or Stage 1 acceptance evidence. Later root policy, workspace, tooling, CI, and documentation commits must be validated on their final exact source commit.
 

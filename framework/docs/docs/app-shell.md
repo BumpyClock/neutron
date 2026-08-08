@@ -47,18 +47,18 @@ packaging, sidecars, credentials, or a JavaScript/WebView bridge.
 
 ## Add the application crates
 
-Until the application crates are published as stable releases, pin every
-GPUI Component crate to one workspace revision. Do not mix GPUI revisions.
+Until the application crates are published as stable releases, use one Neutron
+workspace checkout. Do not mix engine revisions or add a sibling checkout.
 
 ```toml
 [dependencies]
-gpui-component-app = { git = "https://github.com/BumpyClock/gpui-component", rev = "<revision>" }
-gpui-component-assets = { git = "https://github.com/BumpyClock/gpui-component", rev = "<same-revision>" }
+gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
+gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-gpui-component-manifest = { git = "https://github.com/BumpyClock/gpui-component", rev = "<same-revision>" }
+gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 
 [package.metadata.gpui-app]
 app_id = "com.example.my-app"
@@ -186,10 +186,8 @@ AppShell does not turn Windows `WM_QUERYENDSESSION` or `WM_ENDSESSION` into an
 orderly quit yet. Web and caller-owned embedded lifecycle remain GPUI host
 contracts rather than AppShell native-run modes.
 
-The normal-return behavior requires the Stage 1 GPUI lifecycle contract. Until
-this workspace pins that GPUI revision, validate it only through the
-[documented disposable local override](../learned/gpui-submodule.md).
-External resources created during `start` should therefore use RAII ownership;
+The normal-return behavior requires the Stage 1 GPUI lifecycle contract. Validate
+it through the root Stage 1 script and native CI profiles. External resources created during `start` should therefore use RAII ownership;
 the transaction does not roll back arbitrary external side effects.
 
 ## Standard menus and settings

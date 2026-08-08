@@ -5,14 +5,13 @@ for Rust, designed to support a wide variety of applications.
 
 ## Getting Started
 
-GPUI is still pre-1.0 and may make breaking changes between versions. Native backends exist for macOS, Windows, Linux X11, and Linux Wayland, but their validation maturity differs; Web is a separate asynchronous host contract. Use the repository-pinned Rust toolchain and consult the root platform-evidence matrix before making support claims. While the fork facade is unpublished, add the following Git dependency to your `Cargo.toml` (the dependency key remains `gpui`):
+GPUI is still pre-1.0 and may make breaking changes between versions. Native backends exist for macOS, Windows, Linux X11, and Linux Wayland, but their validation maturity differs; Web is a separate asynchronous host contract. Use the repository-pinned Rust toolchain and consult the root platform-evidence matrix before making support claims. Use the root workspace path dependency while the fork facade remains unpublished:
 
 ```toml
-gpui = { package = "bumpyclock-gpui", git = "https://github.com/BumpyClock/gpui", rev = "<full-40-character-commit-sha>" }
+gpui = { package = "bumpyclock-gpui", path = "engine/crates/gpui", version = "=0.1.0" }
 ```
 
-Replace the placeholder with an immutable commit containing the renamed `bumpyclock-gpui`
-package; do not depend on `main`.
+Do not select a separate engine revision or sibling checkout.
 
 - [Ownership and data flow](_ownership_and_data_flow)
 - [Accessibility](_accessibility)

@@ -105,9 +105,9 @@ mode and 0.88 in dark mode. Themes can override these values through
 
 ## Theme Registry
 
-There have more than 20 built-in themes available in [themes](https://github.com/BumpyClock/gpui-component/tree/main/themes) folder.
+There have more than 20 built-in themes available in [themes](https://github.com/BumpyClock/neutron/tree/main/framework/themes) folder.
 
-https://github.com/BumpyClock/gpui-component/tree/main/themes
+https://github.com/BumpyClock/neutron/tree/main/framework/themes
 
 And we have a [ThemeRegistry] to help us to load themes.
 

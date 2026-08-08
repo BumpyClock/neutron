@@ -1,6 +1,6 @@
 # GPUI Component Assets
 
-The default assets bundle for [GPUI Component](https://github.com/longbridge/gpui-component).
+The default assets bundle for [GPUI Component](https://github.com/BumpyClock/neutron/tree/main/framework).
 
 This crate bundles component-owned assets such as icons and the surface noise texture at `surface/NoiseAsset_256.png`.
 

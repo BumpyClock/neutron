@@ -6,15 +6,16 @@ GPUI is a hybrid immediate and retained mode, GPU accelerated, UI framework for 
 
 ## Getting Started
 
-Add GPUI as a git dependency:
+Use the root workspace for Neutron development. Framework and application crates
+resolve GPUI through exact path dependencies under `engine/`:
 
 ```toml
 [dependencies]
-gpui = { package = "bumpyclock-gpui", git = "https://github.com/BumpyClock/gpui", rev = "<full-40-character-commit-sha>" }
+gpui = { package = "bumpyclock-gpui", path = "engine/crates/gpui", version = "=0.1.0" }
 ```
 
-Replace the placeholder with an immutable commit containing the renamed `bumpyclock-gpui`
-package; do not depend on `main`.
+The engine package family is not ready for registry consumption. Do not add a
+separate engine checkout, Git revision, or mutable branch dependency.
 
 See `crates/gpui/examples/` for example applications.
 

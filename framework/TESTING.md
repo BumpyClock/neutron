@@ -7,8 +7,7 @@ CI reports validation by level. A compile-only job is not a runtime test.
 Command:
 
 ```bash
-cargo test --workspace --all-targets --locked --features test-support
-cargo test --workspace --doc --locked
+../script/test
 ```
 
 Maintained unit targets include GPUI Component builders, layout and text logic,
@@ -204,9 +203,9 @@ clipboard-reader requirements, and explicit non-claims.
 ## Packaging and compatibility
 
 ```bash
-cargo xtask compatibility check
-cargo xtask publish-plan
-cargo xtask release-check
+cargo run --locked -p framework-xtask -- compatibility check
+cargo run --locked -p framework-xtask -- publish-plan
+cargo run --locked -p framework-xtask -- release-check
 ```
 
 `release-check` validates source build, unit/headless tests, package file lists,

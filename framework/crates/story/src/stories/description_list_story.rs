@@ -47,7 +47,7 @@ impl DescriptionListStory {
             ("--", "--", 1),
             (
                 "Repository",
-                "https://github.com/longbridge/gpui-component",
+                "https://github.com/BumpyClock/neutron",
                 2,
             ),
             (

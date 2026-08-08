@@ -1,6 +1,6 @@
 # GPUI package map and release gates
 
-`cargo run --locked -p xtask -- publish-plan` derives publication order from normal and
+`cargo run --locked -p engine-xtask -- publish-plan` derives publication order from normal and
 build path dependencies. It reports local package versions, registry status,
 metadata readiness, and private prerequisites. It never publishes.
 
@@ -63,10 +63,10 @@ equivalence.
 Run:
 
 ```sh
-cargo run --locked -p xtask -- fork validate
-cargo run --locked -p xtask -- publish-plan
-cargo run --locked -p xtask -- release-check
-cargo run --locked -p xtask -- release-check --require-registry
+cargo run --locked -p engine-xtask -- fork validate
+cargo run --locked -p engine-xtask -- publish-plan
+cargo run --locked -p engine-xtask -- release-check
+cargo run --locked -p engine-xtask -- release-check --require-registry
 ```
 
 Both release checks must remain blocked until deferred package identities, GPL tracing

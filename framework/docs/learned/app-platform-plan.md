@@ -196,9 +196,8 @@ Corrected invariant:
 - **CI lint on `cargo metadata`/`cargo tree -d`**: reject >1 resolved package
   ID/source/rev for `gpui`, `gpui_platform`, `gpui-component` — catches transitive
   duplicates a source-grep never sees.
-- gpui fork gets annotated tags; `/update-gpui` is the only bump point and updates the
-  shared `[workspace.package] version` (note: workspace currently has none — add it)
-  + COMPATIBILITY.md.
+- Engine and framework versions stay independent. Update exact root path
+  dependencies and `compatibility.toml` in one change, then run `./script/check`.
 - **Release-candidate CI builds all three app repos** against the proposed platform
   rev — an automated downstream gate, stronger than a matrix doc + policy.
 
@@ -395,7 +394,7 @@ legacy path migration aliases (agent-term's `~/.agent-term`).
    proves little for platform-divergent code); feature-matrix builds (none/default/tray/all).
 2. `gpui-component-storage` with the §4a contract + process-level concurrency tests.
 3. `gpui-component-manifest` + downstream-workspace test fixture (D4 blocker fix).
-4. Tag discipline; add missing `[workspace.package] version`; `/update-gpui` owns bumps.
+4. Keep engine and framework tag discipline; root scripts own validation.
 5. agent-term: retain its updater until an independently verified replacement exists (D7).
 
 **Phase 1 — `gpui-component-app` MVP**

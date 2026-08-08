@@ -2,7 +2,7 @@
 name = "derive_refineable"
 version = "0.1.0"
 rust-version = "1.95.0"
-repository = "https://github.com/BumpyClock/gpui"
+repository = "https://github.com/BumpyClock/neutron"
 readme = "README.md"
 edition.workspace = true
 publish = true

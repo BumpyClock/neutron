@@ -330,9 +330,7 @@ impl SettingsStory {
                                         .outline()
                                         .with_size(options.size)
                                         .on_click(|_, _, cx| {
-                                            cx.open_url(
-                                                "https://github.com/BumpyClock/gpui-component",
-                                            );
+                                            cx.open_url("https://github.com/BumpyClock/neutron");
                                         }),
                                 )
                                 .into_any_element()
@@ -409,7 +407,7 @@ impl SettingsStory {
                             "GitHub Repository",
                             SettingControl::element(OpenURLSettingField::new(
                                 "Repository...",
-                                "https://github.com/BumpyClock/gpui-component",
+                                "https://github.com/BumpyClock/neutron",
                             )),
                         )
                         .description("Open the GitHub repository in your default browser."),

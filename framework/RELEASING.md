@@ -16,22 +16,22 @@ runtime limits that release validation does not erase.
 3. Regenerate and verify compatibility documentation:
 
    ```bash
-   cargo xtask compatibility generate
-   cargo xtask compatibility check
+   cargo run --locked -p framework-xtask -- compatibility generate
+   cargo run --locked -p framework-xtask -- compatibility check
    ```
 
 4. Review publication order and source/package artifacts:
 
    ```bash
-   cargo xtask publish-plan
-   cargo xtask release-check
+   cargo run --locked -p framework-xtask -- publish-plan
+   cargo run --locked -p framework-xtask -- release-check
    ```
 
 5. After engine packages are available on crates.io, require registry evidence:
 
    ```bash
-   cargo xtask publish-plan --require-registry
-   cargo xtask release-check --require-registry
+   cargo run --locked -p framework-xtask -- publish-plan --require-registry
+   cargo run --locked -p framework-xtask -- release-check --require-registry
    ```
 
 `--require-registry` is expected to fail before the GPUI engine publication
@@ -39,7 +39,7 @@ prerequisites exist. Do not weaken it or replace it with a Git dependency.
 
 ## Publish order
 
-Use `cargo xtask publish-plan --require-registry` as the source of truth. It
+Use `cargo run --locked -p framework-xtask -- publish-plan --require-registry` as the source of truth. It
 derives the dependency order from manifests. Publish foundational GPUI packages,
 then GPUI platform/facade packages, followed by framework support packages and
 finally public framework facade packages.
@@ -50,10 +50,9 @@ it does not publish crates automatically.
 
 ## Local coordinated development
 
-Use an uncommitted sibling-checkout patch as described in
-[`docs/learned/gpui-submodule.md`](docs/learned/gpui-submodule.md). Never commit
-a local path, branch, pull-request revision, or mutable GPUI tag as a release
-dependency.
+Use the root workspace. Framework-to-engine dependencies resolve from `engine/`
+with exact package versions. Never add a sibling checkout, local patch, branch,
+pull-request revision, or mutable engine tag to a release dependency.
 
 ## Finalize
 

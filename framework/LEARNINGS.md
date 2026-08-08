@@ -81,15 +81,11 @@ Next time: avoid `bounce` for reveal/size/opacity; it is forward-then-reverse.
 
 ## 2026-02-10
 Context: historical GPUI source vendoring for local patching.
-Superseded: Phase 0 removed the GPUI submodule. This entry preserves rationale,
-not an operational workflow.
-What worked then:
-- Keep workspace dependencies as Git plus immutable revision; direct committed
-  source overrides failed due to GPUI workspace dependency inheritance.
-Current rule: committed manifests use canonical Git URL, full revision, and
-exact package versions. A sibling checkout may be used only through an
-uncommitted Cargo patch; update compatibility metadata and generated docs with
-the revision.
+Superseded: Neutron now uses one root Cargo workspace with engine sources under
+`engine/`. This entry preserves rationale, not an operational workflow.
+Current rule: framework consumers use root-workspace path dependencies with
+exact engine package versions. Do not add sibling checkouts, Git revisions, or
+local Cargo patches to committed manifests.
 
 ## 2026-02-10
 Context: spring/overshoot easing support.
@@ -107,11 +103,10 @@ Next time: when adding springs, pick local defaults or extend tokens explicitly.
 
 ## 2026-02-10
 Context: historical attempt to patch GPUI source during app build.
-Superseded: this observation predates Phase 0 sibling-checkout workflow and is
-not an instruction to create or update a submodule.
-Outcome: a temporary, uncommitted Cargo patch may be used for coordinated local
-testing. Before release validation, remove it and use committed canonical Git
-revision with exact package versions.
+Superseded: this observation predates the Neutron monorepo workspace and is not
+an instruction to create or update a submodule.
+Outcome: use the root workspace for coordinated local testing. Before release
+validation, verify exact path dependencies and package versions.
 
 ## 2026-02-11
 Context: implementing GPUI transform foundation for spring-style motion.

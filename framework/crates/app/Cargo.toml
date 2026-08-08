@@ -6,7 +6,7 @@ edition.workspace = true
 publish = false
 rust-version = "1.95.0"
 license.workspace = true
-repository = "https://github.com/BumpyClock/gpui-component"
+repository = "https://github.com/BumpyClock/neutron"
 
 [features]
 # Internal fixture; enable it explicitly for the harness-free headless test.

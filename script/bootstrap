@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+cargo fetch --locked
+
+if command -v bun >/dev/null 2>&1; then
+    (cd framework/docs && bun install --frozen-lockfile)
+else
+    printf '%s\n' "bun is not installed; skip framework documentation dependencies" >&2
+fi

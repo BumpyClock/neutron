@@ -10,7 +10,7 @@ This is a BumpyClock fork of the original gpui-component by longbridge. Goal is 
 
 # GPUI Component
 
-[![Build Status](https://github.com/BumpyClock/gpui-component/actions/workflows/ci.yml/badge.svg)](https://github.com/BumpyClock/gpui-component/actions/workflows/ci.yml)
+[Neutron repository](https://github.com/BumpyClock/neutron)
 
 UI components for building fantastic desktop applications using [GPUI](https://gpui.rs).
 
@@ -31,19 +31,18 @@ UI components for building fantastic desktop applications using [GPUI](https://g
 
 ## Installation
 
-The current framework stack is not ready for crates.io consumption. Use one
-immutable framework release and let it select its pinned GPUI revision. Do not
-add an independent `gpui` dependency or select a GPUI commit yourself.
+The current framework stack is not ready for crates.io consumption. Use the
+single Neutron workspace for local development. Do not add an independent
+engine checkout, Git revision, or mutable branch dependency.
 
 ```toml
-gpui-component = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
-gpui-component-assets = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component = { path = "framework/crates/ui", version = "=0.7.0" }
+gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 ```
 
-`v0.6.0` is the latest immutable framework tag. The current `0.7.0` source
-tree is unreleased. See [compatibility status](docs/COMPATIBILITY.md) and the
-[release guide](RELEASING.md) before preparing a release. See
-[testing and CI](TESTING.md) for validation levels and native-runtime limits.
+The `0.7.0` source tree is unreleased. See [compatibility status](docs/COMPATIBILITY.md)
+and the [release guide](RELEASING.md) before preparing a release. See [testing
+and CI](TESTING.md) for validation levels and native-runtime limits.
 
 ### AppShell (experimental)
 
@@ -74,12 +73,12 @@ current limitations.
 
 ### Manual GPUI bootstrap
 
-For hosts that need direct GPUI types, depend on `gpui-component-app` at the
-same framework tag and use its re-exports. This prevents a second GPUI type
+For hosts that need direct GPUI types, depend on `gpui-component-app` from the
+same root workspace and use its re-exports. This prevents a second GPUI type
 identity from entering the application.
 
 ```toml
-gpui-component-app = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
 ```
 
 ```rs
@@ -131,7 +130,7 @@ fn main() {
 
 GPUI Component has an `Icon` element, but it does not include SVG files by default.
 
-The example uses [Lucide](https://lucide.dev) icons, but you can use any icons you like. Just name the SVG files as defined in [IconName](https://github.com/BumpyClock/gpui-component/blob/main/crates/ui/src/icon.rs#L86). You can add any icons you need to your project.
+The example uses [Lucide](https://lucide.dev) icons, but you can use any icons you like. Just name the SVG files as defined in [IconName](https://github.com/BumpyClock/neutron/blob/main/framework/crates/ui/src/icon.rs#L86). You can add any icons you need to your project.
 
 The `gpui-component-assets` crate also bundles library-owned non-icon assets such as `surface/NoiseAsset_256.png`. If your app has its own `AssetSource`, compose it with `gpui_component_assets::chain(app_assets, gpui_component_assets::Assets)` so app assets win first and GPUI Component assets remain available as fallback.
 

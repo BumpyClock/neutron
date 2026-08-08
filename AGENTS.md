@@ -92,13 +92,24 @@ If the destination repository was not explicitly chosen by the owner, use a new 
 
 ## Consolidation design: one Git monorepo, one Cargo workspace
 
-Neutron has one Git repository and one root Cargo workspace. Keep `engine/` and `framework/` as explicit architectural domains inside that workspace.
+Neutron has one Git repository and one product Cargo workspace. Keep `engine/`
+and `framework/` as explicit architectural domains inside that workspace.
+
+Two isolated Cargo workspaces are approved test or target fixtures only:
+`framework/crates/app-manifest/tests/fixtures/downstream-app` validates a
+downstream app manifest, and `engine/crates/gpui_web/examples/hello_web` is a
+WASM-only example. The `hello_web` fixture retains its nightly toolchain and
+`.cargo/config.toml` because it uses nightly `build-std` and wasm-only engine
+APIs. Do not add isolated workspaces to either product domain.
 
 The approved migration imports exact committed source snapshots with `git archive`. It does not import source histories, source tags, or rewrite mappings. Record immutable source commit and tree identities in `MIGRATION.md`, and record destination snapshot commit identities there.
 
 Keep engine and framework package versions, MSRV metadata, publication graphs, upstream relationships, and ownership boundaries independent. Resolve package-name collisions explicitly without changing public Rust import names.
 
-Use one root `Cargo.toml`, one root `Cargo.lock`, one root toolchain, one merged profile policy, one merged lint policy, and one root patch table. Validate each domain and the combined graph.
+Use one root `Cargo.toml`, one root `Cargo.lock`, one root toolchain, one merged
+profile policy, one merged lint policy, and one root patch table. Validate each
+domain and the combined graph. The two approved fixture workspaces may retain
+their own manifests, lockfile, toolchain, and target configuration.
 
 The owner-approved parent specification replaces prior multi-workspace and source-history retention guidance. All other safeguards in this guide remain mandatory.
 
@@ -128,7 +139,7 @@ Use this structure unless the existing destination has an equivalent established
 │   ├── stage1
 │   └── release-check
 ├── engine/
-│   ├── retained domain files; no nested Cargo workspace or lockfile
+│   ├── retained domain files; no nested product workspace or lockfile
 │   ├── fork.toml
 │   ├── UPSTREAM.md
 │   ├── crates/
@@ -136,7 +147,7 @@ Use this structure unless the existing destination has an equivalent established
 │   ├── tooling/
 │   └── ...
 └── framework/
-    ├── retained domain files; no nested Cargo workspace or lockfile
+    ├── retained domain files; no nested product workspace or lockfile
     ├── compatibility.toml
     ├── RELEASING.md
     ├── TESTING.md
@@ -152,6 +163,27 @@ Use this structure unless the existing destination has an equivalent established
 ```
 
 Do not flatten all crates into one `crates/` directory during the initial import.
+
+### Workspace boundary
+
+The root manifest is the only product workspace. Check nested workspace roots
+with:
+
+```bash
+find engine framework -name Cargo.toml -print0 \
+  | xargs -0 rg -l '^\[workspace\]' \
+  | sort
+```
+
+The only allowed results are the downstream app-manifest fixture and the
+WASM-only `hello_web` example. Check nested lockfiles with:
+
+```bash
+find engine framework -name Cargo.lock -print | sort
+```
+
+Only the downstream app-manifest fixture may retain a tracked lockfile. The
+WASM example ignores its generated lockfile and keeps its nightly config.
 
 Do not rename public crates merely to make paths look uniform.
 
@@ -716,6 +748,9 @@ python3 -m unittest discover -s framework/tooling/tests -p 'test_*.py'
 
 On Windows use the repository’s PowerShell/Python equivalents.
 
+Build framework documentation from `framework/docs` with `bun install
+--frozen-lockfile` and `bun run build`.
+
 ### Native Stage 1 matrix
 
 The required profiles remain:
@@ -895,7 +930,9 @@ The monorepo migration is complete only when all of the following are true.
 - framework lives under `framework/`
 - root instructions and navigation exist
 - one root Cargo workspace and lockfile exist
-- no nested Cargo workspace, Git repository, or submodule remains
+- no nested product workspace or lockfile remains; only the approved
+  downstream fixture and WASM-only `hello_web` workspace exceptions remain
+- no nested Git repository or submodule remains
 - no vendored copy of the old GPUI repository remains
 - obsolete sibling override instructions are removed or rewritten
 

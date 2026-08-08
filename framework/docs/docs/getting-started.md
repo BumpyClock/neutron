@@ -9,17 +9,17 @@ order: -2
 
 ## Installation
 
-Use the same immutable framework tag for every framework package. The framework
-owns GPUI selection, so this application does not declare GPUI directly.
+Use the root Neutron workspace for every framework package. The framework owns
+engine selection, so this application does not declare a separate engine.
 
 ```toml
 [dependencies]
-gpui-component-app = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
-gpui-component-assets = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
+gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-gpui-component-manifest = { git = "https://github.com/BumpyClock/gpui-component", tag = "v0.6.0" }
+gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 
 [package.metadata.gpui-app]
 app_id = "com.example.hello"
@@ -27,9 +27,8 @@ display_name = "Hello"
 categories = ["Development"]
 ```
 
-`v0.6.0` is the latest immutable framework tag. The current `0.7.0` source
-tree is not released, and registry consumption is blocked until exact GPUI fork
-packages are published. See [Compatibility](../COMPATIBILITY.md).
+The current `0.7.0` source tree is not released, and registry consumption is
+blocked until exact engine fork packages are published. See [Compatibility](../COMPATIBILITY.md).
 
 ## Quick Start
 

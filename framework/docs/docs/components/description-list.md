@@ -42,7 +42,7 @@ DescriptionList::new()
 // Horizontal layout (default)
 DescriptionList::horizontal()
     .item("Platform", "macOS, Windows, Linux", 1)
-    .item("Repository", "https://github.com/BumpyClock/gpui-component", 1)
+    .item("Repository", "https://github.com/BumpyClock/neutron", 1)
 
 // Vertical layout
 DescriptionList::vertical()
@@ -63,7 +63,7 @@ DescriptionList::new()
             .value("Full-featured UI components for desktop applications")
             .span(3), // Spans all 3 columns
         DescriptionItem::new("Repository")
-            .value("https://github.com/BumpyClock/gpui-component")
+            .value("https://github.com/BumpyClock/neutron")
             .span(2), // Spans 2 columns
     ])
 ```
@@ -152,7 +152,7 @@ DescriptionList::new()
         ).span(3),
 
         DescriptionItem::new("Repository").value(
-            "https://github.com/BumpyClock/gpui-component"
+            "https://github.com/BumpyClock/neutron"
         ).span(2),
         DescriptionItem::new("License").value("Apache-2.0").span(1),
 

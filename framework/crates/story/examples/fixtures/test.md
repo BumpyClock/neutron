@@ -1,6 +1,6 @@
 # Hello, **World**!
 
-Build Status [![Build Status](https://github.com/longbridge/gpui-component/actions/workflows/ci.yml/badge.svg)](https://github.com/longbridge/gpui-component/actions/workflows/ci.yml) of [GPUI Component](https://github.com/longbridge/gpui-component).
+Build status for [GPUI Component](https://github.com/BumpyClock/neutron).
 
 This is first paragraph, there have **BOLD**, _italic_, and ~strikethrough~, `code` text [^1] [^2].
 

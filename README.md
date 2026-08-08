@@ -9,11 +9,11 @@ Neutron is a Rust-native desktop application SDK. It combines a GPU-accelerated 
 - `MIGRATION.md` records immutable source and destination snapshot facts.
 - `AGENTS.md` defines repository policy. `CLAUDE.md` points to that policy.
 
-Engine crates must not depend on framework crates. Framework crates may depend on public engine crates through root-workspace path dependencies with exact versions.
+Engine crates must not depend on framework crates. Framework crates may depend on public engine crates through root-workspace path dependencies with exact versions. The root workspace is the product workspace. The app-manifest downstream fixture and the WASM-only `hello_web` example are isolated workspaces by design.
 
 ## Workspace commands
 
-Run commands from the repository root after the root workspace is available:
+Run commands from the repository root:
 
 ```sh
 cargo fmt --all -- --check
@@ -22,6 +22,8 @@ cargo check --locked --workspace --all-targets
 cargo test --locked --workspace --all-targets --features test-support
 cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings
 ```
+
+Build documentation from `framework/docs` with `bun install --frozen-lockfile` and `bun run build`.
 
 Use root scripts when present:
 

@@ -369,7 +369,7 @@ impl Render for SidebarStory {
                                             move |this, _, _| {
                                                 this.link(
                                                     "About",
-                                                    "https://github.com/longbridge/gpui-component",
+                                                    "https://github.com/BumpyClock/neutron",
                                                 )
                                             }
                                         })

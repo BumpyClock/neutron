@@ -2,7 +2,7 @@
 name = "gpui_macos"
 version = "0.1.0"
 rust-version = "1.95.0"
-repository = "https://github.com/BumpyClock/gpui"
+repository = "https://github.com/BumpyClock/neutron"
 description = "macOS platform backend for the standalone GPUI framework."
 readme = "README.md"
 edition.workspace = true

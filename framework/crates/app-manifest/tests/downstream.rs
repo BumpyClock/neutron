@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "process integration test must run a synchronous Cargo child"
+)]
+
 use std::process::Command;
 
 #[test]

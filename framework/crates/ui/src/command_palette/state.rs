@@ -8,7 +8,6 @@ use super::types::{
 };
 use crate::global_state::GlobalState;
 use gpui::{Context, EventEmitter, Task, Window};
-use smol::Timer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -137,7 +136,7 @@ impl CommandPaletteState {
 
         self._query_task = cx.spawn_in(window, async move |this, window| {
             if !query_delay.is_zero() {
-                Timer::after(query_delay).await;
+                window.background_executor().timer(query_delay).await;
             }
 
             if query_id.load(Ordering::SeqCst) != current_query_id {

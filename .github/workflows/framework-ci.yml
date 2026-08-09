@@ -15,6 +15,24 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    name: Rust 1.90 package checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          toolchain: 1.90.0
+      - name: Check engine-independent framework packages
+        run: >-
+          cargo check --locked
+          -p gpui-component-macros
+          -p gpui-component-manifest
+          -p gpui-component-storage
+          -p framework-xtask
+
   compile:
     name: Compile and lint
     strategy:

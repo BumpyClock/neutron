@@ -15,7 +15,6 @@ use gpui::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use smol::Timer;
 
 use crate::{
     ActiveTheme as _, Anchor, Edges, Icon, IconName, Sizable as _, StyledExt, TITLE_BAR_HEIGHT,
@@ -491,7 +490,7 @@ impl NotificationList {
         if autohide {
             // Sleep for 5 seconds to autohide the notification
             cx.spawn_in(window, async move |_, cx| {
-                Timer::after(Duration::from_secs(5)).await;
+                cx.background_executor().timer(Duration::from_secs(5)).await;
 
                 if let Err(err) =
                     notification.update_in(cx, |note, window, cx| note.dismiss(window, cx))

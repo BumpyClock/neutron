@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "process integration test must supervise synchronous child processes"
+)]
+
 //! Headless bootstrap test: drive the shell through the injected headless runner
 //! on the process main thread and assert the lifecycle fires end-to-end.
 //!
@@ -14,8 +19,7 @@
 //! still terminate solely by returning normally from `AppShellBuilder::run`.
 //!
 //! This requires the Stage 1 GPUI normal-return contract and runs against the
-//! canonical locked GPUI revision. Disposable sibling overrides are development
-//! aids, not acceptance evidence.
+//! engine source in the root workspace.
 
 use std::io::ErrorKind;
 use std::process::{Command, Stdio};

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "xtask is a synchronous command-line tool"
+)]
+
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use std::{

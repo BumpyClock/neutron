@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "process integration test must supervise synchronous child processes"
+)]
+
 //! Process-level single-writer concurrency test.
 //!
 //! Proves that two *separate processes* contending on one store produce a

@@ -168,9 +168,10 @@ impl CompletionProvider for ExampleLspStore {
         // Simulate to delay for fetching completions
         let rope = rope.clone();
         let items = self.completions.clone();
+        let delay = cx.background_executor().timer(Duration::from_millis(20));
         cx.background_spawn(async move {
             // Simulate a slow completion source, to test Editor async handling.
-            smol::Timer::after(Duration::from_millis(20)).await;
+            delay.await;
 
             if trigger_character.starts_with("/") {
                 let start = offset.saturating_sub(trigger_character.len());

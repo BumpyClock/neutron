@@ -2,7 +2,6 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement as _, IntoElement,
     ParentElement, Render, SharedString, Styled, Task, Window, div,
 };
-use smol::Timer;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -225,10 +224,11 @@ impl CommandPaletteProvider for AsyncDemoProvider {
         }
 
         let query = query.to_lowercase();
+        let delay = cx.background_executor().timer(Duration::from_millis(200));
 
         cx.background_spawn(async move {
             // Simulate async search delay
-            Timer::after(Duration::from_millis(200)).await;
+            delay.await;
 
             // Simulate searching files/resources
             let mut results = Vec::new();

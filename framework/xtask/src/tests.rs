@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "xtask tests run synchronous child commands"
+)]
+
 use super::*;
 use std::fs;
 use tempfile::TempDir;
@@ -61,15 +66,13 @@ notes = "fixture"
     .unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        format!(
-            r#"
+        r#"
 [workspace]
 resolver = "3"
 members = ["engine/crates/gpui", "framework/example"]
 [workspace.dependencies]
-gpui = {{ package = "bumpyclock-gpui", version = "=0.7.0", path = "engine/crates/gpui" }}
-"#
-        ),
+gpui = { package = "bumpyclock-gpui", version = "=0.7.0", path = "engine/crates/gpui" }
+"#,
     )
     .unwrap();
     fs::write(
@@ -96,8 +99,7 @@ edition = "2024"
     .unwrap();
     fs::write(
         root.join("Cargo.lock"),
-        format!(
-            r#"
+        r#"
 version = 4
 [[package]]
 name = "bumpyclock-gpui"
@@ -106,8 +108,7 @@ version = "0.7.0"
 name = "example"
 version = "0.1.0"
 dependencies = ["bumpyclock-gpui"]
-"#
-        ),
+"#,
     )
     .unwrap();
     fs::write(

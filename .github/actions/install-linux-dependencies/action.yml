@@ -8,12 +8,20 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
+          gcc \
+          g++ \
           clang \
           pkg-config \
+          ripgrep \
           libfontconfig-dev \
           libfreetype-dev \
+          libglib2.0-dev \
+          libssl-dev \
+          libwebkit2gtk-4.1-dev \
           mesa-vulkan-drivers \
+          libvulkan1 \
           libvulkan-dev \
+          libzstd-dev \
           libxkbcommon-dev \
           libxkbcommon-x11-dev \
           libwayland-dev \
@@ -27,6 +35,6 @@ runs:
           libxcb-sync-dev \
           libxcb-render0-dev \
           libxcb-present-dev \
+          vulkan-validationlayers \
           xauth \
           xvfb
-

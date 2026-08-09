@@ -20,12 +20,13 @@ use anyhow::{Context as _, Result};
 use itertools::Either;
 use paths::PathExt;
 use regex::Regex;
+#[cfg(unix)]
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::{
     borrow::Cow,
     cmp::{self, Ordering},
-    env,
     ops::{Range, RangeInclusive},
 };
 use unicase::UniCase;

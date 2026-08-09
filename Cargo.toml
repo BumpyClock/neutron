@@ -136,7 +136,6 @@ blade-macros = { git = "https://github.com/kvark/blade", rev = "e3cf011ca18a6dfd
 blade-util = { git = "https://github.com/kvark/blade", rev = "e3cf011ca18a6dfd907d1dedd93e85e21f005fe3" }
 bytes = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-circular-buffer = "1.0"
 cocoa = "=0.26.0"
 cocoa-foundation = "=0.2.0"
 core-foundation = "=0.10.0"

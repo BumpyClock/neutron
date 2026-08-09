@@ -96,6 +96,7 @@ jobs:
           mode: record
       - name: Test bounded Windows Job Object supervision
         shell: pwsh
+        working-directory: framework
         run: python -m unittest tooling.test_stage1_process_integration
       - name: Run headless lifecycle integration
         shell: pwsh
@@ -455,7 +456,7 @@ jobs:
           export VK_ICD_FILENAMES="$lavapipe_icd"
 
           export GPUI_STAGE1_ARTIFACT_DIR="$artifact_dir"
-          export GPUI_STAGE1_BINARY="target/debug/gpui-component-conformance"
+          export GPUI_STAGE1_BINARY="$GITHUB_WORKSPACE/target/debug/gpui-component-conformance"
           export GPUI_STAGE1_VALIDATION_PROFILE="linux-x11-lavapipe"
           python3 framework/tooling/stage1_service_harness.py \
             --timeout-seconds 900 \

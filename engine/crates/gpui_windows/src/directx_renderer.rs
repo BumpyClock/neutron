@@ -122,9 +122,11 @@ struct DirectXResources {
 
 struct BackdropBlurResources {
     level_sizes: Vec<(u32, u32)>,
+    #[allow(dead_code)]
     downsample_textures: Vec<ID3D11Texture2D>,
     downsample_views: Vec<Option<ID3D11RenderTargetView>>,
     downsample_srvs: Vec<Option<ID3D11ShaderResourceView>>,
+    #[allow(dead_code)]
     upsample_textures: Vec<ID3D11Texture2D>,
     upsample_views: Vec<Option<ID3D11RenderTargetView>>,
     upsample_srvs: Vec<Option<ID3D11ShaderResourceView>>,

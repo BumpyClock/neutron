@@ -78,7 +78,7 @@ jobs:
           # --locked for reproducibility; no `|| echo` mask — a failed install
           # must fail the step, not surface later as `typos: command not found`.
           which typos >/dev/null 2>&1 || cargo install typos-cli --locked
-          typos
+          typos framework
       - name: Lint (macOS)
         if: ${{ matrix.run_on == 'macos-latest' }}
         run: cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings

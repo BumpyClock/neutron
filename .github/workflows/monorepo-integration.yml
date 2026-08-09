@@ -39,8 +39,11 @@ jobs:
           actual_workspaces="$(find engine framework -name Cargo.toml -print0 | xargs -0 rg -l '^\[workspace\]' | sort)"
           expected_workspaces=$'engine/crates/gpui_web/examples/hello_web/Cargo.toml\nframework/crates/app-manifest/tests/fixtures/downstream-app/Cargo.toml'
           test "$actual_workspaces" = "$expected_workspaces"
-          actual_locks="$(find engine framework -name Cargo.lock -print | sort)"
-          test "$actual_locks" = framework/crates/app-manifest/tests/fixtures/downstream-app/Cargo.lock
+          actual_locks="$(git ls-files -- 'engine/**/Cargo.lock' 'framework/**/Cargo.lock' | sort)"
+          case "$actual_locks" in
+            ''|framework/crates/app-manifest/tests/fixtures/downstream-app/Cargo.lock) ;;
+            *) exit 1 ;;
+          esac
       - name: Reject stale framework engine pins
         shell: bash
         run: |

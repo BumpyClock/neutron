@@ -176,10 +176,10 @@ find engine framework -name Cargo.toml -print0 \
 ```
 
 The only allowed results are the downstream app-manifest fixture and the
-WASM-only `hello_web` example. Check nested lockfiles with:
+WASM-only `hello_web` example. Check nested tracked lockfiles with:
 
 ```bash
-find engine framework -name Cargo.lock -print | sort
+git ls-files -- 'engine/**/Cargo.lock' 'framework/**/Cargo.lock' | sort
 ```
 
 Only the downstream app-manifest fixture may retain a tracked lockfile. The

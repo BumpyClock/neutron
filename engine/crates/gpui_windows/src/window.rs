@@ -1034,7 +1034,7 @@ impl PlatformWindow for WindowsWindow {
             .spawn(async move {
                 unsafe {
                     let current_ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-                    let transparent_flag = WS_EX_TRANSPARENT.0 as u32;
+                    let transparent_flag = WS_EX_TRANSPARENT.0;
                     let updated_ex_style = match input_mode {
                         OverlayInputMode::Interactive => current_ex_style & !transparent_flag,
                         OverlayInputMode::ClickThrough => current_ex_style | transparent_flag,

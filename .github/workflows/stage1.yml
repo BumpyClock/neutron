@@ -442,7 +442,7 @@ jobs:
             --log "$artifact_dir/focused-contracts.watchdog.log" \
             -- cargo test --locked -p gpui-component stage1_contract_
       - name: Build native conformance runner
-        run: cargo build --locked -p gpui-component-conformance
+        run: cargo build --locked -p gpui-component-conformance -p gpui_platform --no-default-features --features gpui_platform/x11
       - name: Run and validate native scenarios
         shell: bash
         run: |

@@ -1,62 +1,65 @@
 ---
 name: update-gpui
-description: Update all immutable GPUI Git pins and compatibility metadata. Use when asked to update, bump, or upgrade GPUI.
+description: Update local engine dependencies, fork provenance, and compatibility metadata in the Neutron monorepo.
 user_invocable: true
 ---
 
 ## Instructions
 
-Update GPUI only from a reviewed, supplied full 40-character commit hash. Do
-not select a moving ref.
+Neutron has one Git monorepo and one Cargo workspace. Use exact local engine
+paths and package versions. Never add engine Git pins or sibling checkouts.
 
 ### Steps
 
-1. Confirm target hash is exactly 40 lowercase hexadecimal characters and
-   record current hash and package versions from root `Cargo.toml`.
+1. Start at the repository root. Record engine package names, exact versions,
+   `engine/fork.toml`, and `framework/compatibility.toml`. Use an owner-approved
+   Zed commit for upstream syncs. Do not select a moving ref.
 
-2. Update every `https://github.com/BumpyClock/gpui` dependency declaration in
-   committed manifests. Keep each declaration's package alias and features, and
-   set both its `rev` and exact `version = "=X.Y.Z"`. This currently includes
-   `gpui` (`package = "bumpyclock-gpui"`), `gpui_platform`, `gpui-macros`
-   (`package = "gpui_macros"`), and `sum-tree` (`package = "sum_tree"`).
-   Search all `Cargo.toml` files; do not leave a GPUI-family package on a
-   previous revision.
+2. Update framework dependencies in the root workspace manifest. Keep aliases,
+   Rust import names, and features. Use a root-relative path and exact version:
 
-3. Update `[gpui]` and every `[[gpui.packages]]` entry in
-   `compatibility.toml` with same revision and exact package versions.
-   Regenerate and verify derived document:
-
-   ```bash
-   cargo xtask compatibility generate
-   cargo xtask compatibility check
+   ```toml
+   gpui = { package = "bumpyclock-gpui", path = "engine/crates/gpui", version = "=0.1.0" }
+   gpui_platform = { path = "engine/crates/gpui_platform", version = "=0.1.0" }
+   gpui-macros = { package = "gpui_macros", path = "engine/crates/gpui_macros", version = "=0.1.0" }
+   sum-tree = { package = "sum_tree", path = "engine/crates/sum_tree", version = "=0.1.0" }
    ```
 
-4. For coordinated source testing only, a sibling GPUI checkout may be wired
-   through an uncommitted `.cargo/config.toml` patch. Patch the actual packages
-   `bumpyclock-gpui`, `gpui_platform`, `gpui_macros`, and `sum_tree`; add
-   further resolved GPUI packages when needed. The committed manifest's
-   package identity must already match the checkout. Remove the override
-   before release checks. Never place it in a committed manifest or config.
+   Use checkout versions. Reject old engine Git dependencies and floating
+   revisions in tracked manifests.
 
-5. Build, test, and check release plan:
+3. Update provenance metadata. Keep the audited Zed base and patch clusters in
+   `engine/fork.toml`. Keep `engine_path = "engine"` and exact engine package
+   versions in `framework/compatibility.toml`. Do not store current Neutron HEAD
+   in tracked compatibility metadata.
+
+4. Run root checks after dependency or provenance changes:
 
    ```bash
    cargo fmt --all -- --check
-   cargo metadata --locked
-   cargo check --workspace --all-targets --locked
-   cargo test --workspace --all-targets --locked
-   ./script/clippy --locked
-   cargo xtask publish-plan
-   cargo xtask release-check
+   cargo metadata --locked --format-version 1
+   cargo check --locked --workspace --all-targets
+   cargo test --locked --workspace --all-targets --features test-support
+   cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings
+   cargo run --locked -p engine-xtask -- fork validate
+   cargo run --locked -p engine-xtask -- publish-plan
+   cargo run --locked -p framework-xtask -- compatibility generate
+   cargo run --locked -p framework-xtask -- compatibility check
+   cargo run --locked -p framework-xtask -- publish-plan
+   cargo run --locked -p framework-xtask -- release-check
    ```
 
-6. Report old/new revision, package versions, compatibility result, and
-   validation results. Version selection, tag creation, and publication need
-   separate owner authorization.
+5. Run Stage 1 on one exact final commit for runtime or release evidence.
+   Retain every `source-manifest.json` and `source-verification.json` artifact.
+   Acceptance must match `BumpyClock/neutron`, `github.sha`, `HEAD`, and
+   `HEAD^{tree}`. Verify repository, workflow-run, and required file digests.
+   Repeat Stage 1 after any later source commit and report versions, fork base,
+   compatibility results, and evidence paths. Require owner authorization for
+   versions, identities, publication, tags, and pushes because release checks do
+   not publish or create releases automatically.
 
 ### Notes
 
-- Committed GPUI dependencies use only canonical Git URL, full immutable
-  revision, and exact version.
-- Repository has no GPUI submodule. Local sibling source is a temporary,
-  uncommitted development override only.
+- Engine upstream provenance belongs in `engine/fork.toml`.
+- Stage 1 evidence identifies the exact monorepo commit and tree.
+- Do not commit temporary `.cargo/config.toml` patches.

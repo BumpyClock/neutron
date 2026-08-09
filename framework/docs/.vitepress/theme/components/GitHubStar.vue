@@ -1,6 +1,6 @@
 <template>
     <a
-        href="https://github.com/longbridge/gpui-component"
+        href="https://github.com/BumpyClock/neutron"
         target="_blank"
         rel="noopener noreferrer"
         class="github-star-button"

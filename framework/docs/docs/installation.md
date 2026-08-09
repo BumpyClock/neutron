@@ -44,8 +44,12 @@ Install Linux system dependencies with `framework/script/install-linux.sh`.
 
 Make sure Rust and Cargo are installed.
 
-- Rust 1.90 or later
+- Rust 1.95.0 or later
 - Cargo (comes with Rust)
+
+The engine-independent `gpui-component-manifest`, `gpui-component-storage`,
+`gpui-component-macros`, and `framework-xtask` packages retain Rust 1.90 as
+their MSRV.
 
 Add GPUI Component from the root workspace:
 

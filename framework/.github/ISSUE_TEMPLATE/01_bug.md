@@ -7,13 +7,15 @@ assignees:
 
 ## Description
 
-Use English with clear and concise description of the bug, if you just have a question or need help, please submit to [Discussions](https://github.com/BumpyClock/gpui-component/discussions/categories/q-a).
+Describe the problem and its effect. Use [Discussions](https://github.com/BumpyClock/neutron/discussions) for questions.
 
 ## Environment
 
-- GPUI: [e.g., bumpyclock-gpui =0.1.0, commit 67c20f3ae1046aa873591ff4b44953b53df37bc4]
-- GPUI Component: [e.g., v0.4.0]
-- Platform: [e.g., macOS 26, Windows 11, Ubuntu 20.04]
+- Neutron commit or tag:
+- Engine package versions:
+- Framework package versions:
+- Operating system and version:
+- Window system and renderer:
 
 ## Steps to Reproduce
 

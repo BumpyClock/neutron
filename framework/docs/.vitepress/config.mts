@@ -66,9 +66,9 @@ const config: UserConfig = {
         |
         <a href="/gpui-component/llms-full.txt" target="_blank">llms-full.txt</a>
         |
-        <a href="https://github.com/longbridge/gpui-component/issues" target="_blank">Report Bug</a>
+        <a href="https://github.com/BumpyClock/neutron/issues" target="_blank">Report Bug</a>
         |
-        <a href="https://github.com/longbridge/gpui-component/discussions" target="_blank">Discussion</a>
+        <a href="https://github.com/BumpyClock/neutron/discussions" target="_blank">Discussion</a>
         <br />
         Icon resources are used <a href="https://lucide.dev" target="_blank">Lucide</a>,
         <a href="https://isocons.app" target="_blank">Isocons</a>.
@@ -89,15 +89,15 @@ const config: UserConfig = {
           },
           {
             text: "Releases",
-            link: "https://github.com/longbridge/gpui-component/releases",
+            link: "https://github.com/BumpyClock/neutron/releases",
           },
           {
             text: "Issues",
-            link: "https://github.com/longbridge/gpui-component/issues",
+            link: "https://github.com/BumpyClock/neutron/issues",
           },
           {
             text: "Discussion",
-            link: "https://github.com/longbridge/gpui-component/discussions",
+            link: "https://github.com/BumpyClock/neutron/discussions",
           },
         ],
       },
@@ -111,7 +111,7 @@ const config: UserConfig = {
     socialLinks: null,
     editLink: {
       pattern:
-        "https://github.com/longbridge/gpui-component/edit/main/docs/:path",
+        "https://github.com/BumpyClock/neutron/edit/main/framework/docs/:path",
     },
     search: {
       provider: "local",

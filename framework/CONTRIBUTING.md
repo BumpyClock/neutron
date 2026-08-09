@@ -93,30 +93,50 @@ samply record cargo run
 
 Use `samply record` command to start rust development, and do some operations in the app that you want to profile, then stop the terminal with `ctrl-c`, then samply will open the browser to show the profile results.
 
-## Release crates version
+## Release the framework domain
 
-When we are ready to release a new version, please follow the steps below:
+Neutron is one Git monorepo and one Cargo workspace. Framework and engine
+versions remain independent. Framework engine dependencies must use local
+`engine/crates/...` paths with exact package versions.
 
-### Use the script to bump the version(Recommended)
+The root release workflow accepts `framework-vX.Y.Z` and `engine-vX.Y.Z` tags.
+It validates release readiness only. It does not publish crates or create a
+GitHub release automatically.
 
-```bash
-./script/bump-version.sh x.y.z
-```
+### Release the framework
 
-### Manually bump the version
-
-1. Run `cargo set-version` to set the new version for all crates.
-
-   ```bash
-   cargo set-version x.y.z
-   ```
-
-2. Git Commit the changes with message `Bump vx.y.z`.
-3. Create a new git tag with the version `vx.y.z` and push `main` branch and the tag to remote.
+1. Obtain explicit owner authorization for the version and registry identities.
+2. Create the version commit from the repository root:
 
    ```bash
-   git tag vx.y.z
-   git push origin vx.y.z
+   ./framework/script/bump-version.sh x.y.z
    ```
 
-4. Then GitHub Actions will automatically publish the crates to crates.io and create a new release in GitHub.
+   The script updates only framework versions and compatibility files. It
+   creates one local commit. It does not create a tag, push, or publish.
+3. Run the root checks on the version commit:
+
+   ```bash
+   cargo run --locked -p engine-xtask -- fork validate
+   cargo run --locked -p framework-xtask -- compatibility check
+   cargo run --locked -p engine-xtask -- publish-plan
+   cargo run --locked -p framework-xtask -- publish-plan
+   cargo run --locked -p framework-xtask -- release-check
+   ```
+
+4. Run Stage 1 on the final source commit when release evidence is required.
+   Retain all seven job artifacts and verify each `source-manifest.json` and
+   `source-verification.json` against `BumpyClock/neutron`, `github.sha`,
+   `HEAD`, and `HEAD^{tree}`. Old evidence does not prove a new commit.
+5. After acceptance, create and push the immutable tag with separate owner
+   authorization. Make no source commit after accepted Stage 1 evidence. Wait
+   for tag-triggered Stage 1 and release validation before publication.
+
+   ```bash
+   git tag framework-vx.y.z
+   git push origin main framework-vx.y.z
+   ```
+
+Use the root workspace package plan for manual publication. Publish approved
+engine packages before approved framework packages. Never replace a published
+version or move a release tag.

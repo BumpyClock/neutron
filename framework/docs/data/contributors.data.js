@@ -1,6 +1,6 @@
 const IGNORE_LOGINS = ["dependabot[bot]", "copilot"];
 const API_URL =
-  "https://api.github.com/repos/BumpyClock/gpui-component/contributors";
+  "https://api.github.com/repos/BumpyClock/neutron/contributors";
 
 export default {
   async load() {

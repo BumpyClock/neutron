@@ -149,7 +149,7 @@ fn main() {
     let result = match command.as_str() {
         "fork" => match args.next().as_deref() {
             Some("validate") => validate_fork(&root),
-            _ => Err("usage: cargo run -p xtask -- fork validate".into()),
+            _ => Err("usage: cargo run --locked -p engine-xtask -- fork validate".into()),
         },
         "publish-plan" => publish_plan(&root),
         "release-check" => release_check(&root, args.any(|arg| arg == "--require-registry")),
@@ -163,7 +163,7 @@ fn main() {
 
 fn usage(code: i32) -> ! {
     eprintln!(
-        "usage: cargo run -p xtask -- <fork validate|publish-plan|release-check [--require-registry]>"
+        "usage: cargo run --locked -p engine-xtask -- <fork validate|publish-plan|release-check [--require-registry]>"
     );
     std::process::exit(code);
 }

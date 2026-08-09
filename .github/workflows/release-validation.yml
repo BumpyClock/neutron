@@ -1,0 +1,41 @@
+name: Release validation
+
+on:
+  push:
+    tags: ["engine-v*", "framework-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-validation:
+    name: Validate release report
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: ./.github/actions/install-linux-dependencies
+      - name: Validate release readiness report
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          ./script/release-check > release-validation.log 2>&1
+          status=$?
+          set -e
+          cat release-validation.log
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          rg -q 'root \[patch\.crates-io\]|identity selection blocked|not published' release-validation.log
+      - name: Upload release validation report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-validation-report
+          path: release-validation.log
+          if-no-files-found: warn

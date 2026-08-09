@@ -1,0 +1,51 @@
+name: Monorepo integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  monorepo-integration:
+    name: Monorepo integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        with:
+          components: rustfmt, clippy
+      - uses: ./.github/actions/install-linux-dependencies
+      - name: Validate root workspace identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Cargo.toml
+          test -f Cargo.lock
+          test -f engine/fork.toml
+          test -f framework/compatibility.toml
+          test -f .github/workflows/stage1.yml
+          test "$(git rev-parse --show-toplevel)" = "$GITHUB_WORKSPACE"
+          cargo metadata --locked --format-version 1 > metadata.json
+      - name: Validate allowed nested workspaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_workspaces="$(find engine framework -name Cargo.toml -print0 | xargs -0 rg -l '^\[workspace\]' | sort)"
+          expected_workspaces=$'engine/crates/gpui_web/examples/hello_web/Cargo.toml\nframework/crates/app-manifest/tests/fixtures/downstream-app/Cargo.toml'
+          test "$actual_workspaces" = "$expected_workspaces"
+          actual_locks="$(find engine framework -name Cargo.lock -print | sort)"
+          test "$actual_locks" = framework/crates/app-manifest/tests/fixtures/downstream-app/Cargo.lock
+      - name: Reject stale framework engine pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! rg -n 'git\s*=\s*"https://github\.com/BumpyClock/gpui' framework --glob 'Cargo.toml'
+          ! rg -n 'rev\s*=\s*"[0-9a-f]{40}"' framework --glob 'Cargo.toml'
+      - name: Validate framework path dependency contract
+        run: cargo run --locked -p framework-xtask -- compatibility check

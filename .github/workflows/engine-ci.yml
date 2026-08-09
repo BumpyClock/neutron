@@ -1,0 +1,133 @@
+name: Engine CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Quality and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-dependencies
+      - run: cargo fmt --all -- --check
+      - run: cargo metadata --locked --format-version 1 > /dev/null
+      - run: cargo test --locked -p engine-xtask
+      - run: cargo run --locked -p engine-xtask -- fork validate
+      - run: cargo run --locked -p engine-xtask -- publish-plan
+      - run: cargo check --locked --workspace --all-targets
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings
+      - run: cargo test --locked -p scheduler
+      - run: cargo test --locked -p bumpyclock-gpui --features bench,profiler --lib
+      - name: Test release-only accessibility duplicate handling
+        run: cargo test --locked --release -p bumpyclock-gpui --features test-support duplicate_id
+      - run: cargo test --locked -p gpui_wgpu --lib
+      - run: cargo check --locked -p bumpyclock-gpui --examples
+      - run: cargo check --locked -p bumpyclock-gpui --features bench --benches
+      - run: cargo check --locked -p gpui_wgpu --benches
+
+  native-platform:
+    name: Native platform (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - name: Ensure Metal toolchain is available
+        if: runner.os == 'macOS'
+        run: |
+          if ! xcrun -f metal > /dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -f metal
+      - run: cargo check --locked --workspace --all-targets
+      - name: Test macOS platform
+        if: runner.os == 'macOS'
+        run: cargo test --locked -p gpui_macos --all-features --all-targets
+      - name: Test Windows platform
+        if: runner.os == 'Windows'
+        run: cargo test --locked -p gpui_windows --all-features --all-targets
+      - name: Compile Windows shaders in release mode
+        if: runner.os == 'Windows'
+        run: cargo check --locked -p gpui_windows --release
+
+  linux-backend:
+    name: Linux (${{ matrix.backend }})
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [wayland, x11]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BACKEND: ${{ matrix.backend }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: linux-${{ matrix.backend }}
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-dependencies
+      - run: cargo check --locked -p gpui_platform --no-default-features --features "$BACKEND" --all-targets
+      - run: cargo test --locked -p gpui_linux --no-default-features --features "$BACKEND,test-support" --lib
+      - name: Test X11 buffered events after checked requests
+        if: matrix.backend == 'x11'
+        run: >-
+          xvfb-run -a cargo test --locked -p gpui_linux --no-default-features
+          --features x11,test-support --lib
+          linux::x11::client::tests::checked_map_request_leaves_buffered_event_drainable_without_fd_readiness
+          -- --ignored --exact
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: wasm
+      - run: cargo +nightly -Zbuild-std=std,panic_abort check --locked --target wasm32-unknown-unknown -p gpui_platform
+      - run: cargo +nightly -Zbuild-std=std,panic_abort check --locked --target wasm32-unknown-unknown -p bumpyclock-gpui --example a11y --example view_example
+

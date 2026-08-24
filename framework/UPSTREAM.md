@@ -170,9 +170,9 @@ its one-use builder contract. `Select::empty_with` rebuilds reusable custom empt
 
 ## Validation and evidence limits
 
-The current worktree passed engine-first unit, workspace, strict Clippy, doctest, compatibility,
-headless, framework, story-build, documentation, and macOS native checks. See `TESTING.md` for
-evidence levels.
+The 2026-08 validation run passed engine-first unit, workspace, strict Clippy, doctest,
+compatibility, headless, framework, story-build, documentation, and macOS native checks. See
+`TESTING.md` for evidence levels.
 
 `framework-xtask compatibility check` validates Longbridge identity format. It validates exact
 object types, documented tree identities, the direct target parent, and accepted-reference
@@ -180,14 +180,15 @@ ancestry. It also validates excluded-reference ancestry. These object checks use
 `/tmp/longbridge-gpui-component` without a network fetch. Without that checkout, the check reports
 a warning and cannot prove object existence.
 
-The current worktree is dirty and has no final destination commit or tree. Validation proves the
-current semantic adaptations. It does not prove byte identity with Longbridge. Exact-source Stage 1
-evidence cannot identify this worktree until an owner-approved commit exists.
+The 2026-08 validation run used a checkout without a final destination commit or tree. The run
+proves the semantic adaptations that it exercised. It does not prove byte identity with Longbridge.
+Exact-source Stage 1 acceptance had not run for that validation, so the run does not provide
+exact-source evidence.
 
 Windows native runtime, Linux X11 runtime, Linux Wayland runtime, and browser runtime did not run
 locally. Stable WASM stops at `wasm_thread` 0.3.3. Linux musl stops because its C and C++ cross
-compilers are absent. All six macOS scenarios passed source-blind validation. The current story
-binary also presented an on-screen 1324 by 856 AppKit window.
+compilers are absent. All six macOS scenarios passed source-blind validation. The story binary from
+that run also presented an on-screen 1324 by 856 AppKit window.
 
 ## Next audit
 

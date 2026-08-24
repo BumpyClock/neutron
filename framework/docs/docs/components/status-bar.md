@@ -41,7 +41,7 @@ StatusBar::new()
         Button::new("branch")
             .ghost()
             .xsmall()
-            .icon(IconName::Github)
+            .icon(IconName::GitHub)
             .label("main")
             .on_click(|_, window, cx| {
                 window.push_notification("Switch branch", cx);

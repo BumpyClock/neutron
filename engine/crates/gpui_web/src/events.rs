@@ -472,11 +472,15 @@ impl WebWindowInner {
 
             if modifiers.is_subset_of(&Modifiers::shift()) {
                 if let Some(text) = key_char {
-                    this.with_input_handler(|handler| {
-                        handler.replace_text_in_range(None, &text);
-                    });
-                    // The input handler consumed this character. Prevent duplicate browser behavior.
-                    event.prevent_default();
+                    if this
+                        .with_input_handler(|handler| {
+                            handler.replace_text_in_range(None, &text);
+                        })
+                        .is_some()
+                    {
+                        // The input handler consumed this character. Prevent duplicate browser behavior.
+                        event.prevent_default();
+                    }
                 }
             }
         })

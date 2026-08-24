@@ -175,7 +175,7 @@ atomics enabled.
 
 ## Verification for the 2026-08 target
 
-The current macOS worktree passed:
+The 2026-08 macOS validation run passed:
 
 - `cargo fmt --all -- --check`
 - `cargo metadata --locked --format-version 1`
@@ -196,7 +196,9 @@ The current macOS worktree passed:
 - `bun install --frozen-lockfile && bun run build` in `framework/docs`
 - `cargo run --locked -p framework-xtask -- release-check`
 
-This worktree has no immutable commit identity. Exact-source Stage 1 evidence cannot refer to it.
+At the time of the 2026-08 validation run, the checkout had no immutable commit identity.
+Exact-source Stage 1 acceptance had not run for that validation, so the results do not identify a
+source commit.
 The component story app built and launched from the validated binary. macOS window inventory
 reported its 1324 by 856 AppKit window on screen. Native conformance recorded backend-accepted
 presentation through the Apple M5 Max Metal hardware adapter. All six native macOS scenarios passed

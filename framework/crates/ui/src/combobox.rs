@@ -315,7 +315,7 @@ where
     ///
     /// Values are resolved through the current delegate. Values that cannot be resolved are
     /// ignored. This updates the committed selection and snapshot without emitting a
-    /// [`ComboboxEvent`].
+    /// [`ComboboxEvent`]. Single-select mode keeps the first resolved value.
     pub fn set_selected_values(
         &mut self,
         values: &[<D::Item as SearchableListItem>::Value],
@@ -335,7 +335,7 @@ where
         self.set_selected_indices(selected_indices, window, cx);
     }
 
-    /// Replace the entire selection set.
+    /// Replace the entire selection set. Single-select mode keeps the first valid index.
     pub fn set_selected_indices(
         &mut self,
         indices: impl IntoIterator<Item = IndexPath>,
@@ -343,15 +343,47 @@ where
         cx: &mut Context<Self>,
     ) {
         self.state.set_selected_indices(indices, cx);
+        if !self.multiple {
+            self.state.selection.truncate(1);
+        }
         self.state.sync_snapshot(cx);
         cx.notify();
     }
 
     /// Add a single index to the selection, if not already present, returning whether it was added.
+    /// In single-select mode, a new index replaces the current selection.
     pub fn add_selected_index(&mut self, index: IndexPath, cx: &mut Context<Self>) -> bool {
-        let added = self.state.add_selected_index(index, cx);
+        let (added, changed) = if self.multiple {
+            let added = self.state.add_selected_index(index, cx);
+            (added, added)
+        } else {
+            let already_selected = self
+                .state
+                .selection
+                .iter()
+                .any(|(selected_index, _)| *selected_index == index);
+            let item = self
+                .state
+                .list
+                .read(cx)
+                .delegate()
+                .delegate
+                .item(index)
+                .cloned();
 
-        if added {
+            let Some(item) = item else {
+                return false;
+            };
+
+            if self.state.selection.len() == 1 && already_selected {
+                return false;
+            }
+
+            self.state.selection = vec![(index, item)];
+            (!already_selected, true)
+        };
+
+        if changed {
             self.state.sync_snapshot(cx);
             cx.notify();
         }
@@ -1042,10 +1074,7 @@ where
             this.check_icon = opts.check_icon;
             this.render_trigger = render_trigger;
             this.footer = footer;
-
-            if let Some(empty) = empty {
-                this.state.empty = Some(empty);
-            }
+            this.state.empty = empty;
         });
 
         let is_open = self.state.read(cx).state.open;
@@ -1205,8 +1234,8 @@ mod tests {
     use gpui::{
         AppContext as _, Bounds, ClickEvent, Context, Entity, Focusable as _,
         InteractiveElement as _, IntoElement, Modifiers, MouseButton, MouseDownEvent,
-        ParentElement as _, Pixels, Point, Render, Role, SharedString, Subscription,
-        TestAppContext, VisualTestContext, Window, div, point, px, size,
+        ParentElement as _, Pixels, Point, Render, RenderOnce as _, Role, SharedString,
+        Subscription, TestAppContext, VisualTestContext, Window, div, point, px, size,
     };
 
     use crate::{
@@ -1666,6 +1695,51 @@ mod tests {
         cx.update(|window, cx| {
             state.update(cx, |state, cx| {
                 state.set_selected_values(&["React", "Vue"], window, cx);
+            });
+        });
+
+        cx.update(|_, cx| {
+            assert_eq!(collector.read(cx).event_count.get(), 0);
+        });
+    }
+
+    #[gpui::test]
+    fn test_single_combo_box_setters_keep_one_selection(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let state = cx.update(|window, cx| {
+            let items = SearchableVec::new(vec!["Rust", "Go", "C++"]);
+            cx.new(|cx| ComboboxState::new(items, vec![], window, cx))
+        });
+        let collector = cx.update(|_, cx| cx.new(|cx| TestComboboxEventCollector::new(&state, cx)));
+
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.set_selected_indices([IndexPath::new(0), IndexPath::new(1)], window, cx);
+                assert_eq!(state.selected_values(), vec!["Rust"]);
+                assert_eq!(
+                    state
+                        .state
+                        .list
+                        .read(cx)
+                        .delegate()
+                        .selection_snapshot
+                        .as_slice(),
+                    state.selection(),
+                );
+
+                state.set_selected_values(&["C++", "Go"], window, cx);
+                assert_eq!(state.selected_values(), vec!["C++"]);
+                assert_eq!(
+                    state
+                        .state
+                        .list
+                        .read(cx)
+                        .delegate()
+                        .selection_snapshot
+                        .as_slice(),
+                    state.selection(),
+                );
             });
         });
 
@@ -2331,19 +2405,52 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_single_combo_box_mode(cx: &mut TestAppContext) {
+    fn test_single_combo_box_add_replaces_selection(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let state = cx.update(|window, cx| {
+            let items = SearchableVec::new(vec!["Rust", "Go", "C++"]);
+            cx.new(|cx| ComboboxState::new(items, vec![], window, cx))
+        });
+        let collector = cx.update(|_, cx| cx.new(|cx| TestComboboxEventCollector::new(&state, cx)));
+
+        cx.update(|_, cx| {
+            // Default mode is Single.
+            assert!(state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(0), cx)));
+            assert_eq!(state.read(cx).selected_values(), &["Rust"]);
+
+            assert!(state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(1), cx)));
+            assert!(!state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(1), cx)));
+            assert!(!state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(99), cx)));
+            assert_eq!(state.read(cx).selected_values(), &["Go"]);
+            assert_eq!(
+                state
+                    .read(cx)
+                    .state
+                    .list
+                    .read(cx)
+                    .delegate()
+                    .selection_snapshot
+                    .as_slice(),
+                state.read(cx).selection(),
+            );
+            assert_eq!(collector.read(cx).event_count.get(), 0);
+        });
+    }
+
+    #[gpui::test]
+    fn test_combobox_render_clears_omitted_empty_builder(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let cx = cx.add_empty_window();
         cx.update(|window, cx| {
-            let items = SearchableVec::new(vec!["Rust", "Go", "C++"]);
-            let state = cx.new(|cx| ComboboxState::new(items, vec![], window, cx));
+            let state = cx
+                .new(|cx| ComboboxState::new(SearchableVec::new(vec!["Rust"]), vec![], window, cx));
 
-            // Default mode is Single.
-            state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(0), cx));
-            assert_eq!(state.read(cx).selected_values(), &["Rust"]);
+            _ = Combobox::new(&state).empty(|_, _| div()).render(window, cx);
+            assert!(state.read(cx).state.empty.is_some());
 
-            state.update(cx, |s, cx| s.add_selected_index(IndexPath::new(1), cx));
-            assert_eq!(state.read(cx).selected_values(), &["Rust", "Go"]);
+            _ = Combobox::new(&state).render(window, cx);
+            assert!(state.read(cx).state.empty.is_none());
         });
     }
 

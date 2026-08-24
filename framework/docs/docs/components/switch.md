@@ -283,9 +283,13 @@ Switch::new("custom")
 
 ## Animation
 
-The switch features smooth animations:
+The thumb uses a stateful, retargetable `SpringAnimation`. The spring reads
+`theme.motion.spring_damping_ratio` and `theme.motion.spring_frequency` through
+`theme_spring_config`, so it preserves position and velocity when the checked
+state changes.
 
-- **Toggle animation**: 150ms duration when switching states
-- **Background color transition**: Changes from switch color to primary color
-- **Position animation**: Smooth movement of the toggle indicator
-- **Disabled state**: Animations are disabled when the switch is disabled
+Reduced-motion mode combines engine and framework signals. It moves the thumb
+directly to its target without spring animation.
+
+Disabled state changes appearance and blocks interaction. It does not disable
+thumb animation by itself.

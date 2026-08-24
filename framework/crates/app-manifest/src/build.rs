@@ -65,9 +65,9 @@ fn generate_source(
 ) -> String {
     // Types are named UNQUALIFIED here. `include_identity!` includes this file
     // inside a module that brings the schema types into scope via `$crate`, so
-    // the identifiers resolve to `gpui-component-manifest` even when the macro is
+    // the identifiers resolve to `neutron-components-manifest` even when the macro is
     // reached through a re-export — letting apps depend on it only as a
-    // build-dependency. Do not reintroduce `::gpui_component_manifest::` paths:
+    // build-dependency. Do not reintroduce `::neutron_components_manifest::` paths:
     // an absolute path would force every consumer back onto a direct runtime dep.
     let mut source = String::new();
     writeln!(
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn generated_source_names_schema_types_unqualified() {
         // `include_identity!` resolves these via `$crate`, so the generated file
-        // must NOT hardcode `::gpui_component_manifest::` — that would force a
+        // must NOT hardcode `::neutron_components_manifest::` — that would force a
         // direct runtime dependency on every consumer (see the macro's rustdoc).
         let identity = AppIdentity {
             app_id: "com.example.macro".to_owned(),
@@ -239,7 +239,7 @@ mod tests {
         assert!(source.contains("APP_IDENTITY: IdentityRef = IdentityRef {"));
         assert!(source.contains("Some(MacosIdentityRef {"));
         assert!(
-            !source.contains("::gpui_component_manifest"),
+            !source.contains("::neutron_components_manifest"),
             "generated source must not hardcode an absolute manifest path:\n{source}"
         );
     }

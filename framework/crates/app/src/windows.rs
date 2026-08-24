@@ -2,7 +2,7 @@
 //!
 //! [`WindowManager`] is an app-scoped GPUI [`gpui::Global`] (installed by
 //! [`WindowsPlugin`] at init — *not* a process `OnceLock`). It opens windows and
-//! overlays, wraps them in `gpui_component::Root` by policy, numbers/titles them
+//! overlays, wraps them in `neutron_components::Root` by policy, numbers/titles them
 //! (`"App"`, `"App - 2"`), keeps a stale-handle-safe singleton state machine,
 //! and gives each real window a liveness lease so the exit policy sees the
 //! window count correctly.
@@ -30,7 +30,7 @@ use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, Entity, Render, Subscription, Window,
     WindowBounds, WindowHandle,
 };
-use gpui_component::Root;
+use neutron_components::Root;
 
 use crate::capabilities::Capability;
 use crate::commands::CloseWindow;

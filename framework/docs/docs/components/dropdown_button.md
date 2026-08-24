@@ -17,7 +17,7 @@ explicitly borderless modes use a stable 4 px gap so selection never shifts layo
 ## Import
 
 ```rust
-use gpui_component::{
+use neutron_components::{
     button::{Button, DropdownButton},
     menu::DropdownMenu as _,
 };
@@ -69,7 +69,7 @@ DropdownButton::new("view-options")
 Omit `button(...)` to render one icon trigger. Provide a tooltip so the icon has a discoverable and accessible name.
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 DropdownButton::new("more-actions")
     .ghost()
@@ -131,8 +131,8 @@ animation on top. The shared layers honor the application's reduced-motion setti
 
 Bordered, borderless, split, and icon-only modes use shared GPUI primitives and behave consistently on macOS, Windows, and Linux.
 
-[Button]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.Button.html
-[DropdownButton]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.DropdownButton.html
-[Popover]: https://docs.rs/gpui-component/latest/gpui_component/popover/struct.Popover.html
-[PopupMenu]: https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Button]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.Button.html
+[DropdownButton]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.DropdownButton.html
+[Popover]: https://docs.rs/neutron-components/latest/neutron_components/popover/struct.Popover.html
+[PopupMenu]: https://docs.rs/neutron-components/latest/neutron_components/menu/struct.PopupMenu.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

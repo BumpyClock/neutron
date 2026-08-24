@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use gpui_component_manifest::schema::IdentityRef;
-use gpui_component_storage::PathLayout;
+use neutron_components_manifest::schema::IdentityRef;
+use neutron_components_storage::PathLayout;
 use tempfile::TempDir;
 
 use crate::capabilities::PlatformCapabilities;

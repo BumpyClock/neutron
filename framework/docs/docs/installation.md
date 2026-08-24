@@ -1,6 +1,6 @@
 ---
 title: Installation
-summary: "How to install gpui-component and configure project dependencies."
+summary: "How to install neutron-components and configure project dependencies."
 order: -1
 ---
 
@@ -47,18 +47,18 @@ Make sure Rust and Cargo are installed.
 - Rust 1.95.0 or later
 - Cargo (comes with Rust)
 
-The engine-independent `gpui-component-manifest`, `gpui-component-storage`,
-`gpui-component-macros`, and `framework-xtask` packages retain Rust 1.90 as
+The engine-independent `neutron-components-manifest`, `neutron-components-storage`,
+`neutron-components-macros`, and `framework-xtask` packages retain Rust 1.90 as
 their MSRV.
 
-Add GPUI Component from the root workspace:
+Add Neutron Components from the root workspace:
 
 ```toml
 [dependencies]
-gpui-component = { path = "framework/crates/ui", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components = { path = "framework/crates/ui", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 ```
 
-For AppShell, add `gpui-component-app` and `gpui-component-manifest` from the
+For AppShell, add `neutron-components-app` and `neutron-components-manifest` from the
 same root workspace as shown in [Getting Started](./getting-started.md). Do not
 add a separate `gpui`, `gpui_platform`, or engine Git revision.

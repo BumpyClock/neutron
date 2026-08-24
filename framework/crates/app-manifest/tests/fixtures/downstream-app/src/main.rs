@@ -1,5 +1,5 @@
 // Reaches `include_identity!` through the `manifest-reexport` shim rather than
-// naming `gpui_component_manifest` directly — proving the re-export path compiles
+// naming `neutron_components_manifest` directly — proving the re-export path compiles
 // with the manifest crate present only as a build dependency (see Cargo.toml).
 manifest_reexport::include_identity!();
 

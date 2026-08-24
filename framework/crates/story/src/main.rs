@@ -1,12 +1,12 @@
 use gpui::{prelude::*, *};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, FloatingSidebar, Icon, IconName, h_flex,
     input::{Input, InputEvent, InputState},
     sidebar::{SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
     v_flex,
 };
-use gpui_component_assets::Assets;
-use gpui_component_story::*;
+use neutron_components_assets::Assets;
+use neutron_story::*;
 
 pub struct Gallery {
     stories: Vec<(&'static str, Vec<Entity<StoryContainer>>)>,
@@ -235,11 +235,11 @@ impl Render for Gallery {
                                                     .line_height(relative(1.25))
                                                     .overflow_hidden()
                                                     .text_ellipsis()
-                                                    .child("GPUI Component")
+                                                    .child("Neutron Story")
                                                     .child(
                                                         div()
                                                             .text_color(cx.theme().muted_foreground)
-                                                            .child("Gallery")
+                                                            .child("Components")
                                                             .text_xs(),
                                                     ),
                                             )
@@ -330,11 +330,11 @@ fn main() {
     let name = std::env::args().nth(1);
 
     app.run(move |cx| {
-        gpui_component_story::init(cx);
+        neutron_story::init(cx);
         cx.activate(true);
 
-        gpui_component_story::create_new_window(
-            "GPUI Component",
+        neutron_story::create_new_window(
+            "Neutron Story",
             move |window, cx| Gallery::view(name.as_deref(), window, cx),
             cx,
         );

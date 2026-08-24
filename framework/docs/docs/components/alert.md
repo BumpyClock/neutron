@@ -11,7 +11,7 @@ A versatile alert component for displaying important messages to users. Supports
 ## Import
 
 ```rust
-use gpui_component::alert::Alert;
+use neutron_components::alert::Alert;
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ Alert::error("error-alert", "An error occurred while processing your request.")
 ### Alert Sizes
 
 ```rust
-use gpui_component::{alert::Alert, Sizable as _};
+use neutron_components::{alert::Alert, Sizable as _};
 
 Alert::info("alert", "Message content")
     .xsmall()
@@ -103,7 +103,7 @@ Alert::error("banner-error", "Service temporarily unavailable.")
 ### Custom Icons
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 Alert::new("custom-icon", "Meeting scheduled for tomorrow at 3 PM.")
     .title("Calendar Reminder")
@@ -116,7 +116,7 @@ We can use `TextView` to render formatted (Markdown or HTML) text within the ale
 for displaying lists, bold text, links, etc.
 
 ```rust
-use gpui_component::text::markdown;
+use neutron_components::text::markdown;
 
 Alert::error(
     "error-with-markdown",
@@ -194,7 +194,7 @@ Alert::info("update-available", "A new version of the application is available."
 ### Multi-line Content with Formatting
 
 ```rust
-use gpui_component::text::markdown;
+use neutron_components::text::markdown;
 
 Alert::warning(
     "security-alert",
@@ -211,4 +211,4 @@ Alert::warning(
 .icon(IconName::Shield)
 ```
 
-[Alert]: https://docs.rs/gpui-component/latest/gpui_component/alert/struct.Alert.html
+[Alert]: https://docs.rs/neutron-components/latest/neutron_components/alert/struct.Alert.html

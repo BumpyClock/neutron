@@ -11,14 +11,14 @@ use gpui::{
     App, OverlaySurfaceOptions, Pixels, Size, Window, WindowBackgroundAppearance, WindowOptions,
     size,
 };
-use gpui_component::WindowShell;
+use neutron_components::WindowShell;
 
 use super::key::WindowKey;
 
 /// How the manager treats the caller's content view as a window root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RootPolicy {
-    /// Auto-wrap the content view in `gpui_component::Root` (default). The window
+    /// Auto-wrap the content view in `neutron_components::Root` (default). The window
     /// handle is therefore typed `WindowHandle<Root>`; the content entity is
     /// returned separately. Realized by [`super::WindowManager::open`].
     #[default]

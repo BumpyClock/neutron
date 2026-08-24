@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Window, div, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Icon, IconName, WindowExt as _,
     button::{Button, ButtonVariant, ButtonVariants as _},
     checkbox::Checkbox,

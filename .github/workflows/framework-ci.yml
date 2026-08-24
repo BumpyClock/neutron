@@ -28,9 +28,9 @@ jobs:
       - name: Check engine-independent framework packages
         run: >-
           cargo check --locked
-          -p gpui-component-macros
-          -p gpui-component-manifest
-          -p gpui-component-storage
+          -p neutron-components-macros
+          -p neutron-components-manifest
+          -p neutron-components-storage
           -p framework-xtask
 
   compile:

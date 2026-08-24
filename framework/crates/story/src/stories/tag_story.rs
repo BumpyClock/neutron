@@ -3,7 +3,7 @@ use gpui::{
     Styled, Window, px,
 };
 
-use gpui_component::{ColorName, Sizable, h_flex, indigo_50, indigo_500, tag::Tag, v_flex};
+use neutron_components::{ColorName, Sizable, h_flex, indigo_50, indigo_500, tag::Tag, v_flex};
 
 use crate::section;
 

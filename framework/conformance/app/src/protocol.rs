@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 use crate::cli::{Scenario, ValidationProfile};
 
 pub(crate) const SCHEMA_VERSION: u8 = 1;
-pub(crate) const CLIPBOARD_EXPECTED_PAYLOAD: &str = "gpui-component-conformance-clipboard-v1";
+pub(crate) const CLIPBOARD_EXPECTED_PAYLOAD: &str = "neutron-components-conformance-clipboard-v1";
 
 /// A synchronized JSONL writer shared by the application and worker threads.
 #[derive(Clone)]

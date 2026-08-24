@@ -714,9 +714,9 @@ fn topologically_sorts_publication_prerequisites() {
 #[test]
 fn orders_framework_support_packages_before_facade_without_fake_dependencies() {
     let repository = FRAMEWORK_DOMAIN;
-    let macro_id = format!("{repository}/gpui_component_macros");
-    let manifest_id = format!("{repository}/gpui_component_manifest");
-    let facade_id = format!("{repository}/gpui_component");
+    let macro_id = format!("{repository}/neutron_components_macros");
+    let manifest_id = format!("{repository}/neutron_components_manifest");
+    let facade_id = format!("{repository}/neutron_components");
     let node = |id: String, package: &str, prerequisites: BTreeSet<String>| PlanNode {
         id,
         repository: repository.into(),
@@ -734,17 +734,17 @@ fn orders_framework_support_packages_before_facade_without_fake_dependencies() {
             facade_id.clone(),
             node(
                 facade_id,
-                "gpui-component",
+                "neutron-components",
                 BTreeSet::from([macro_id.clone()]),
             ),
         ),
         (
             manifest_id.clone(),
-            node(manifest_id, "gpui-component-manifest", BTreeSet::new()),
+            node(manifest_id, "neutron-components-manifest", BTreeSet::new()),
         ),
         (
             macro_id.clone(),
-            node(macro_id, "gpui-component-macros", BTreeSet::new()),
+            node(macro_id, "neutron-components-macros", BTreeSet::new()),
         ),
     ]);
     let sorted = topological_sort(nodes).unwrap();
@@ -754,14 +754,14 @@ fn orders_framework_support_packages_before_facade_without_fake_dependencies() {
             .map(|node| node.package.as_str())
             .collect::<Vec<_>>(),
         [
-            "gpui-component-macros",
-            "gpui-component-manifest",
-            "gpui-component"
+            "neutron-components-macros",
+            "neutron-components-manifest",
+            "neutron-components"
         ]
     );
     assert_eq!(
         sorted.last().unwrap().prerequisites,
-        BTreeSet::from([format!("{repository}/gpui_component_macros")])
+        BTreeSet::from([format!("{repository}/neutron_components_macros")])
     );
 }
 
@@ -932,7 +932,7 @@ fn headless_test_command_enables_test_support() {
             "test",
             "--locked",
             "-p",
-            "gpui-component-app",
+            "neutron-components-app",
             "--test",
             "headless",
             "--features",

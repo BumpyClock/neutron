@@ -1,6 +1,6 @@
 use gpui::*;
-use gpui_component::{IconName, Root, v_flex};
-use gpui_component_assets::{Assets as ComponentAssets, chain};
+use neutron_components::{IconName, Root, v_flex};
+use neutron_components_assets::{Assets as ComponentAssets, chain};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
 
@@ -41,12 +41,12 @@ impl Render for Example {
 }
 
 fn main() {
-    // Register app assets first, then fall back to bundled gpui-component assets.
+    // Register app assets first, then fall back to bundled neutron-components assets.
     let app = gpui_platform::application().with_assets(chain(AppAssets, ComponentAssets));
 
     app.run(move |cx| {
-        // We must initialize gpui_component before using it.
-        gpui_component::init(cx);
+        // We must initialize neutron_components before using it.
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {

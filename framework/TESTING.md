@@ -10,7 +10,7 @@ Command:
 ../script/test
 ```
 
-Maintained unit targets include GPUI Component builders, layout and text logic,
+Maintained unit targets include Neutron Components builders, layout and text logic,
 theme and asset handling; AppShell commands, lifecycle, settings, storage, and
 window planning; application-manifest parsing, versioning, and doctor behavior;
 the request client; and compatibility-tool tests.
@@ -28,7 +28,7 @@ presentation surface, including:
 standalone targets: its driver starts them explicitly with `--ignored --exact`.
 They are covered when the integration driver runs.
 
-The doctest lane includes the `gpui-component-assets` `Assets` example. Its
+The doctest lane includes the `neutron-components-assets` `Assets` example. Its
 manifest declares the required GPUI platform dependency for doctest builds.
 
 ## Legacy native smoke
@@ -55,7 +55,7 @@ runtime artifacts.
 `stage1-lifecycle-headless-linux` are separate jobs configured to run:
 
 ```bash
-cargo test --locked -p gpui-component-app --test headless --features test-support
+cargo test --locked -p neutron-components-app --test headless --features test-support
 ```
 
 Each command runs under an external bounded watchdog and retains target metadata,
@@ -110,10 +110,10 @@ proves those contracts coexist with each native event loop/window/profile. It
 does not prove physical input, production IME, OS DPI transitions, assistive
 technology activation, or screen-reader behavior.
 
-They are configured to build `gpui-component-conformance`, record target
+They are configured to build `neutron-components-conformance`, record target
 metadata, run its native scenarios under the same external watchdog, retain
 stdout JSONL/stderr/logs, and validate each terminal JSONL stream with
-`gpui-component-conformance --validate <scenario> --profile <profile>`, using
+`neutron-components-conformance --validate <scenario> --profile <profile>`, using
 the profile named after its native job. Validation is deliberately a hard gate:
 the workflow must fail if that interface is absent or rejects the stream, rather
 than fall back to process status or text matching.

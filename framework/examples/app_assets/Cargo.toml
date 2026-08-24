@@ -10,8 +10,8 @@ edition.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component = { workspace = true }
-gpui-component-assets = { workspace = true }
+neutron-components = { workspace = true }
+neutron-components-assets = { workspace = true }
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 
 [lints]

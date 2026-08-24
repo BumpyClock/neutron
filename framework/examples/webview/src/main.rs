@@ -1,11 +1,11 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::{
+use gpui_wry::WebView;
+use neutron_components::{
     ActiveTheme as _, Root, h_flex,
     input::{Input, InputEvent, InputState},
     v_flex,
 };
-use gpui_wry::WebView;
 
 pub struct Example {
     focus_handle: FocusHandle,
@@ -74,7 +74,7 @@ impl Example {
         };
 
         let address_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value("https://longbridge.github.io/gpui-component")
+            InputState::new(window, cx).default_value("https://github.com/BumpyClock/neutron")
         });
 
         let url = address_input.read(cx).value();
@@ -196,8 +196,8 @@ fn main() {
     }
 
     gpui_platform::application().run(move |cx| {
-        // This must be called before using any GPUI Component features.
-        gpui_component::init(cx);
+        // This must be called before using any Neutron Components features.
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {

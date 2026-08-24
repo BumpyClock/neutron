@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::{button::*, h_flex, v_flex, *};
+use neutron_components::{button::*, h_flex, v_flex, *};
 
 pub struct Example {
     trap1_handle: FocusHandle,
@@ -136,7 +136,7 @@ fn main() {
     let app = gpui_platform::application();
 
     app.run(move |cx| {
-        gpui_component::init(cx);
+        neutron_components::init(cx);
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::centered(size(px(800.), px(600.)), cx)),

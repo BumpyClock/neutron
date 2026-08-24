@@ -20,7 +20,7 @@ The Menu component provides both context menus (right-click menus) and popup men
 ## Import
 
 ```rust
-use gpui_component::{
+use neutron_components::{
     menu::{PopupMenu, PopupMenuItem, ContextMenuExt, DropdownMenu},
     Button
 };
@@ -34,7 +34,7 @@ use gpui::{actions, Action};
 Context menus appear when right-clicking on an element:
 
 ```rust
-use gpui_component::menu::ContextMenuExt;
+use neutron_components::menu::ContextMenuExt;
 
 div()
     .child("Right click me")
@@ -51,7 +51,7 @@ div()
 Dropdown menus are triggered by buttons or other interactive elements:
 
 ```rust
-use gpui_component::popup_menu::{PopupMenuExt as _, PopupMenuItem};
+use neutron_components::popup_menu::{PopupMenuExt as _, PopupMenuItem};
 
 let view = cx.entity();
 Button::new("menu-btn")
@@ -103,7 +103,7 @@ Button::new("menu-btn")
 Add icons to menu items for better visual clarity:
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 menu.menu_with_icon("Search", IconName::Search, Box::new(Search))
     .menu_with_icon("Settings", IconName::Settings, Box::new(OpenSettings))
@@ -195,7 +195,7 @@ menu.link("Documentation", "https://docs.example.com")
 Create custom menu items with complex content:
 
 ```rust
-use gpui_component::{h_flex, v_flex};
+use neutron_components::{h_flex, v_flex};
 
 menu.menu_element(Box::new(CustomAction), |window, cx| {
         v_flex()
@@ -366,7 +366,7 @@ div()
 Sometimes you may not like to define an action for a menu item, you just want add a `on_click` handler, in this case, the `item` and [PopupMenuItem] can help you:
 
 ```rust
-use gpui_component::{menu::PopupMenuItem, Button};
+use neutron_components::{menu::PopupMenuItem, Button};
 
 Button::new("custom-item-menu")
     .label("Options")
@@ -486,7 +486,7 @@ Button::new("settings")
 7. **Clear Labels**: Use descriptive, action-oriented labels
 8. **Reasonable Limits**: Use scrollable menus for more than 10-15 items
 
-[PopupMenu]: https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenu.html
-[PopupMenuItem]: https://docs.rs/gpui-component/latest/gpui_component/menu/struct.PopupMenuItem.html
-[context_menu]: https://docs.rs/gpui-component/latest/gpui_component/menu/trait.ContextMenuExt.html#method.context_menu
+[PopupMenu]: https://docs.rs/neutron-components/latest/neutron_components/menu/struct.PopupMenu.html
+[PopupMenuItem]: https://docs.rs/neutron-components/latest/neutron_components/menu/struct.PopupMenuItem.html
+[context_menu]: https://docs.rs/neutron-components/latest/neutron_components/menu/trait.ContextMenuExt.html#method.context_menu
 [Action]: https://docs.rs/gpui/latest/gpui/trait.Action.html

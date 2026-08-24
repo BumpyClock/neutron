@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement as _,
     Render, Styled as _, Window,
 };
-use gpui_component::{
+use neutron_components::{
     calendar::{Calendar, CalendarState},
     v_flex,
 };

@@ -1,4 +1,4 @@
-//! Application shell for gpui-component apps.
+//! Application shell for neutron-components apps.
 //!
 //! `AppShell` is a thin builder over a sealed plugin/phase mechanism. Builder
 //! methods record intent; a central sequencer ([`phases`]) fixes the startup and
@@ -26,15 +26,15 @@ pub mod windows;
 
 // Framework re-exports so app crates depend on one thing.
 pub use gpui;
-pub use gpui_component as ui;
 pub use gpui_platform;
+pub use neutron_components as ui;
 
 // Identity: the `include_identity!()` macro and its schema types.
-pub use gpui_component_manifest::include_identity;
-pub use gpui_component_manifest::schema::{AppIdentity, IdentityRef};
+pub use neutron_components_manifest::include_identity;
+pub use neutron_components_manifest::schema::{AppIdentity, IdentityRef};
 
 // Storage types used directly in the shell API.
-pub use gpui_component_storage::{AppPaths, PathLayout};
+pub use neutron_components_storage::{AppPaths, PathLayout};
 
 // Core surface.
 pub use capabilities::{Capability, PlatformCapabilities};
@@ -66,7 +66,7 @@ pub use windows::{
     WindowManager, WindowSpec, WindowsPlugin,
 };
 
-/// Common imports for application entry points: `use gpui_component_app::prelude::*;`.
+/// Common imports for application entry points: `use neutron_components_app::prelude::*;`.
 pub mod prelude {
     pub use crate::commands::{AppCommandsExt, AppMenusExt, MenuPlan, StandardMenus};
     pub use crate::error::{AppClosed, AppShellError, RuntimeError, RuntimeOperation};

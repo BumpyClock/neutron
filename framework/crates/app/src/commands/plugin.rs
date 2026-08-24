@@ -1,13 +1,13 @@
 //! [`MenusPlugin`]: installs the standard command set, registers default
 //! keybindings, and keeps the native menu bar in sync with the registry.
 //!
-//! Reactive rebuild: the plugin observes the [`gpui_component::Theme`] global so
+//! Reactive rebuild: the plugin observes the [`neutron_components::Theme`] global so
 //! checked state (appearance mode, active theme) refreshes automatically, and
 //! exposes [`menus_invalidate`] for other modules (theme registry watcher, window
 //! manager) to call when their contributing sections change.
 //!
 //! Keybinding precedence (component < shell < app < user): the component tier is
-//! bound by `gpui_component::init` before this plugin runs; default bindings are
+//! bound by `neutron_components::init` before this plugin runs; default bindings are
 //! then registered from the registry in registration order, and GPUI resolves
 //! later-registered bindings first — so shell/app defaults override component
 //! defaults, and a future user keymap (registered last) will override both.
@@ -22,7 +22,7 @@ use crate::plugin::{AppPlugin, ShellSeed, sealed};
 
 /// Meta tag stamped on every keybinding this module installs, so a rebuild can
 /// tell registry-owned bindings apart from the component tier (bound by
-/// `gpui_component::init`) and any future user-keymap tier — neither of which we
+/// `neutron_components::init`) and any future user-keymap tier — neither of which we
 /// own — and drop only ours before re-adding the current registry.
 const COMMANDS_BINDING_META: KeyBindingMetaIndex = KeyBindingMetaIndex(0xC0FFEE);
 
@@ -75,7 +75,7 @@ impl AppPlugin for MenusPlugin {
         .map_err(command_startup_error)?;
 
         // Shell/app-tier default bindings, in registration order (component tier
-        // was bound by gpui_component::init already).
+        // was bound by neutron_components::init already).
         install_bindings(cx).map_err(command_startup_error)?;
 
         cx.global_mut::<CommandRegistry>().set_plan(plan);
@@ -89,7 +89,7 @@ impl AppPlugin for MenusPlugin {
         cx.global_mut::<CommandRegistry>().activate();
 
         self.theme_observer =
-            Some(cx.observe_global::<gpui_component::Theme>(|cx| menus_invalidate(cx)));
+            Some(cx.observe_global::<neutron_components::Theme>(|cx| menus_invalidate(cx)));
         Ok(())
     }
 }

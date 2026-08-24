@@ -1,5 +1,5 @@
 use gpui::{prelude::FluentBuilder as _, *};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Icon, IconName, IndexPath, Sizable as _,
     button::Button,
     button::ButtonVariants as _,
@@ -81,7 +81,7 @@ impl SearchableListItem for Industry {
     }
 
     fn render(&self, _window: &mut gpui::Window, cx: &mut gpui::App) -> impl gpui::IntoElement {
-        use gpui_component::ActiveTheme as _;
+        use neutron_components::ActiveTheme as _;
 
         h_flex()
             .w_full()

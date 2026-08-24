@@ -153,7 +153,7 @@ pub enum SliderScale {
     /// # For example
     ///
     /// ```
-    /// use gpui_component::slider::{SliderState, SliderScale};
+    /// use neutron_components::slider::{SliderState, SliderScale};
     ///
     /// let slider = SliderState::new()
     ///     .min(1.0)    // Must be > 0 for logarithmic scale

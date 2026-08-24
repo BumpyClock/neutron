@@ -5,7 +5,7 @@ use gpui::{
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, IconName,
     button::Button,
     command_palette::{

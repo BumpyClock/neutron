@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gpui_component_manifest::schema::AppIdentity;
+use neutron_components_manifest::schema::AppIdentity;
 
 /// Outcome of one identity comparison.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +63,7 @@ impl Report {
 #[derive(Debug, thiserror::Error)]
 pub enum DoctorError {
     #[error(transparent)]
-    Manifest(Box<gpui_component_manifest::ManifestError>),
+    Manifest(Box<neutron_components_manifest::ManifestError>),
     #[error("failed to read {path}: {source}")]
     Read {
         path: PathBuf,
@@ -88,7 +88,7 @@ const _: () = assert!(std::mem::size_of::<DoctorError>() <= 64);
 /// artifact cannot be read, or when the root Cargo manifest is malformed.
 pub fn verify(root: &Path) -> Result<Report, DoctorError> {
     let cargo_path = root.join("Cargo.toml");
-    let identity = gpui_component_manifest::parse::parse_identity(&cargo_path)
+    let identity = neutron_components_manifest::parse::parse_identity(&cargo_path)
         .map_err(|e| DoctorError::Manifest(Box::new(e)))?;
     let cargo_source = read(&cargo_path)?;
     let cargo: toml::Value = toml::from_str(&cargo_source).map_err(|source| DoctorError::Toml {

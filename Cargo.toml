@@ -96,14 +96,14 @@ zlog = { path = "engine/crates/zlog", version = "=0.1.0" }
 ztracing = { path = "engine/crates/ztracing", version = "=0.1.0" }
 ztracing_macro = { path = "engine/crates/ztracing_macro", version = "=0.1.0" }
 
-gpui-component = { path = "framework/crates/ui", version = "=0.7.0" }
-gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
-gpui-component-macros = { path = "framework/crates/macros", version = "=0.7.0" }
-gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
-gpui-component-storage = { path = "framework/crates/app-storage", version = "=0.7.0" }
+neutron-components = { path = "framework/crates/ui", version = "=0.7.0" }
+neutron-components-app = { path = "framework/crates/app", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components-macros = { path = "framework/crates/macros", version = "=0.7.0" }
+neutron-components-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
+neutron-components-storage = { path = "framework/crates/app-storage", version = "=0.7.0" }
 gpui-macros = { package = "gpui_macros", path = "engine/crates/gpui_macros", version = "=0.1.0" }
-story = { path = "framework/crates/story" }
+neutron-story = { path = "framework/crates/story" }
 sum-tree = { package = "sum_tree", path = "engine/crates/sum_tree", version = "=0.1.0" }
 
 #

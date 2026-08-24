@@ -1,6 +1,6 @@
 <template>
     <div class="banner">
-        <h1>GPUI Component</h1>
+        <h1>Neutron Components</h1>
         <div class="banner-description">
             Rust GUI components for building fantastic cross-platform desktop
             application by using
@@ -12,7 +12,7 @@
         </div>
         <div class="version">
             Version:
-            <a href="https://crates.io/crates/gpui-component" target="_blank">{{
+            <a href="https://crates.io/crates/neutron-components" target="_blank">{{
                 VERSION
             }}</a>
         </div>

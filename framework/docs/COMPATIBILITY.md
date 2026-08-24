@@ -7,7 +7,7 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 
 # Compatibility
 
-- Framework: `gpui-component` `0.7.0`
+- Framework: `neutron-components` `0.7.0`
 - Framework repository: `https://github.com/BumpyClock/neutron`
 - Declared Rust MSRV: `1.90` (not exercised by this audit)
 - Repository-pinned toolchain: `1.95.0`
@@ -40,7 +40,7 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 | Linux X11 | `x86_64-unknown-linux-gnu` | not-verified | not-verified | not-verified | not-verified | not-verified | not-verified | experimental |
 | Linux Wayland | `x86_64-unknown-linux-gnu` | not-verified | not-verified | not-verified | not-verified | not-verified | not-verified | experimental |
 
-- **macOS:** Locked workspace build, unit suite, and AppShell headless harness passed locally. On 2026-08-23, the current target worktree built and launched the GPUI Component story app. macOS window inventory reported its 1324 by 856 AppKit window on screen. All six native conformance scenarios passed source-blind validation with backend-accepted presentation on the Apple M5 Max Metal hardware adapter. The interaction-contracts scenario produced 20 valid JSONL records. The external pbpaste clipboard handshake passed. Published native-runtime and renderer status remain not-verified because no immutable retained CI evidence identifies this dirty worktree.
+- **macOS:** Locked workspace build, unit suite, and AppShell headless harness passed locally. On 2026-08-23, the current target worktree built and launched the Neutron Story app. macOS window inventory reported its 1324 by 856 AppKit window on screen. All six native conformance scenarios passed source-blind validation with backend-accepted presentation on the Apple M5 Max Metal hardware adapter. The interaction-contracts scenario produced 20 valid JSONL records. The external pbpaste clipboard handshake passed. Published native-runtime and renderer status remain not-verified because no immutable retained CI evidence identifies this dirty worktree.
 - **Windows:** The Stage 1 WARP job is configured but has not run. Native Windows lifecycle/window/presentation runtime remains unrun for this compatibility line, and WM_QUERYENDSESSION/WM_ENDSESSION are unsupported.
 - **Linux X11:** The Stage 1 Xvfb/lavapipe job is configured but has not run. Source and compile evidence exist; live Linux X11 lifecycle/window/presentation runtime remains unrun.
 - **Linux Wayland:** The Stage 1 normal-Weston and private clipboard-fixture topology is configured but has not run in GitHub Actions. A pinned Weston 16 build, normal compositor readiness probe, and fixture TAP probe passed in Ubuntu 24.04 Docker; live GPUI Wayland lifecycle/window/presentation runtime remains unrun.
@@ -52,9 +52,10 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 Blockers:
 
 - owner must approve remaining crates.io identities for BumpyClock/gpui packages
-- BumpyClock control of existing Longbridge crates.io identities gpui-component, gpui-component-assets, gpui-component-macros, and gpui-wry is unverified
+- owner must approve the new Neutron Components crates.io identities
+- BumpyClock control of historical Longbridge crates.io identities is unverified
 - exact engine versions must be published before framework packages
-- gpui-component-app remains private because fix-path-env is a Git-only normal dependency with no registry release
+- neutron-components-app remains private because fix-path-env is a Git-only normal dependency with no registry release
 - GPUI root patches for async-task, calloop, and windows-capture are not inherited by Git consumers or packaged manifests
 - Lucide-derived bundled icon source, version, license, and notice require owner review before framework publication
 

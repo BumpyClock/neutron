@@ -85,7 +85,7 @@ pub enum AppShellError {
 
     /// Per-app directories could not be resolved from the identity namespace.
     #[error("failed to resolve application paths")]
-    Paths(#[source] gpui_component_storage::StorageError),
+    Paths(#[source] neutron_components_storage::StorageError),
 
     /// A required startup service failed and startup cannot continue.
     ///

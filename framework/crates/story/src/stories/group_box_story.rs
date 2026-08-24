@@ -3,7 +3,7 @@ use gpui::{
     StyleRefinement, Styled, Window, relative,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, StyledExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,

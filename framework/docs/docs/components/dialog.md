@@ -11,8 +11,8 @@ Dialog component for creating dialogs, confirmations, and alerts. Supports overl
 ## Import
 
 ```rust
-use gpui_component::dialog::DialogButtonProps;
-use gpui_component::WindowExt;
+use neutron_components::dialog::DialogButtonProps;
+use neutron_components::WindowExt;
 ```
 
 ## Usage
@@ -21,10 +21,10 @@ use gpui_component::WindowExt;
 
 You need to set up your application's root view to render the dialog layer. This is typically done in your main application struct's render method.
 
-The [Root::render_dialog_layer](https://docs.rs/gpui-component/latest/gpui_component/struct.Root.html#method.render_dialog_layer) function handles rendering any active dialogs on top of your app content.
+The [Root::render_dialog_layer](https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html#method.render_dialog_layer) function handles rendering any active dialogs on top of your app content.
 
 ```rust
-use gpui_component::TitleBar;
+use neutron_components::TitleBar;
 
 struct MyApp {
     view: AnyView,
@@ -124,7 +124,7 @@ window.open_dialog(cx, |dialog, _, _| {
 ### Custom Button Labels
 
 ```rust
-use gpui_component::button::ButtonVariant;
+use neutron_components::button::ButtonVariant;
 
 window.open_dialog(cx, |dialog, _, _| {
     dialog
@@ -164,7 +164,7 @@ window.open_dialog(cx, |dialog, _, cx| {
 ### Scrollable Dialog
 
 ```rust
-use gpui_component::text::markdown;
+use neutron_components::text::markdown;
 
 window.open_dialog(cx, |dialog, window, cx| {
     dialog

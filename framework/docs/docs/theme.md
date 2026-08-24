@@ -1,6 +1,6 @@
 ---
 title: "Theme"
-summary: "How to use GPUI Component theme colors, theme registry, and runtime theme switching."
+summary: "How to use Neutron Components theme colors, theme registry, and runtime theme switching."
 order: -4
 ---
 
@@ -9,7 +9,7 @@ order: -4
 All components support theming through the built-in Theme system, the [ActiveTheme] trait provides access to the current theme colors:
 
 ```rs
-use gpui_component::{ActiveTheme as _};
+use neutron_components::{ActiveTheme as _};
 
 // Access theme colors in your components
 cx.theme().primary
@@ -28,7 +28,7 @@ material (blur, noise, elevation, stroke); `FlyoutTokens` supplies the layout on
 top of it, so all flyouts stay in the same family when a theme changes.
 
 ```rs
-use gpui_component::{FlyoutTokens, flyout_primary_foreground, flyout_secondary_foreground};
+use neutron_components::{FlyoutTokens, flyout_primary_foreground, flyout_secondary_foreground};
 
 let tokens = FlyoutTokens::new(cx);          // medium density
 let tokens = FlyoutTokens::sized(size, cx);  // match a control's `Size`
@@ -134,7 +134,7 @@ And we have a [ThemeRegistry] to help us to load themes.
 ```rs
 use std::path::PathBuf;
 use gpui::{App, SharedString};
-use gpui_component::{Theme, ThemeRegistry};
+use neutron_components::{Theme, ThemeRegistry};
 
 pub fn init(cx: &mut App) {
     let theme_name = SharedString::from("Ayu Light");
@@ -174,7 +174,7 @@ If a theme set only provides one variant (e.g., only dark), that variant is used
 ## Usage Example
 
 ```rs
-use gpui_component::{Theme, ThemeModePreference, ThemeRegistry};
+use neutron_components::{Theme, ThemeModePreference, ThemeRegistry};
 
 // Apply a theme set with System mode (auto light/dark switching)
 if let Some(set) = ThemeRegistry::global(cx).theme_sets().get("Solarized") {
@@ -187,8 +187,8 @@ if let Some(set) = ThemeRegistry::global(cx).theme_sets().get("Ayu") {
 }
 ```
 
-[ActiveTheme]: https://docs.rs/gpui-component/latest/gpui_component/theme/trait.ActiveTheme.html
-[ThemeRegistry]: https://docs.rs/gpui-component/latest/gpui_component/theme/struct.ThemeRegistry.html
-[ThemeSet]: https://docs.rs/gpui-component/latest/gpui_component/theme/struct.ThemeSet.html
-[ThemeModePreference]: https://docs.rs/gpui-component/latest/gpui_component/theme/enum.ThemeModePreference.html
+[ActiveTheme]: https://docs.rs/neutron-components/latest/neutron_components/theme/trait.ActiveTheme.html
+[ThemeRegistry]: https://docs.rs/neutron-components/latest/neutron_components/theme/struct.ThemeRegistry.html
+[ThemeSet]: https://docs.rs/neutron-components/latest/neutron_components/theme/struct.ThemeSet.html
+[ThemeModePreference]: https://docs.rs/neutron-components/latest/neutron_components/theme/enum.ThemeModePreference.html
 [App]: https://docs.rs/gpui/latest/gpui/struct.App.html

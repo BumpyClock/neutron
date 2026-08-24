@@ -42,7 +42,7 @@ For Windows, you can run the following command in PowerShell:
 
 There are a lot of UI test cases in the `crates/story` folder, if you change the existing features you can run the tests to make sure they are working.
 
-Use `cargo run` to run the complete story examples to display them all in a gallery of GPUI components.
+Use `cargo run` to run the complete story examples in the Neutron Components gallery.
 
 ```bash
 cargo run
@@ -58,7 +58,7 @@ cargo run --example table
 
 ## UI Guides
 
-GPUI Component is inspired by macOS and Windows controls, combined with shadcn/ui design for a modern experience.
+Neutron Components is inspired by macOS and Windows controls, combined with shadcn/ui design for a modern experience.
 
 So please refer to the following UI guides when you design or change the UI components:
 

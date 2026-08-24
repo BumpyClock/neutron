@@ -1,5 +1,5 @@
 use gpui::{prelude::FluentBuilder as _, *};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     clipboard::Clipboard,
@@ -9,8 +9,8 @@ use gpui_component::{
     resizable::{h_resizable, resizable_panel},
     text::markdown,
 };
-use gpui_component_assets::Assets;
-use gpui_component_story::Open;
+use neutron_components_assets::Assets;
+use neutron_story::Open;
 
 pub struct Example {
     input_state: Entity<InputState>,
@@ -143,9 +143,9 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component_story::init(cx);
+        neutron_story::init(cx);
         cx.activate(true);
 
-        gpui_component_story::create_new_window("Markdown Editor", Example::view, cx);
+        neutron_story::create_new_window("Markdown Editor", Example::view, cx);
     });
 }

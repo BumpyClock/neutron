@@ -72,7 +72,7 @@ captures that file separately from stderr and its own timeout/process log. CI
 then supplies the JSONL to:
 
 ```text
-gpui-component-conformance --validate <scenario> --profile <profile>
+neutron-components-conformance --validate <scenario> --profile <profile>
 ```
 
 The validation command must accept terminal JSONL from stdin. If that interface

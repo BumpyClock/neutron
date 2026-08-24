@@ -4,11 +4,11 @@ description: Rust GUI components for building fantastic cross-platform desktop a
 summary: "Rust GUI components for building fantastic cross-platform desktop applications using GPUI."
 ---
 
-# GPUI Component Introduction
+# Neutron Components Introduction
 
-GPUI Component is a Rust UI component library for building fantastic desktop applications using [GPUI](https://gpui.rs).
+Neutron Components is a Rust UI component library for building fantastic desktop applications using [GPUI](https://gpui.rs).
 
-GPUI Component is a comprehensive UI component library for building fantastic desktop applications using [GPUI](https://gpui.rs). It provides 60+ cross-platform components with modern design, theming support, and high performance.
+Neutron Components is a comprehensive UI component library for building fantastic desktop applications using [GPUI](https://gpui.rs). It provides 60+ cross-platform components with modern design, theming support, and high performance.
 
 ## Features
 
@@ -30,11 +30,11 @@ For a native application, start with the experimental AppShell layer:
 
 ```toml
 [dependencies]
-gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components-app = { path = "framework/crates/app", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 
 [build-dependencies]
-gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
+neutron-components-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 ```
 
 The root workspace selects its exact engine path dependencies. Do not add a
@@ -44,12 +44,12 @@ Declare `[package.metadata.gpui-app]` and the two-line identity `build.rs`
 described in [Building an Application](./app-shell.md), then create the window:
 
 ```rust
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::{StandardMenus, WindowManager};
-use gpui_component_app::ui::{button::*, *};
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{StandardMenus, WindowManager};
+use neutron_components_app::ui::{button::*, *};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 pub struct HelloWorld;
 impl Render for HelloWorld {
@@ -72,7 +72,7 @@ impl Render for HelloWorld {
 
 fn main() -> Result<(), AppShellError> {
     AppShell::builder(APP_IDENTITY)
-        .assets(gpui_component_assets::Assets)
+        .assets(neutron_components_assets::Assets)
         .standard_menus(StandardMenus::new())
         .start(|_, cx| {
             WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {
@@ -84,7 +84,7 @@ fn main() -> Result<(), AppShellError> {
 }
 ```
 
-AppShell initializes GPUI Component, wraps managed windows in `Root`, and wires
+AppShell initializes Neutron Components, wraps managed windows in `Root`, and wires
 desktop lifecycle. See [Building an Application](./app-shell.md) for standard
 Settings/About controls and Windows/Linux menu-bar placement.
 

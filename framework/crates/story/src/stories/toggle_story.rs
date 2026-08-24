@@ -3,7 +3,7 @@ use gpui::{
     Render, Styled as _, Window,
 };
 
-use gpui_component::{
+use neutron_components::{
     IconName, Sizable, StyledExt,
     button::{Toggle, ToggleGroup, ToggleVariants},
     v_flex,

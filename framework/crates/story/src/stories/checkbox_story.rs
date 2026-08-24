@@ -3,7 +3,7 @@ use gpui::{
     Window, div, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Disableable as _, Sizable, checkbox::Checkbox, h_flex, text::markdown, v_flex,
 };
 

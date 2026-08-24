@@ -3,9 +3,9 @@ use gpui::{
     App, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
     Window, px,
 };
-use gpui_component::{ActiveTheme, divider::Divider, h_flex, label::Label, v_flex};
+use neutron_components::{ActiveTheme, divider::Divider, h_flex, label::Label, v_flex};
 
-const DESCRIPTION: &str = "GPUI Component is a Rust GUI components for building fantastic cross-platform desktop application by using GPUI.";
+const DESCRIPTION: &str = "Neutron Components is a Rust GUI components for building fantastic cross-platform desktop application by using GPUI.";
 
 pub struct DividerStory {
     focus_handle: gpui::FocusHandle,
@@ -71,7 +71,7 @@ impl Render for DividerStory {
                     v_flex()
                         .gap_y_4()
                         .child(
-                            v_flex().gap_y_2().child("Hello GPUI Component").child(
+                            v_flex().gap_y_2().child("Hello Neutron Components").child(
                                 Label::new(DESCRIPTION)
                                     .text_color(cx.theme().muted_foreground)
                                     .text_sm(),

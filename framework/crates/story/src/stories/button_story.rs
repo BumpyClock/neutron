@@ -3,7 +3,7 @@ use gpui::{
     IntoElement, ParentElement as _, Render, Styled as _, Window, prelude::FluentBuilder, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, Theme,
     button::{Button, ButtonCustomVariant, ButtonGroup, ButtonVariants as _},
     checkbox::Checkbox,

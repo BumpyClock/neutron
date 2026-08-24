@@ -1,6 +1,6 @@
 ---
 title: "Home"
-summary: "Project home page for GPUI Component with install guidance and component highlights."
+summary: "Project home page for Neutron Components with install guidance and component highlights."
 layout: home
 ---
 
@@ -22,16 +22,16 @@ Button::new("ok")
     .on_click(|_, _, _| println!("Button clicked!"))
 ```
 
-## Install GPUI Component
+## Install Neutron Components
 
 Add the following to your `Cargo.toml`:
 
 ```toml-vue
-gpui-component-app = "{{ VERSION }}"
-gpui-component-assets = "{{ VERSION }}"
+neutron-components-app = "{{ VERSION }}"
+neutron-components-assets = "{{ VERSION }}"
 
 [build-dependencies]
-gpui-component-manifest = "{{ VERSION }}"
+neutron-components-manifest = "{{ VERSION }}"
 ```
 
 ## Hello World
@@ -41,12 +41,12 @@ After declaring application metadata and the identity `build.rs` from
 product UI:
 
 ```rs
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::{StandardMenus, WindowManager};
-use gpui_component_app::ui::{button::*, *};
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{StandardMenus, WindowManager};
+use neutron_components_app::ui::{button::*, *};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 pub struct HelloWorld;
 impl Render for HelloWorld {
@@ -69,7 +69,7 @@ impl Render for HelloWorld {
 
 fn main() -> Result<(), AppShellError> {
     AppShell::builder(APP_IDENTITY)
-        .assets(gpui_component_assets::Assets)
+        .assets(neutron_components_assets::Assets)
         .standard_menus(StandardMenus::new())
         .start(|_, cx| {
             WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {

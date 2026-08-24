@@ -16,7 +16,7 @@
         fill-rule="evenodd"
     >
         <g
-            id="gpui-component"
+            id="neutron-components"
             transform="translate(12.257359, 12.015009) rotate(-180.000000) translate(-12.257359, -12.015009) translate(0.257359, 1.000000)"
         >
             <rect

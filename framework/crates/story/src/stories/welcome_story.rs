@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, Render, Styled as _, Window, px,
 };
 
-use gpui_component::{dock::PanelControl, text::markdown};
+use neutron_components::{dock::PanelControl, text::markdown};
 
 use crate::Story;
 

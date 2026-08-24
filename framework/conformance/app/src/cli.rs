@@ -222,11 +222,11 @@ pub(crate) fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, C
 }
 
 pub(crate) const USAGE: &str = "\
-GPUI Component native conformance runner.
+Neutron Components native conformance runner.
 
 Usage:
-  gpui-component-conformance --scenario <scenario>
-  gpui-component-conformance --validate <scenario> [--profile <profile>] < trace.jsonl
+  neutron-components-conformance --scenario <scenario>
+  neutron-components-conformance --validate <scenario> [--profile <profile>] < trace.jsonl
 
 Scenarios:
   lifecycle-clean             Open, present, and cleanly quit a native window.

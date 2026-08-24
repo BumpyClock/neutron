@@ -1,7 +1,7 @@
 ---
 title: Getting Started
-description: Learn how to set up and use GPUI Component in your project
-summary: "Learn how to set up and use GPUI Component in your project"
+description: Learn how to set up and use Neutron Components in your project
+summary: "Learn how to set up and use Neutron Components in your project"
 order: -2
 ---
 
@@ -14,12 +14,12 @@ engine selection, so this application does not declare a separate engine.
 
 ```toml
 [dependencies]
-gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components-app = { path = "framework/crates/app", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
+neutron-components-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 
 [package.metadata.gpui-app]
 app_id = "com.example.hello"
@@ -36,7 +36,7 @@ Add an app-local `build.rs`:
 
 ```rust
 fn main() {
-    gpui_component_manifest::build::emit_identity()
+    neutron_components_manifest::build::emit_identity()
         .expect("invalid [package.metadata.gpui-app]");
 }
 ```
@@ -44,12 +44,12 @@ fn main() {
 Then build the native app:
 
 ```rust
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::{StandardMenus, WindowManager};
-use gpui_component_app::ui::{button::*, *};
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{StandardMenus, WindowManager};
+use neutron_components_app::ui::{button::*, *};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 struct HelloWorld;
 
@@ -73,7 +73,7 @@ impl Render for HelloWorld {
 
 fn main() -> Result<(), AppShellError> {
     AppShell::builder(APP_IDENTITY)
-        .assets(gpui_component_assets::Assets)
+        .assets(neutron_components_assets::Assets)
         .standard_menus(StandardMenus::new())
         .start(|_, cx| {
             WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {
@@ -86,7 +86,7 @@ fn main() -> Result<(), AppShellError> {
 ```
 
 :::info
-AppShell calls `gpui_component::init`, applies compiled identity, wraps managed
+AppShell calls `neutron_components::init`, applies compiled identity, wraps managed
 windows in `Root`, and sequences startup/shutdown. Your `start` callback owns app
 services and initial windows.
 :::
@@ -98,14 +98,14 @@ to [Building an Application](./app-shell.md).
 ## Manual bootstrap
 
 Raw `gpui::Application` remains available for advanced hosts. In that mode the app
-must call `gpui_component::init(cx)` before creating components and must place
+must call `neutron_components::init(cx)` before creating components and must place
 `Root` at the first level of every managed window. See [Root View](./root.md).
 
 ## Basic Concepts
 
 ### Stateless Elements
 
-GPUI Component uses stateless [RenderOnce] elements, making them simple and predictable. State management is handled at the view level, not in individual components.
+Neutron Components uses stateless [RenderOnce] elements, making them simple and predictable. State management is handled at the view level, not in individual components.
 
 The are all implemented [IntoElement] types.
 
@@ -153,7 +153,7 @@ impl Render for MyView {
 All components support theming through the built-in `Theme` system:
 
 ```rust
-use gpui_component::{ActiveTheme, Theme};
+use neutron_components::{ActiveTheme, Theme};
 
 // Access theme colors in your components
 cx.theme().primary
@@ -188,17 +188,17 @@ Button::new("btn").outline()
 ## Icons
 
 :::info
-Icons are not bundled with GPUI Component to keep the library lightweight.
+Icons are not bundled with Neutron Components to keep the library lightweight.
 
 Continue read [Icons & Assets](./assets.md) to learn how to add icons to your project.
 :::
 
-GPUI Component has an `Icon` element, but does not include SVG files by default.
+Neutron Components has an `Icon` element, but does not include SVG files by default.
 
 The examples use [Lucide](https://lucide.dev) icons. You can use any icons you like by naming the SVG files as defined in `IconName`. Add the icons you need to your project.
 
 ```rust
-use gpui_component::{Icon, IconName};
+use neutron_components::{Icon, IconName};
 
 Icon::new(IconName::Check)
 Icon::new(IconName::Search).small()

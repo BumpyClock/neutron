@@ -1,6 +1,6 @@
 [package]
 name = "system_monitor"
-description = "A real-time system resource monitor using GPUI Component charts."
+description = "A real-time system resource monitor using Neutron Components charts."
 version = "0.5.0"
 rust-version = "1.95.0"
 publish = false
@@ -10,8 +10,8 @@ edition = "2024"
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component-assets.workspace = true
-gpui-component.workspace = true
+neutron-components-assets.workspace = true
+neutron-components.workspace = true
 sysinfo = "0.37"
 battery = "0.7"
 

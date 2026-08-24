@@ -11,7 +11,7 @@ A flexible sidebar component that provides navigation structure for applications
 ## Import
 
 ```rust
-use gpui_component::sidebar::{
+use neutron_components::sidebar::{
     Sidebar, SidebarHeader, SidebarFooter, SidebarGroup,
     SidebarMenu, SidebarMenuItem, SidebarToggleButton
 };
@@ -22,7 +22,7 @@ use gpui_component::sidebar::{
 ### Basic Sidebar
 
 ```rust
-use gpui_component::{sidebar::*, Side};
+use neutron_components::{sidebar::*, Side};
 
 Sidebar::new()
     .header(
@@ -98,8 +98,8 @@ Call `.elevation(...)` to override the complete panel shadow. Larger elevations 
 inset near window edges to avoid native-window clipping; the inset is never adjusted automatically.
 
 ```rust
-use gpui_component::{FloatingSidebar, Side};
-use gpui_component::sidebar::{SidebarGroup, SidebarMenu, SidebarMenuItem};
+use neutron_components::{FloatingSidebar, Side};
+use neutron_components::sidebar::{SidebarGroup, SidebarMenu, SidebarMenuItem};
 
 let mut collapsed = false;
 
@@ -175,7 +175,7 @@ Sidebar::new()
 ### With Badges and Suffixes
 
 ```rust
-use gpui_component::{Badge, Switch};
+use neutron_components::{Badge, Switch};
 
 SidebarMenuItem::new("Notifications")
     .icon(IconName::Bell)
@@ -223,7 +223,7 @@ Sidebar::new()
 Add right-click context menus to sidebar menu items for additional actions:
 
 ```rust
-use gpui_component::menu::PopupMenu;
+use neutron_components::menu::PopupMenu;
 
 SidebarMenuItem::new("Project Files")
     .icon(IconName::Folder)
@@ -283,7 +283,7 @@ Sidebar::new()
 ### Interactive Header with Popup Menu
 
 ```rust
-use gpui_component::menu::DropdownMenu;
+use neutron_components::menu::DropdownMenu;
 
 SidebarHeader::new()
     .child(

@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     Root, TitleBar,
     button::{Button, ButtonVariants},
     h_flex, v_flex,
@@ -40,10 +40,10 @@ impl Render for Example {
 }
 
 fn main() {
-    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+    let app = gpui_platform::application().with_assets(neutron_components_assets::Assets);
 
     app.run(move |cx| {
-        gpui_component::init(cx);
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             let window_options = WindowOptions {

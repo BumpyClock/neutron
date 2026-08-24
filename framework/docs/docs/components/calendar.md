@@ -14,7 +14,7 @@ A standalone calendar component that provides a rich interface for date selectio
 ## Import
 
 ```rust
-use gpui_component::{
+use neutron_components::{
     calendar::{Calendar, CalendarState, CalendarEvent, Date, Matcher},
 };
 ```
@@ -374,6 +374,6 @@ Calendar::new(&availability_calendar)
 
 The Calendar component provides a foundation for any date-related UI requirements, from simple date pickers to complex scheduling interfaces.
 
-[Calendar]: https://docs.rs/gpui-component/latest/gpui_component/calendar/struct.Calendar.html
-[CalendarState]: https://docs.rs/gpui-component/latest/gpui_component/calendar/struct.CalendarState.html
-[RangeMatcher]: https://docs.rs/gpui-component/latest/gpui_component/calendar/struct.RangeMatcher.html
+[Calendar]: https://docs.rs/neutron-components/latest/neutron_components/calendar/struct.Calendar.html
+[CalendarState]: https://docs.rs/neutron-components/latest/neutron_components/calendar/struct.CalendarState.html
+[RangeMatcher]: https://docs.rs/neutron-components/latest/neutron_components/calendar/struct.RangeMatcher.html

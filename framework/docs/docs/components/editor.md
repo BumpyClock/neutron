@@ -11,7 +11,7 @@ A powerful multi-line text input component that extends the basic input function
 ## Import
 
 ```rust
-use gpui_component::input::{InputState, Input};
+use neutron_components::input::{InputState, Input};
 ```
 
 ## Usage
@@ -56,7 +56,7 @@ Input::new(&state)
 
 ### CodeEditor
 
-GPUI Component's `InputState` supports a code editor mode with syntax highlighting, line numbers, and search functionality.
+Neutron Components's `InputState` supports a code editor mode with syntax highlighting, line numbers, and search functionality.
 
 It design for high performance and can handle large files efficiently. We
 used [tree-sitter](https://tree-sitter.github.io/tree-sitter/) for syntax highlighting, and [ropey](https://github.com/cessen/ropey) for text storage and manipulation.
@@ -93,7 +93,7 @@ Input::new(&state)
 ### TabSize
 
 ```rust
-use gpui_component::input::TabSize;
+use neutron_components::input::TabSize;
 
 let state = cx.new(|cx|
     InputState::new(window, cx)

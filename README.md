@@ -46,7 +46,7 @@ Custom-rendered controls are not native operating-system widgets. Describe Neutr
 ## Upstream provenance
 
 - `engine/` is a selective semantic fork of [Zed](https://github.com/zed-industries/zed). See [`engine/fork.toml`](engine/fork.toml) and [`engine/UPSTREAM.md`](engine/UPSTREAM.md).
-- `framework/` preserves its [Longbridge gpui-component](https://github.com/longbridge/gpui-component) relationship and local adaptations. See framework upstream and compatibility records.
+- `framework/` preserves its [Longbridge source](https://github.com/longbridge/gpui-component) relationship and local adaptations. See framework upstream and compatibility records.
 - Historical [BumpyClock/gpui](https://github.com/BumpyClock/gpui) and [BumpyClock/gpui-component](https://github.com/BumpyClock/gpui-component) links remain provenance only. New Neutron links use [BumpyClock/neutron](https://github.com/BumpyClock/neutron) after destination publication.
 
 The source repositories remain unchanged. Neutron imports exact committed snapshots; it does not claim imported source history or tags.

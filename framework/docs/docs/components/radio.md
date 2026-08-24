@@ -11,7 +11,7 @@ Radio buttons allow users to select a single option from a set of mutually exclu
 ## Import
 
 ```rust
-use gpui_component::radio::{Radio, RadioGroup};
+use neutron_components::radio::{Radio, RadioGroup};
 ```
 
 ## Usage

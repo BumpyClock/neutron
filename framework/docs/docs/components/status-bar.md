@@ -10,7 +10,7 @@ StatusBar is a horizontal bar split into `left`, `center`, and `right` regions. 
 ## Import
 
 ```rust
-use gpui_component::status_bar::StatusBar;
+use neutron_components::status_bar::StatusBar;
 ```
 
 ## Regions

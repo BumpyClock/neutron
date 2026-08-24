@@ -11,7 +11,7 @@ A button-style toggle component that represents on/off or selected states. Unlik
 ## Import
 
 ```rust
-use gpui_component::button::{Toggle, ToggleGroup};
+use neutron_components::button::{Toggle, ToggleGroup};
 ```
 
 ## Usage
@@ -32,7 +32,7 @@ Here, we can use `on_click` to handle toggle state changes. The callback receive
 ### Icon Toggle
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 Toggle::new("toggle2")
     .icon(IconName::Eye)

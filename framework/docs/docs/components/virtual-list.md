@@ -11,7 +11,7 @@ VirtualList is a high-performance component designed for efficiently rendering l
 ## Import
 
 ```rust
-use gpui_component::{
+use neutron_components::{
     v_virtual_list, h_virtual_list, VirtualListScrollHandle,
     scroll::{Scrollbar, ScrollbarState, ScrollbarAxis},
 };

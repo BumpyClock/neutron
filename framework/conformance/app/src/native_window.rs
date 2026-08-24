@@ -1,13 +1,13 @@
 use std::rc::Rc;
 
 use anyhow::Context as _;
-use gpui_component_app::AppShellExt as _;
-use gpui_component_app::gpui::prelude::FluentBuilder as _;
-use gpui_component_app::gpui::{
+use neutron_components_app::AppShellExt as _;
+use neutron_components_app::gpui::prelude::FluentBuilder as _;
+use neutron_components_app::gpui::{
     App, AppContext as _, Context, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent,
     ParentElement, Render, RendererInfo, Styled, Window, div,
 };
-use gpui_component_app::{OpenedWindow, WindowManager, WindowSpec};
+use neutron_components_app::{OpenedWindow, WindowManager, WindowSpec};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -56,7 +56,7 @@ impl Render for ConformanceView {
             .id("native-conformance-root")
             .track_focus(&self.focus_handle)
             .size_full()
-            .child("GPUI Component native conformance")
+            .child("Neutron Components native conformance")
             .when_some(self.on_key_down.clone(), |root, on_key_down| {
                 root.on_key_down(move |event, window, cx| on_key_down(event, window, cx))
             })
@@ -126,7 +126,7 @@ pub(crate) fn open_native_window_with_root<V: 'static + Render>(
     state: ScenarioState,
     key: &'static str,
     title: &'static str,
-    build_root: impl FnOnce(&mut Window, &mut App) -> gpui_component_app::gpui::Entity<V>,
+    build_root: impl FnOnce(&mut Window, &mut App) -> neutron_components_app::gpui::Entity<V>,
     after_first_presentation: impl FnOnce(&mut Window, &mut App) + 'static,
 ) -> anyhow::Result<OpenedWindow<V>> {
     let observation_protocol = protocol.clone();

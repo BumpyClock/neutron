@@ -11,7 +11,7 @@ The `plot` module provides low-level building blocks for creating custom charts.
 ## Import
 
 ```rust
-use gpui_component::plot::{
+use neutron_components::plot::{
     scale::{Scale, ScaleLinear, ScaleBand, ScalePoint, ScaleOrdinal},
     shape::{Bar, Stack, Line, Area, Pie, Arc},
     PlotAxis, AxisText

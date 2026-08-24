@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::{button::*, *};
+use neutron_components::{button::*, *};
 
 pub struct Example;
 impl Render for Example {
@@ -24,8 +24,8 @@ fn main() {
     let app = gpui_platform::application();
 
     app.run(move |cx| {
-        // This must be called before using any GPUI Component features.
-        gpui_component::init(cx);
+        // This must be called before using any Neutron Components features.
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {

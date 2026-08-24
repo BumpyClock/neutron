@@ -1,5 +1,5 @@
 {
-  "name": "gpui-component-docs",
+  "name": "neutron-components-docs",
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.15",
     "@tailwindcss/vite": "^4.1.15",

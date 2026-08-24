@@ -11,7 +11,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Task, TextAlign, Window, div,
     prelude::FluentBuilder as _,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, Selectable, Sizable as _, Size, StyleSized as _, StyledExt,
     button::Button,
     checkbox::Checkbox,

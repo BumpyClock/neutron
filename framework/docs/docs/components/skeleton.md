@@ -11,7 +11,7 @@ The Skeleton component displays animated placeholder content while actual conten
 ## Import
 
 ```rust
-use gpui_component::skeleton::Skeleton;
+use neutron_components::skeleton::Skeleton;
 ```
 
 ## Usage

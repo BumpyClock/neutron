@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui_component_storage::{DebouncedStore, LoadOutcome, StoreConfig};
+use neutron_components_storage::{DebouncedStore, LoadOutcome, StoreConfig};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 

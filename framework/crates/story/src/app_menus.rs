@@ -1,5 +1,5 @@
 use gpui::{App, Entity, Menu, MenuItem, SharedString};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, Theme, ThemeModePreference, ThemeRegistry, menu::AppMenuBar,
 };
 
@@ -67,26 +67,26 @@ fn update_app_menu(title: impl Into<SharedString>, app_menu_bar: Entity<AppMenuB
             name: "Edit".into(),
             disabled: false,
             items: vec![
-                MenuItem::action("Undo", gpui_component::input::Undo),
-                MenuItem::action("Redo", gpui_component::input::Redo),
+                MenuItem::action("Undo", neutron_components::input::Undo),
+                MenuItem::action("Redo", neutron_components::input::Redo),
                 MenuItem::separator(),
-                MenuItem::action("Cut", gpui_component::input::Cut),
-                MenuItem::action("Copy", gpui_component::input::Copy),
-                MenuItem::action("Paste", gpui_component::input::Paste),
+                MenuItem::action("Cut", neutron_components::input::Cut),
+                MenuItem::action("Copy", neutron_components::input::Copy),
+                MenuItem::action("Paste", neutron_components::input::Paste),
                 MenuItem::separator(),
-                MenuItem::action("Delete", gpui_component::input::Delete),
+                MenuItem::action("Delete", neutron_components::input::Delete),
                 MenuItem::action(
                     "Delete Previous Word",
-                    gpui_component::input::DeleteToPreviousWordStart,
+                    neutron_components::input::DeleteToPreviousWordStart,
                 ),
                 MenuItem::action(
                     "Delete Next Word",
-                    gpui_component::input::DeleteToNextWordEnd,
+                    neutron_components::input::DeleteToNextWordEnd,
                 ),
                 MenuItem::separator(),
-                MenuItem::action("Find", gpui_component::input::Search),
+                MenuItem::action("Find", neutron_components::input::Search),
                 MenuItem::separator(),
-                MenuItem::action("Select All", gpui_component::input::SelectAll),
+                MenuItem::action("Select All", neutron_components::input::SelectAll),
             ],
         },
         Menu {

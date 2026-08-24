@@ -498,7 +498,7 @@ mod tests {
         });
 
         let dir = std::env::temp_dir().join(format!(
-            "gpui-component-theme-registry-test-{}-{:?}",
+            "neutron-components-theme-registry-test-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));

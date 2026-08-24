@@ -4,11 +4,11 @@ use gpui::{
     Styled, Window, prelude::FluentBuilder as _,
 };
 
-use gpui_component::group_box::{GroupBox, GroupBoxVariants as _};
-use gpui_component::label::Label;
-use gpui_component::tag::Tag;
-use gpui_component::{ActiveTheme, IconName, StyledExt, h_flex};
-use gpui_component::{
+use neutron_components::group_box::{GroupBox, GroupBoxVariants as _};
+use neutron_components::label::Label;
+use neutron_components::tag::Tag;
+use neutron_components::{ActiveTheme, IconName, StyledExt, h_flex};
+use neutron_components::{
     Sizable,
     button::{Button, ButtonVariants},
     collapsible::Collapsible,

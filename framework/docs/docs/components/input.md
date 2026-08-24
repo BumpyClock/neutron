@@ -11,7 +11,7 @@ A flexible text input component with support for validation, masking, prefix/suf
 ## Import
 
 ```rust
-use gpui_component::input::{InputState, Input};
+use neutron_components::input::{InputState, Input};
 ```
 
 ## Usage
@@ -56,7 +56,7 @@ Input::new(&input)
 ### With Prefix and Suffix
 
 ```rust
-use gpui_component::{Icon, IconName};
+use neutron_components::{Icon, IconName};
 
 // With prefix icon
 Input::new(&input)
@@ -147,7 +147,7 @@ let input = cx.new(|cx|
 );
 
 // Number with thousands separator
-use gpui_component::input::MaskPattern;
+use neutron_components::input::MaskPattern;
 
 let input = cx.new(|cx|
     InputState::new(window, cx)

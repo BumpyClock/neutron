@@ -11,7 +11,7 @@ A star rating component that allows users to select a rating value. Supports dif
 ## Import
 
 ```rust
-use gpui_component::rating::Rating;
+use neutron_components::rating::Rating;
 ```
 
 ## Usage
@@ -167,6 +167,6 @@ Rating::new("rating")
     .color(cx.theme().orange)
 ```
 
-[Rating]: https://docs.rs/gpui-component/latest/gpui_component/rating/struct.Rating.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
-[Disableable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Disableable.html
+[Rating]: https://docs.rs/neutron-components/latest/neutron_components/rating/struct.Rating.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html
+[Disableable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Disableable.html

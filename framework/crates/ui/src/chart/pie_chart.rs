@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{App, Bounds, Hsla, Pixels, Window};
-use gpui_component_macros::IntoPlot;
+use neutron_components_macros::IntoPlot;
 use num_traits::Zero;
 
 use crate::{

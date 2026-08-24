@@ -1,5 +1,5 @@
 use gpui::{prelude::FluentBuilder, *};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, Icon, IconName, IndexPath, StyledExt as _, ThemeColor,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -112,7 +112,7 @@ impl ThemeColorsStory {
     }
 
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        use gpui_component::ThemeRegistry;
+        use neutron_components::ThemeRegistry;
 
         let registry = ThemeRegistry::global(cx);
         let mut themes = registry.sorted_themes();
@@ -170,7 +170,7 @@ impl ThemeColorsStory {
     }
 
     fn get_theme_colors(&self, cx: &Context<Self>) -> ThemeColor {
-        use gpui_component::{Theme as UITheme, ThemeRegistry};
+        use neutron_components::{Theme as UITheme, ThemeRegistry};
 
         if let Some(theme_config) = ThemeRegistry::global(cx)
             .themes()
@@ -193,7 +193,7 @@ impl ThemeColorsStory {
     }
 
     fn get_isolated_theme(&self, cx: &App) -> (ThemeColor, bool) {
-        use gpui_component::{Theme as UITheme, ThemeRegistry};
+        use neutron_components::{Theme as UITheme, ThemeRegistry};
 
         let registry = ThemeRegistry::global(cx);
 
@@ -225,7 +225,7 @@ impl ThemeColorsStory {
     }
 
     fn compute_categories(&mut self, cx: &Context<Self>) {
-        use gpui_component::ThemeRegistry;
+        use neutron_components::ThemeRegistry;
 
         if self.all_categories.is_empty() {
             let theme = self.get_theme_colors(cx);
@@ -291,7 +291,7 @@ impl ThemeColorsStory {
         is_explicit: bool,
         isolated_theme: &ThemeColor,
     ) -> impl IntoElement {
-        use gpui_component::{WindowExt as _, clipboard::Clipboard};
+        use neutron_components::{WindowExt as _, clipboard::Clipboard};
 
         let rgb_str = format!("#{}", hex);
         let swatch_group = format!("swatch-{}", name);
@@ -562,7 +562,7 @@ impl ThemeColorsStory {
 
 fn format_colors(
     theme: &ThemeColor,
-    config: Option<&gpui_component::theme::ThemeConfigColors>,
+    config: Option<&neutron_components::theme::ThemeConfigColors>,
 ) -> Vec<ColorCategory> {
     let json_theme = serde_json::to_value(theme).unwrap_or(serde_json::Value::Null);
     let mut categories: BTreeMap<String, Vec<ColorEntry>> = BTreeMap::new();
@@ -750,7 +750,7 @@ impl Render for ThemeColorsStory {
                             .primary()
                             .label("Set Theme")
                             .on_click(cx.listener(|this, _, window, cx| {
-                                use gpui_component::{Theme, ThemeRegistry};
+                                use neutron_components::{Theme, ThemeRegistry};
 
                                 let registry = ThemeRegistry::global(cx);
                                 if let Some(theme_config) =
@@ -834,7 +834,7 @@ impl Render for ThemeColorsStory {
 #[cfg(test)]
 mod tests {
     use super::{format_colors, theme_key_display_parts};
-    use gpui_component::{ThemeColor, theme::ThemeConfigColors};
+    use neutron_components::{ThemeColor, theme::ThemeConfigColors};
 
     #[test]
     fn uses_canonical_theme_keys_when_marking_explicit_colors() {

@@ -11,7 +11,7 @@ A step-by-step progress component that guides users through a series of steps or
 ## Import
 
 ```rust
-use gpui_component::stepper::{Stepper, StepperItem};
+use neutron_components::stepper::{Stepper, StepperItem};
 ```
 
 ## Usage
@@ -36,7 +36,7 @@ Stepper::new("my-stepper")
 ### With Icons
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 Stepper::new("icon-stepper")
     .selected_index(0)
@@ -115,7 +115,7 @@ Stepper::new("center-stepper")
 ### Different Sizes
 
 ```rust
-use gpui_component::{Sizable as _, Size};
+use neutron_components::{Sizable as _, Size};
 
 Stepper::new("stepper")
     .xsmall()
@@ -208,6 +208,6 @@ Stepper::new("stepper")
     ])
 ```
 
-[Stepper]: https://docs.rs/gpui-component/latest/gpui_component/stepper/struct.Stepper.html
-[StepperItem]: https://docs.rs/gpui-component/latest/gpui_component/stepper/struct.StepperItem.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Stepper]: https://docs.rs/neutron-components/latest/neutron_components/stepper/struct.Stepper.html
+[StepperItem]: https://docs.rs/neutron-components/latest/neutron_components/stepper/struct.StepperItem.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

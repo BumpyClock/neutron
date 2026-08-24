@@ -13,7 +13,7 @@ This is most like the [Popover] component, but triggered by hover instead of cli
 ## Import
 
 ```rust
-use gpui_component::hover_card::HoverCard;
+use neutron_components::hover_card::HoverCard;
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ use gpui_component::hover_card::HoverCard;
 
 ```rust
 use gpui::{ParentElement as _, Styled as _};
-use gpui_component::{hover_card::HoverCard, v_flex};
+use neutron_components::{hover_card::HoverCard, v_flex};
 
 HoverCard::new("basic")
     .trigger(
@@ -56,7 +56,7 @@ A common use case is showing user profiles when hovering over a username, simila
 
 ```rust
 use gpui::{px, relative, Styled as _};
-use gpui_component::{
+use neutron_components::{
     avatar::Avatar,
     hover_card::HoverCard,
     h_flex,
@@ -94,7 +94,7 @@ h_flex()
                                     .text_color(cx.theme().muted_foreground)
                                     .text_sm()
                             )
-                            .child("The author of GPUI Component.")
+                            .child("The author of Neutron Components.")
                     )
             )
     )
@@ -108,7 +108,7 @@ Adjust the opening and closing delays to suit your needs:
 ```rust
 use std::time::Duration;
 use gpui::Styled as _;
-use gpui_component::{
+use neutron_components::{
     button::{Button, ButtonVariants as _},
     h_flex,
 };
@@ -244,5 +244,5 @@ The HoverCard uses a sophisticated timing system to provide a smooth user experi
 | Primary use case         | Previews         | Actions/forms      |
 
 [Popover]: ./popover.md
-[Anchor]: https://docs.rs/gpui-component/latest/gpui_component/enum.Anchor.html
+[Anchor]: https://docs.rs/neutron-components/latest/neutron_components/enum.Anchor.html
 [Avatar]: ./avatar.md

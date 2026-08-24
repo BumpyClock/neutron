@@ -22,14 +22,14 @@ use std::time::Duration;
 
 use anyhow::bail;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use gpui_component_app::commands::AppMenusExt as _;
-use gpui_component_app::commands::StandardMenus;
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::ui::{ActiveTheme as _, switch::Switch, v_flex};
+use neutron_components_app::commands::AppMenusExt as _;
+use neutron_components_app::commands::StandardMenus;
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::ui::{ActiveTheme as _, switch::Switch, v_flex};
 use serde::{Deserialize, Serialize};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 /// How long a `--smoke` run stays up before requesting a clean quit.
 const SMOKE_LIFETIME: Duration = Duration::from_secs(3);
@@ -76,12 +76,12 @@ impl AssetSource for ExampleAssets {
 
 struct MainView {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<gpui_component_app::ui::menu::AppMenuBar>,
+    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
 }
 
 impl MainView {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    fn with_menu_bar(menu_bar: Entity<gpui_component_app::ui::menu::AppMenuBar>) -> Self {
+    fn with_menu_bar(menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>) -> Self {
         Self { menu_bar }
     }
 
@@ -181,7 +181,7 @@ fn run() -> Result<(), AppShellError> {
 
     AppShell::builder(APP_IDENTITY)
         .assets(ExampleAssets)
-        .assets(gpui_component_assets::Assets)
+        .assets(neutron_components_assets::Assets)
         .initial_activation(InitialActivation::Forced)
         .settings::<ExampleSettings>(StoreKey::PRIMARY)
         .theme(ThemeSource::registry())

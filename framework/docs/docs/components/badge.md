@@ -11,7 +11,7 @@ A versatile badge component that can display counts, dots, or icons on elements.
 ## Import
 
 ```rust
-use gpui_component::badge::Badge;
+use neutron_components::badge::Badge;
 ```
 
 ## Usage
@@ -20,7 +20,7 @@ use gpui_component::badge::Badge;
 
 Use `count` to display a numeric badge, if the count is greater than zero (`> 0`) the badge will be shown, otherwise it will be hidden.
 
-There is a default maximum count of `99`, any count above this will be displayed as `99+`. You can customize this maximum using the [max](https://docs.rs/gpui-component/latest/gpui_component/badge/struct.Badge.html#method.max) method.
+There is a default maximum count of `99`, any count above this will be displayed as `99+`. You can customize this maximum using the [max](https://docs.rs/neutron-components/latest/neutron_components/badge/struct.Badge.html#method.max) method.
 
 ```rust
 Badge::new()
@@ -77,7 +77,7 @@ Badge::new()
 ### Badge Colors
 
 ```rust
-use gpui_component::ActiveTheme;
+use neutron_components::ActiveTheme;
 
 // Custom colors
 Badge::new()
@@ -99,7 +99,7 @@ Badge::new()
 ### Badge on Icons
 
 ```rust
-use gpui_component::{Icon, IconName};
+use neutron_components::{Icon, IconName};
 
 // Badge with count on icon
 Badge::new()
@@ -121,7 +121,7 @@ Badge::new()
 ### Badge on Avatars
 
 ```rust
-use gpui_component::avatar::Avatar;
+use neutron_components::avatar::Avatar;
 
 // Basic count badge
 Badge::new()
@@ -244,5 +244,5 @@ Badge::new().count(1000).max(999) // Shows "999+"
 Badge::new().count(0)    // Badge not visible
 ```
 
-[Badge]: https://docs.rs/gpui_component/latest/gpui_component/badge/struct.Badge.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Badge]: https://docs.rs/neutron_components/latest/neutron_components/badge/struct.Badge.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

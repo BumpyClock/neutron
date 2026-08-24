@@ -3,7 +3,7 @@ use gpui::{
     Render, SharedString, Styled, Window, div, linear_color_stop, linear_gradient,
     prelude::FluentBuilder, px,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, StyledExt,
     chart::{AreaChart, BarChart, CandlestickChart, LineChart, PieChart},
     divider::Divider,

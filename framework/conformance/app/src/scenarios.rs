@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context as _, bail};
-use gpui_component_app::gpui;
-use gpui_component_app::gpui::{Action, AnyWindowHandle, App, OwnedMenuItem, actions};
-use gpui_component_app::{
+use neutron_components_app::gpui;
+use neutron_components_app::gpui::{Action, AnyWindowHandle, App, OwnedMenuItem, actions};
+use neutron_components_app::{
     AppCommandsExt as _, AppEvent, AppProxy, AppShell, AppShellError, AppShellExt as _, Command,
     CommandId, CommandScope, ExitPolicy, InitialActivation, MenuPlan, ShellHold, ShutdownReason,
 };

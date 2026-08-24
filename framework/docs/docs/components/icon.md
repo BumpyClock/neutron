@@ -8,12 +8,12 @@ summary: "Display SVG icons with various sizes, colors, and transformations."
 
 A flexible icon component that renders SVG icons from the built-in icon library. Icons are based on Lucide.dev and support customization of size, color, and rotation. The component requires SVG files to be provided by the user in the assets bundle.
 
-Before you start, please make sure you have read: [Icons & Assets](../assets.md) to understand how use SVG in GPUI & GPUI Component application.
+Before you start, please make sure you have read: [Icons & Assets](../assets.md) to understand how use SVG in GPUI & Neutron Components application.
 
 ## Import
 
 ```rust
-use gpui_component::{Icon, IconName};
+use neutron_components::{Icon, IconName};
 ```
 
 ## Usage
@@ -144,7 +144,7 @@ The Icon component supports several predefined sizes:
 You can define your own `IconName` to have more specific icons for your application. We have `IconNamed` trait for you to implement for your.
 
 ```rust
-use gpui_component::IconNamed;
+use neutron_components::IconNamed;
 
 pub enum IconName {
     Encounters,
@@ -187,7 +187,7 @@ div()
 ### Icon in Button
 
 ```rust
-use gpui_component::button::Button;
+use neutron_components::button::Button;
 
 Button::new("like-btn")
     .icon(

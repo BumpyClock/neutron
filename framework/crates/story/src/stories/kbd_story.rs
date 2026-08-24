@@ -3,7 +3,7 @@ use gpui::{
     Styled, Window,
 };
 
-use gpui_component::{h_flex, kbd::Kbd, v_flex};
+use neutron_components::{h_flex, kbd::Kbd, v_flex};
 
 use crate::section;
 

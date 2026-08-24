@@ -1,6 +1,6 @@
 [package]
 name = "hello_world"
-description = "A minimal example of application development with GPUI Component."
+description = "A minimal example of application development with Neutron Components."
 version = "0.5.1"
 rust-version = "1.95.0"
 publish = false
@@ -10,7 +10,7 @@ edition.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component = { workspace = true }
+neutron-components = { workspace = true }
 
 [lints]
 workspace = true

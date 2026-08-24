@@ -2,8 +2,8 @@
 description = "UI components for building fantastic desktop application by using GPUI."
 keywords = ["desktop", "gpui", "shadcn", "ui", "uikit"]
 license = "Apache-2.0"
-name = "gpui-component"
-documentation = "https://docs.rs/gpui-component"
+name = "neutron-components"
+documentation = "https://docs.rs/neutron-components"
 homepage = "https://github.com/BumpyClock/neutron"
 repository = "https://github.com/BumpyClock/neutron"
 readme = "../../README.md"
@@ -57,7 +57,7 @@ tree-sitter-languages = [
 [dependencies]
 anyhow.workspace = true
 gpui = { workspace = true }
-gpui-component-macros = { workspace = true }
+neutron-components-macros = { workspace = true }
 gpui-macros.workspace = true
 notify.workspace = true
 ropey.workspace = true

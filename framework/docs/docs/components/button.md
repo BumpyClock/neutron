@@ -11,7 +11,7 @@ The [Button] element with multiple variants, sizes, and states. Supports icons, 
 ## Import
 
 ```rust
-use gpui_component::button::{Button, ButtonGroup};
+use neutron_components::button::{Button, ButtonGroup};
 ```
 
 ## Usage
@@ -101,7 +101,7 @@ All icon types automatically adapt to the button's size and can be customized wi
 #### Icon Types
 
 ```rust
-use gpui_component::{Icon, IconName};
+use neutron_components::{Icon, IconName};
 
 // Using IconName (simplest)
 Button::new("btn")
@@ -126,7 +126,7 @@ Icon-only buttons should include a tooltip. The tooltip text is also used as the
 Use a [Spinner] to indicate loading or processing state:
 
 ```rust
-use gpui_component::spinner::Spinner;
+use neutron_components::spinner::Spinner;
 
 // Basic spinner
 Button::new("btn")
@@ -149,7 +149,7 @@ Button::new("btn")
 Use a [ProgressCircle] to show progress percentage:
 
 ```rust
-use gpui_component::progress::ProgressCircle;
+use neutron_components::progress::ProgressCircle;
 
 // Basic progress circle
 Button::new("btn")
@@ -289,7 +289,7 @@ ButtonGroup::new("toggle-group")
 ## Custom Variant
 
 ```rust
-use gpui_component::button::ButtonCustomVariant;
+use neutron_components::button::ButtonCustomVariant;
 
 let custom = ButtonCustomVariant::new(cx)
     .color(cx.theme().magenta)
@@ -333,11 +333,11 @@ Button::new("btn")
     )
 ```
 
-[Button]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.Button.html
-[ButtonGroup]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.ButtonGroup.html
-[ButtonCustomVariant]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.ButtonCustomVariant.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
-[Spinner]: https://docs.rs/gpui-component/latest/gpui_component/spinner/struct.Spinner.html
-[ProgressCircle]: https://docs.rs/gpui-component/latest/gpui_component/progress/struct.ProgressCircle.html
-[Icon]: https://docs.rs/gpui-component/latest/gpui_component/icon/struct.Icon.html
-[IconName]: https://docs.rs/gpui-component/latest/gpui_component/icon/enum.IconName.html
+[Button]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.Button.html
+[ButtonGroup]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.ButtonGroup.html
+[ButtonCustomVariant]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.ButtonCustomVariant.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html
+[Spinner]: https://docs.rs/neutron-components/latest/neutron_components/spinner/struct.Spinner.html
+[ProgressCircle]: https://docs.rs/neutron-components/latest/neutron_components/progress/struct.ProgressCircle.html
+[Icon]: https://docs.rs/neutron-components/latest/neutron_components/icon/struct.Icon.html
+[IconName]: https://docs.rs/neutron-components/latest/neutron_components/icon/enum.IconName.html

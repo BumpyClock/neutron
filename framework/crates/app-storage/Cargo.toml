@@ -1,6 +1,6 @@
 [package]
-name = "gpui-component-storage"
-description = "Foundation storage layer for gpui-component apps: platform paths, atomic writes, schema-versioned envelopes, debounced stores. No GPUI dependency."
+name = "neutron-components-storage"
+description = "Foundation storage layer for neutron-components apps: platform paths, atomic writes, schema-versioned envelopes, debounced stores. No GPUI dependency."
 version = "0.7.0"
 edition.workspace = true
 publish = true

@@ -2,7 +2,7 @@
 <svg width="24px" height="25px" viewBox="0 0 24 25" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <title>Slice</title>
     <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <g id="gpui-component" transform="translate(12.257359, 12.015009) rotate(-180.000000) translate(-12.257359, -12.015009) translate(0.257359, 1.000000)">
+        <g id="neutron-components" transform="translate(12.257359, 12.015009) rotate(-180.000000) translate(-12.257359, -12.015009) translate(0.257359, 1.000000)">
             <rect id="Rectangle" fill="#000000" x="12.1795392" y="0.656692267" width="11" height="7.33333333" rx="0.5"></rect>
             <rect id="Rectangle-Copy" stroke="#000000" x="12.6795392" y="11.6637685" width="10.8204608" height="9.50707628" rx="0.5"></rect>
             <rect id="Rectangle" stroke="#000000" x="0.85907837" y="0.5" width="6.88030721" height="9.50707628" rx="1"></rect>

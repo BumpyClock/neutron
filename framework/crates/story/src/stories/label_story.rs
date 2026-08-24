@@ -3,7 +3,7 @@ use gpui::{
     Styled, Subscription, Window, div, px, rems,
 };
 
-use gpui_component::{
+use neutron_components::{
     IconName, StyledExt,
     button::{Button, ButtonVariant, ButtonVariants as _},
     checkbox::Checkbox,

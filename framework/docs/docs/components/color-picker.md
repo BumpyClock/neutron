@@ -11,7 +11,7 @@ A versatile color picker component that provides an intuitive interface for colo
 ## Import
 
 ```rust
-use gpui_component::color_picker::{ColorPicker, ColorPickerState, ColorPickerEvent};
+use neutron_components::color_picker::{ColorPicker, ColorPickerState, ColorPickerEvent};
 ```
 
 ## Usage
@@ -97,7 +97,7 @@ ColorPicker::new(&color_picker)
 ### With Icon Instead of Color Square
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 ColorPicker::new(&color_picker)
     .icon(IconName::Palette)
@@ -283,7 +283,7 @@ impl ThemeEditor {
 ### Brand Color Selector
 
 ```rust
-use gpui_component::{Sizable as _};
+use neutron_components::{Sizable as _};
 
 let brand_colors = vec![
     Hsla::parse_hex("#FF6B6B").unwrap(), // Brand Red
@@ -302,7 +302,7 @@ ColorPicker::new(&color_picker)
 ### Toolbar Color Picker
 
 ```rust
-use gpui_component::{Sizable as _, IconName);
+use neutron_components::{Sizable as _, IconName);
 
 ColorPicker::new(&text_color_picker)
     .icon(IconName::Type)
@@ -373,6 +373,6 @@ let _subscription = cx.subscribe(&color_picker, |this, _, ev, _| match ev {
 });
 ```
 
-[ColorPicker]: https://docs.rs/gpui-component/latest/gpui_component/color_picker/struct.ColorPicker.html
-[ColorPickerState]: https://docs.rs/gpui-component/latest/gpui_component/color_picker/struct.ColorPickerState.html
-[ColorPickerEvent]: https://docs.rs/gpui-component/latest/gpui_component/color_picker/enum.ColorPickerEvent.html
+[ColorPicker]: https://docs.rs/neutron-components/latest/neutron_components/color_picker/struct.ColorPicker.html
+[ColorPickerState]: https://docs.rs/neutron-components/latest/neutron_components/color_picker/struct.ColorPickerState.html
+[ColorPickerEvent]: https://docs.rs/neutron-components/latest/neutron_components/color_picker/enum.ColorPickerEvent.html

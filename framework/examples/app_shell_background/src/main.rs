@@ -29,13 +29,13 @@ use std::thread;
 use std::time::Duration;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use gpui_component_app::commands::AppMenusExt as _;
-use gpui_component_app::commands::StandardMenus;
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::ui::{ActiveTheme as _, v_flex};
+use neutron_components_app::commands::AppMenusExt as _;
+use neutron_components_app::commands::StandardMenus;
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::ui::{ActiveTheme as _, v_flex};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 /// How long the app stays window-less before the background task opens its window.
 /// Kept below [`SMOKE_LIFETIME`] so a `--smoke` run still exercises the open path.
@@ -46,12 +46,12 @@ static WINDOW_READY: AtomicBool = AtomicBool::new(false);
 /// Window opened after background work; themed so the theme service is visibly live.
 struct BackgroundWindow {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<gpui_component_app::ui::menu::AppMenuBar>,
+    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
 }
 
 impl BackgroundWindow {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    fn with_menu_bar(menu_bar: Entity<gpui_component_app::ui::menu::AppMenuBar>) -> Self {
+    fn with_menu_bar(menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>) -> Self {
         Self { menu_bar }
     }
 

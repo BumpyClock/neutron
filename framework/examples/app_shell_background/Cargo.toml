@@ -7,20 +7,20 @@ publish = false
 edition.workspace = true
 
 [package.metadata.gpui-app]
-app_id = "com.gpui-component.app-shell-background-example"
+app_id = "com.neutron-components.app-shell-background-example"
 display_name = "App Shell Background Example"
 categories = ["Development"]
 
 [dependencies]
 anyhow.workspace = true
-gpui-component-app.workspace = true
+neutron-components-app.workspace = true
 log.workspace = true
 
 # Only a build dependency: `build.rs` calls `emit_identity()`. The runtime
-# `include_identity!()` (re-exported by gpui-component-app) resolves the manifest
+# `include_identity!()` (re-exported by neutron-components-app) resolves the manifest
 # schema types via macro `$crate`, so no runtime dependency is needed here.
 [build-dependencies]
-gpui-component-manifest.workspace = true
+neutron-components-manifest.workspace = true
 
 [lints]
 workspace = true

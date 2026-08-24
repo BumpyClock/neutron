@@ -11,7 +11,7 @@ A versatile tooltip component that displays helpful information when hovering ov
 ## Import
 
 ```rust
-use gpui_component::tooltip::Tooltip;
+use neutron_components::tooltip::Tooltip;
 ```
 
 ## Usage

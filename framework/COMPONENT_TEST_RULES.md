@@ -1,4 +1,4 @@
-# GPUI Component Testing Rules
+# Neutron Components Testing Rules
 
 ## Testing Principles
 

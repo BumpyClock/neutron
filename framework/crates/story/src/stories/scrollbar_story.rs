@@ -4,7 +4,7 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Pixels,
     Render, Size, Styled, UniformListScrollHandle, Window, div, px, size, uniform_list,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, Selectable,
     button::{Button, ButtonGroup},
     h_flex,

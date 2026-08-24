@@ -1,22 +1,22 @@
 [package]
-name = "gpui-component-story"
+name = "neutron-story"
 version = "0.5.1"
 rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 
 [features]
-inspector = ["gpui-component/inspector"]
+inspector = ["neutron-components/inspector"]
 
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component = { workspace = true, features = [
+neutron-components = { workspace = true, features = [
   "tree-sitter-languages",
 ] }
-gpui-component-app.workspace = true
-gpui-component-assets.workspace = true
+neutron-components-app.workspace = true
+neutron-components-assets.workspace = true
 reqwest_client = { package = "framework-reqwest-client", path = "../reqwest_client" }
 
 autocorrect = "2.14.2"

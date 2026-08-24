@@ -3,13 +3,13 @@ use gpui::{AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 use std::{borrow::Cow, collections::HashSet};
 
-/// Embed application assets for GPUI Component.
+/// Embed application assets for Neutron Components.
 ///
-/// This bundle includes GPUI Component-owned assets such as icon SVGs and non-icon
+/// This bundle includes Neutron Components-owned assets such as icon SVGs and non-icon
 /// resources like the surface noise texture at `surface/NoiseAsset_256.png`.
 ///
 /// ```
-/// use gpui_component_assets::{Assets, chain};
+/// use neutron_components_assets::{Assets, chain};
 ///
 /// # fn main() -> gpui::Result<()> {
 /// let _app = gpui_platform::try_headless()?.with_assets(chain(MyAssets, Assets));

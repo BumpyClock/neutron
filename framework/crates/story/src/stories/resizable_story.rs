@@ -2,7 +2,7 @@ use gpui::{
     AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement,
     ParentElement as _, Pixels, Render, SharedString, Styled, Window, div, px,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme,
     resizable::{h_resizable, resizable_panel, v_resizable},
     v_flex,

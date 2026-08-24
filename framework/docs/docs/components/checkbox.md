@@ -11,7 +11,7 @@ A checkbox component for binary choices. Supports labels, disabled state, and di
 ## Import
 
 ```rust
-use gpui_component::checkbox::Checkbox;
+use neutron_components::checkbox::Checkbox;
 ```
 
 ## Usage
@@ -139,4 +139,4 @@ v_flex()
     )
 ```
 
-[Checkbox]: https://docs.rs/gpui-component/latest/gpui_component/checkbox/struct.Checkbox.html
+[Checkbox]: https://docs.rs/neutron-components/latest/neutron_components/checkbox/struct.Checkbox.html

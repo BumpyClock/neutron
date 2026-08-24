@@ -19,7 +19,7 @@ An accordion component that allows users to show and hide sections of content.
 ## Import
 
 ```rust
-use gpui_component::accordion::Accordion;
+use neutron_components::accordion::Accordion;
 ```
 
 ## Usage
@@ -64,7 +64,7 @@ Accordion::new("my-accordion")
 ### Different Sizes
 
 ```rust
-use gpui_component::{Sizable as _, Size};
+use neutron_components::{Sizable as _, Size};
 
 Accordion::new("my-accordion")
     .small()
@@ -138,6 +138,6 @@ Accordion::new("outer")
     })
 ```
 
-[Accordion]: https://docs.rs/gpui-component/latest/gpui_component/accordion/struct.Accordion.html
-[AccordionItem]: https://docs.rs/gpui-component/latest/gpui_component/accordion/struct.AccordionItem.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Accordion]: https://docs.rs/neutron-components/latest/neutron_components/accordion/struct.Accordion.html
+[AccordionItem]: https://docs.rs/neutron-components/latest/neutron_components/accordion/struct.AccordionItem.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

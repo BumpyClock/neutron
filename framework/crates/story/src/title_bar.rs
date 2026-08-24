@@ -5,7 +5,7 @@ use gpui::{
     IntoElement, MouseButton, ParentElement as _, Render, SharedString, Styled as _, Subscription,
     Window, div, px,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, IconName, Side, Sizable as _, Theme, TitleBar, WindowExt as _,
     badge::Badge,
     button::{Button, ButtonVariants as _},

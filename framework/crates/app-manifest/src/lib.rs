@@ -13,7 +13,7 @@ pub use error::ManifestError;
 ///
 /// Call this from the consuming application's own crate after its `build.rs` has
 /// called [`build::emit_identity`]. Do not call it from a library crate: `OUT_DIR`
-/// must belong to the application. `gpui-component-app` re-exports this macro for
+/// must belong to the application. `neutron-components-app` re-exports this macro for
 /// ergonomic access.
 ///
 /// # No direct manifest dependency required
@@ -21,10 +21,10 @@ pub use error::ManifestError;
 /// The generated source names its schema types unqualified (`IdentityRef`, …).
 /// This macro includes that source inside a private module that imports those
 /// types with `use $crate::schema::*`. `$crate` resolves to the crate that
-/// *defined* the macro — `gpui-component-manifest` — by def-id rather than the
+/// *defined* the macro — `neutron-components-manifest` — by def-id rather than the
 /// caller's extern prelude, so it works even when the macro is reached through a
-/// re-export (e.g. `gpui_component_app::include_identity!`). Consequently an app
-/// that calls this via `gpui-component-app` needs `gpui-component-manifest` only
+/// re-export (e.g. `neutron_components_app::include_identity!`). Consequently an app
+/// that calls this via `neutron-components-app` needs `neutron-components-manifest` only
 /// as a `[build-dependencies]` entry (for [`build::emit_identity`]) — never as a
 /// runtime dependency.
 #[macro_export]

@@ -3,7 +3,7 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Window, actions, div,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, IconName,
     button::{Button, ButtonVariant, ButtonVariants},
     checkbox::Checkbox,

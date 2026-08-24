@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, Render, Styled,
     Window, px,
 };
-use gpui_component::{ActiveTheme as _, IconName, Sizable, spinner::Spinner, v_flex};
+use neutron_components::{ActiveTheme as _, IconName, Sizable, spinner::Spinner, v_flex};
 
 use crate::section;
 

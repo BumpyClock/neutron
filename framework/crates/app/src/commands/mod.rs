@@ -22,7 +22,7 @@ mod standard;
 use std::collections::HashMap;
 
 use gpui::{Action, App, Entity, Global, MenuItem, OsAction, SharedString, WeakEntity};
-use gpui_component::menu::AppMenuBar;
+use neutron_components::menu::AppMenuBar;
 use thiserror::Error;
 
 pub use menu::{MenuNode, MenuOutline, MenuPlan, THEME_SECTION};

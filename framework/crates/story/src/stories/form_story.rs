@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext, Axis, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement as _, Render, Styled, Window, div, prelude::FluentBuilder as _, px,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, AxisExt, IndexPath, Selectable, Sizable, Size,
     button::{Button, ButtonGroup},
     checkbox::Checkbox,
@@ -78,7 +78,7 @@ impl FormStory {
             InputState::new(window, cx)
                 .auto_grow(5, 20)
                 .placeholder("Enter text here...")
-                .default_value("Hello 世界，this is GPUI component.")
+                .default_value("Hello 世界，this is a Neutron component.")
         });
         let date = cx.new(|cx| DatePickerState::new(window, cx));
 

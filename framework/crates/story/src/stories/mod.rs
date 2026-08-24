@@ -1,5 +1,5 @@
 use gpui::{AnyView, App, AppContext as _, Entity, Hsla, Pixels, Render, Window, px};
-use gpui_component::dock::PanelControl;
+use neutron_components::dock::PanelControl;
 
 mod accordion_story;
 mod alert_dialog_story;

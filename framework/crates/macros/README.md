@@ -1,3 +1,3 @@
-# gpui-component-macros
+# neutron-components-macros
 
-Procedural macros used by `gpui-component`.
+Procedural macros used by `neutron-components`.

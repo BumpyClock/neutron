@@ -11,7 +11,7 @@ An interactive element which expands/collapses.
 ## Import
 
 ```rust
-use gpui_component::collapsible::Collapsible;
+use neutron_components::collapsible::Collapsible;
 ```
 
 ## Usage
@@ -55,4 +55,4 @@ Collapsible::new()
 
 We can use `open` method to control the collapsed state. If false, the `content` method added child elements will be hidden.
 
-[Collapsible]: https://docs.rs/gpui-component/latest/gpui_component/collapsible/struct.Collapsible.html
+[Collapsible]: https://docs.rs/neutron-components/latest/neutron_components/collapsible/struct.Collapsible.html

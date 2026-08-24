@@ -13,7 +13,7 @@ inspector = []
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component = { workspace = true }
+neutron-components = { workspace = true }
 
 # WebView dependencies
 gpui-wry = { path = "../../crates/webview" }

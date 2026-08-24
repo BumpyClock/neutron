@@ -1,8 +1,8 @@
 <template>
     <div class="skills-page">
-        <h1>GPUI Component Skills</h1>
+        <h1>Neutron Components Skills</h1>
         <p class="description">
-            Skills available for working with GPUI Component. These skills
+            Skills available for working with Neutron Components. These skills
             provide guidance and best practices for building GPUI applications.
         </p>
         <div class="skills-list">

@@ -13,7 +13,7 @@ Default popovers use the theme's translucent Acrylic flyout material: backdrop b
 ## Import
 
 ```rust
-use gpui_component::popover::{Popover};
+use neutron_components::popover::{Popover};
 ```
 
 ## Usage
@@ -28,7 +28,7 @@ Any element that implements [RenderOnce] or [Render] can be used as popover cont
 
 ```rust
 use gpui::ParentElement as _;
-use gpui_component::{button::Button, popover::Popover};
+use neutron_components::{button::Button, popover::Popover};
 
 Popover::new("basic-popover")
     .trigger(Button::new("trigger").label("Click me").outline())
@@ -56,7 +56,7 @@ Popover::new("positioned-popover")
 The `Anchor` type provides more positioning options, including center positions:
 
 ```rust
-use gpui_component::Anchor;
+use neutron_components::Anchor;
 
 // Top positions
 Popover::new("top-left")
@@ -122,7 +122,7 @@ And `content` will works with `child`, `children` methods together.
 
 ```rust
 use gpui::ParentElement as _;
-use gpui_component::popover::Popover;
+use neutron_components::popover::Popover;
 
 Popover::new("complex-popover")
     .anchor(Corner::BottomLeft)
@@ -159,7 +159,7 @@ Popover::new("context-menu")
 If you want to dismiss the popover programmatically from within the content, you can emit a `DismissEvent`. In this case, you should use `content` method to create the popover content so you have access to the `cx: &mut Context<PopoverState>`.
 
 ```rust
-use gpui_component::{DismissEvent, popover::Popover};
+use neutron_components::{DismissEvent, popover::Popover};
 
 Popover::new("dismiss-popover")
     .trigger(Button::new("dismiss").label("Dismiss Popover").outline())
@@ -179,7 +179,7 @@ Popover::new("dismiss-popover")
 
 ### Styling Popover
 
-Like the others components in GPUI Component, the `appearance(false)` method can be used to disable the default styling of the popover, allowing you to fully customize its appearance.
+Like the others components in Neutron Components, the `appearance(false)` method can be used to disable the default styling of the popover, allowing you to fully customize its appearance.
 
 And the `Popover` has implemented the [Styled] trait, so you can use all the styling methods provided by GPUI to style the popover content as you like.
 
@@ -210,7 +210,7 @@ so you need to update the state in `on_open_change` callback to keep the popover
 :::
 
 ```rust
-use gpui_component::popover::Popover;
+use neutron_components::popover::Popover;
 
 struct MyView {
     popover_open: bool,
@@ -240,7 +240,7 @@ The `default_open` method allows you to set the initial open state of the popove
 Please note that if you use the `open` method to control the popover's open state, the `default_open` setting will be ignored.
 
 ```rust
-use gpui_component::popover::Popover;
+use neutron_components::popover::Popover;
 
 Popover::new("default-open-popover")
     .default_open(true)
@@ -248,8 +248,8 @@ Popover::new("default-open-popover")
     .child("This popover is open by default when first rendered.")
 ```
 
-[Button]: https://docs.rs/gpui-component/latest/gpui_component/button/struct.Button.html
-[Selectable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Selectable.html
+[Button]: https://docs.rs/neutron-components/latest/neutron_components/button/struct.Button.html
+[Selectable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Selectable.html
 [Render]: https://docs.rs/gpui/latest/gpui/trait.Render.html
 [RenderOnce]: https://docs.rs/gpui/latest/gpui/trait.RenderOnce.html
 [Styled]: https://docs.rs/gpui/latest/gpui/trait.Styled.html

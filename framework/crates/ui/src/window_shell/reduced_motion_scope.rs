@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use gpui_component::{ReducedMotionContext, ReducedMotionScope};
+//! use neutron_components::{ReducedMotionContext, ReducedMotionScope};
 //!
 //! // Parent provides reduced motion context
 //! ReducedMotionScope::new(true, div().child(my_sidebar))

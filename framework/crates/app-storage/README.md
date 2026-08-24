@@ -1,3 +1,3 @@
-# gpui-component-storage
+# neutron-components-storage
 
-Storage, platform-path, and schema-versioning primitives for GPUI Component apps.
+Storage, platform-path, and schema-versioning primitives for Neutron Components apps.

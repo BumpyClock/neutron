@@ -1,6 +1,6 @@
 use gpui::*;
-use gpui_component::{button::*, menu::ContextMenuExt, *};
-use gpui_component_assets::Assets;
+use neutron_components::{button::*, menu::ContextMenuExt, *};
+use neutron_components_assets::Assets;
 
 actions!(class_menu, [Open, Delete, Export, Info]);
 
@@ -82,7 +82,7 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component::init(cx);
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(

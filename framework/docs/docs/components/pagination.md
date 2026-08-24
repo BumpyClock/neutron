@@ -11,7 +11,7 @@ The [Pagination] component provides page navigation with next and previous links
 ## Import
 
 ```rust
-use gpui_component::pagination::Pagination;
+use neutron_components::pagination::Pagination;
 ```
 
 ## Usage
@@ -62,7 +62,7 @@ Pagination::new("my-pagination")
 The Pagination supports the [Sizable] trait for different sizes:
 
 ```rust
-use gpui_component::{Sizable as _, Size};
+use neutron_components::{Sizable as _, Size};
 
 Pagination::new("my-pagination")
     .xsmall()
@@ -167,5 +167,5 @@ Pagination::new("large-pagination")
     })
 ```
 
-[Pagination]: https://docs.rs/gpui-component/latest/gpui_component/pagination/struct.Pagination.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Pagination]: https://docs.rs/neutron-components/latest/neutron_components/pagination/struct.Pagination.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

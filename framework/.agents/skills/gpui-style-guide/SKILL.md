@@ -1,11 +1,11 @@
 ---
 name: gpui-style-guide
-description: GPUI Component project style guide based on gpui-component code patterns. Use when writing new components, reviewing code, or ensuring consistency with existing gpui-component implementations. Covers component structure, trait implementations, naming conventions, and API patterns observed in the actual codebase.
+description: Neutron Components project style guide based on neutron-components code patterns. Use when writing new components, reviewing code, or ensuring consistency with existing neutron-components implementations. Covers component structure, trait implementations, naming conventions, and API patterns observed in the actual codebase.
 ---
 
 ## Overview
 
-Code style guide derived from gpui-component implementation patterns.
+Code style guide derived from neutron-components implementation patterns.
 
 **Based on**: Analysis of Button, Checkbox, Input, Select, and other components in crates/ui
 

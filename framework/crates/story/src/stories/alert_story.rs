@@ -2,7 +2,7 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement, Render,
     Styled, Window,
 };
-use gpui_component::{
+use neutron_components::{
     IconName, Selectable as _, Sizable as _, Size,
     alert::Alert,
     button::{Button, ButtonGroup},

@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use gpui::{App, Application, AssetSource, QuitMode, SharedString};
-use gpui_component_manifest::schema::IdentityRef;
-use gpui_component_storage::{AppPaths, PathLayout};
+use neutron_components_manifest::schema::IdentityRef;
+use neutron_components_storage::{AppPaths, PathLayout};
 
 use crate::capabilities::PlatformCapabilities;
 use crate::error::{
@@ -520,7 +520,7 @@ impl Boot {
         phases.complete(Phase::EarlyListeners);
 
         // ComponentInit
-        gpui_component::init(cx);
+        neutron_components::init(cx);
         phases.complete(Phase::ComponentInit);
 
         // CoreServices: install the global (moves plugins/handlers/state in) and

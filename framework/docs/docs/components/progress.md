@@ -16,7 +16,7 @@ Both components feature smooth animations, customizable colors, and automatic st
 ## Progress
 
 ```rust
-use gpui_component::progress::{Progress, ProgressCircle};
+use neutron_components::progress::{Progress, ProgressCircle};
 ```
 
 ### Usage
@@ -199,7 +199,7 @@ impl MultiStepProcess {
 A circular progress indicator component that displays progress as an arc around a circle. Perfect for compact spaces, button icons, or when you want a more modern, space-efficient progress display.
 
 ```rust
-use gpui_component::progress::ProgressCircle;
+use neutron_components::progress::ProgressCircle;
 ```
 
 ### Basic ProgressCircle

@@ -6,7 +6,7 @@ order: -7
 
 # Building an Application
 
-`gpui-component-app` is the experimental, pre-1.0 application layer for GPUI
+`neutron-components-app` is the experimental, pre-1.0 application layer for GPUI
 Component. It replaces repeated host boilerplate while keeping product services
 and UI policy in the app.
 
@@ -22,11 +22,11 @@ Run the AppShell conformance example:
 cargo run -p app_shell
 ```
 
-The separate non-publishable `gpui-component-conformance` executable drives
+The separate non-publishable `neutron-components-conformance` executable drives
 Stage 1 native scenarios and emits the JSONL evidence contract described in
 [Testing and Runtime Evidence](runtime-evidence.md).
 
-Or run `cargo run -p gpui-component-story` and select **App Shell**. The story
+Or run `cargo run -p neutron-story` and select **App Shell**. The story
 previews standard menus, Settings/About actions, launch and liveness policies,
 runtime errors, and platform capabilities without starting a nested
 `Application`.
@@ -34,7 +34,7 @@ runtime errors, and platform capabilities without starting a nested
 ## What AppShell owns
 
 - compiled application identity and platform paths
-- `gpui_component::init`
+- `neutron_components::init`
 - ordered startup and reverse shutdown
 - typed settings stores and theme preferences
 - `Root`-wrapped normal windows and keyed singleton windows
@@ -52,13 +52,13 @@ workspace checkout. Do not mix engine revisions or add a sibling checkout.
 
 ```toml
 [dependencies]
-gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components-app = { path = "framework/crates/app", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-gpui-component-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
+neutron-components-manifest = { path = "framework/crates/app-manifest", version = "=0.7.0" }
 
 [package.metadata.gpui-app]
 app_id = "com.example.my-app"
@@ -70,7 +70,7 @@ Add an app-local `build.rs`:
 
 ```rust
 fn main() {
-    gpui_component_manifest::build::emit_identity()
+    neutron_components_manifest::build::emit_identity()
         .expect("invalid [package.metadata.gpui-app]");
 }
 ```
@@ -81,15 +81,15 @@ version source.
 ## Standard application
 
 ```rust
-use gpui_component_app::gpui::*;
-use gpui_component_app::prelude::*;
-use gpui_component_app::{
+use neutron_components_app::gpui::*;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{
     AppMenusExt as _, StandardMenus, WindowManager,
 };
-use gpui_component_app::ui::{ActiveTheme as _, v_flex};
+use neutron_components_app::ui::{ActiveTheme as _, v_flex};
 use serde::{Deserialize, Serialize};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
@@ -102,7 +102,7 @@ impl AppSettings for Settings {
 
 struct MainView {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<gpui_component_app::ui::menu::AppMenuBar>,
+    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
 }
 
 impl Render for MainView {
@@ -127,7 +127,7 @@ impl Render for MainView {
 
 fn main() -> Result<(), AppShellError> {
     AppShell::builder(APP_IDENTITY)
-        .assets(gpui_component_assets::Assets)
+        .assets(neutron_components_assets::Assets)
         .settings::<Settings>(StoreKey::PRIMARY)
         .theme(ThemeSource::registry())
         .standard_menus(

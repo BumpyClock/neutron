@@ -3,7 +3,7 @@ use gpui::{
     ParentElement as _, Render, SharedString, Styled, Window, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Icon, IconName, Sizable, Size, Theme, ThemeModePreference, ThemeRegistry,
     button::Button,
     group_box::GroupBoxVariant,
@@ -390,7 +390,7 @@ impl SettingsStory {
                             .items_center()
                             .justify_center()
                             .child(Icon::new(IconName::GalleryVerticalEnd).size_16())
-                            .child("GPUI Component")
+                            .child("Neutron Components")
                             .child(
                                 Label::new(
                                     "Rust GUI components for building fantastic cross-platform \
@@ -415,12 +415,10 @@ impl SettingsStory {
                             "Documentation",
                             SettingControl::element(OpenURLSettingField::new(
                                 "Rust Docs...",
-                                "https://docs.rs/gpui-component"
+                                "https://docs.rs/neutron-components",
                             )),
                         )
-                        .description(markdown(
-                            "Rust doc for the `gpui-component` crate.",
-                        )),
+                        .description(markdown("Rust doc for the `neutron-components` crate.")),
                         SettingItem::new(
                             "Website",
                             SettingControl::render(|options, _window, _cx| {
@@ -429,11 +427,15 @@ impl SettingsStory {
                                     .label("Website...")
                                     .with_size(options.size)
                                     .on_click(|_, _window, cx| {
-                                        cx.open_url("https://bumpyclock.github.io/gpui-component/");
+                                        cx.open_url(
+                                            "https://bumpyclock.github.io/neutron-components/",
+                                        );
                                     })
                             }),
                         )
-                        .description("Official website and documentation for the GPUI Component."),
+                        .description(
+                            "Official website and documentation for the Neutron Components.",
+                        ),
                     ])),
         ]
     }

@@ -1,11 +1,11 @@
 ---
 name: new-component
-description: Create new GPUI components. Use when building components, writing UI elements, or creating new component implementations.
+description: Create new Neutron components. Use when building components, writing UI elements, or creating new component implementations.
 ---
 
 ## Instructions
 
-When creating new GPUI components:
+When creating new Neutron components:
 
 1. **Follow existing patterns**: Base implementation on components in `crates/ui/src` (examples: `Button`, `Select`)
 2. **Style consistency**: Follow existing component styles and Shadcn UI patterns

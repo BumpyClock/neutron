@@ -19,7 +19,7 @@ Supports search functionality, grouped items, custom rendering, and various stat
 ## Import
 
 ```rust
-use gpui_component::select::{
+use neutron_components::select::{
     Select, SelectState, SelectItem, SelectDelegate,
     SelectEvent, SearchableVec, SelectGroup
 };
@@ -391,4 +391,4 @@ The dropdown respects the current theme and uses the following theme tokens:
 - `border` - Menu border
 - `radius` - Border radius
 
-[SelectItem]: https://docs.rs/gpui-component/latest/gpui_component/select/trait.SelectItem.html
+[SelectItem]: https://docs.rs/neutron-components/latest/neutron_components/select/trait.SelectItem.html

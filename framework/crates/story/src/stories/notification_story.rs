@@ -3,7 +3,7 @@ use gpui::{
     ParentElement, Render, Styled, Window,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Anchor, Theme, WindowExt as _,
     button::{Button, ButtonVariants},
     h_flex,

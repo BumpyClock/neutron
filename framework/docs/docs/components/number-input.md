@@ -11,7 +11,7 @@ A specialized input component for numeric values with built-in increment/decreme
 ## Import
 
 ```rust
-use gpui_component::input::{InputState, NumberInput, NumberInputEvent, StepAction};
+use neutron_components::input::{InputState, NumberInput, NumberInputEvent, StepAction};
 ```
 
 ## Usage
@@ -44,7 +44,7 @@ NumberInput::new(&integer_input)
 ### With Number Formatting
 
 ```rust
-use gpui_component::input::MaskPattern;
+use neutron_components::input::MaskPattern;
 
 // Currency input with thousands separator
 let currency_input = cx.new(|cx|
@@ -75,7 +75,7 @@ NumberInput::new(&input).small()
 ### With Prefix and Suffix
 
 ```rust
-use gpui_component::{button::{Button, ButtonVariants}, IconName};
+use neutron_components::{button::{Button, ButtonVariants}, IconName};
 
 // With currency prefix
 NumberInput::new(&input)

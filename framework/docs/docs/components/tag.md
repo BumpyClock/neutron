@@ -11,7 +11,7 @@ A versatile tag component for categorizing and labeling content. Tags are compac
 ## Import
 
 ```rust
-use gpui_component::tag::Tag;
+use neutron_components::tag::Tag;
 ```
 
 ## Usage
@@ -69,7 +69,7 @@ Tag::primary().child("Medium Tag")
 ### Custom Colors
 
 ```rust
-use gpui_component::ColorName;
+use neutron_components::ColorName;
 
 // Using predefined color names
 Tag::color(ColorName::Blue).child("Blue Tag")
@@ -205,7 +205,7 @@ Tag::warning().small().child("Limited")
 ### Tag Collections
 
 ```rust
-use gpui_component::{h_flex, v_flex};
+use neutron_components::{h_flex, v_flex};
 
 // Horizontal tag group
 h_flex()
@@ -264,7 +264,7 @@ h_flex()
 ### Color-Coded Categories
 
 ```rust
-use gpui_component::ColorName;
+use neutron_components::ColorName;
 
 // Content type tags
 h_flex()

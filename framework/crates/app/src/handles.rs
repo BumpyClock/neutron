@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui::{App, MainThreadPoster};
-use gpui_component_manifest::schema::IdentityRef;
-use gpui_component_storage::AppPaths;
+use neutron_components_manifest::schema::IdentityRef;
+use neutron_components_storage::AppPaths;
 
 use crate::capabilities::PlatformCapabilities;
 use crate::error::{AppClosed, RuntimeError};

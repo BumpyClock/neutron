@@ -3,7 +3,7 @@ use gpui::{
     Styled, Window,
 };
 
-use gpui_component::{
+use neutron_components::{
     WindowExt,
     clipboard::Clipboard,
     h_flex,

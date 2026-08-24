@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use gpui::{Action, App, Global};
-use gpui_component::{Theme, ThemeConfig, ThemeModePreference, ThemeRegistry};
+use neutron_components::{Theme, ThemeConfig, ThemeModePreference, ThemeRegistry};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppShellError;
@@ -63,7 +63,7 @@ pub enum ThemeSource {
     /// through the registry, so bundled edits and newly installed user themes
     /// hot-reload normally.
     ///
-    /// Assets are always synced to disk: gpui-component's [`ThemeRegistry`]
+    /// Assets are always synced to disk: neutron-components's [`ThemeRegistry`]
     /// exposes no in-memory registration API and keeps its theme maps private,
     /// so the watched config directory is the only path that makes bundled
     /// themes visible to theme selection.
@@ -588,7 +588,7 @@ mod tests {
             .expect("bundled theme written to watched dir");
         // Parse through the exact serde type `ThemeRegistry::reload` uses, proving
         // the synced file registers as a named theme set with both modes.
-        let set: gpui_component::ThemeSet =
+        let set: neutron_components::ThemeSet =
             serde_json::from_slice(&written).expect("synced file is a valid theme set");
         assert_eq!(set.name.as_ref(), "Bundled Sample");
         assert_eq!(set.themes.len(), 2);

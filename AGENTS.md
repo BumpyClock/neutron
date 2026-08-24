@@ -7,7 +7,7 @@ This file is the authoritative agent guide for the entire repository.
 This repository is the canonical monorepo for:
 
 - the standalone BumpyClock GPUI engine, originally maintained in `BumpyClock/gpui`
-- the higher-level GPUI Component framework, originally maintained in `BumpyClock/gpui-component`
+- the higher-level Neutron Components framework, originally maintained in `BumpyClock/gpui-component`
 
 Read this file before changing code, manifests, CI, release metadata, upstream-sync records, conformance tooling, or repository structure.
 
@@ -233,7 +233,7 @@ When a framework bug exposes a missing generic primitive, add the smallest reusa
 
 `framework/` owns application-SDK policy and reusable desktop components:
 
-- `gpui-component`
+- `neutron-components`
 - AppShell
 - application identity and manifest code generation
 - application paths and storage
@@ -630,11 +630,11 @@ Custom-rendered controls are not native OS widgets. Say “native application/ru
 
 ### Component initialization
 
-AppShell owns `gpui_component::init(cx)` during its component-initialization phase.
+AppShell owns `neutron_components::init(cx)` during its component-initialization phase.
 
 Do not call it again in an AppShell `start` callback.
 
-Applications that bootstrap GPUI manually must call `gpui_component::init(cx)` before using framework components.
+Applications that bootstrap GPUI manually must call `neutron_components::init(cx)` before using framework components.
 
 ### Root
 

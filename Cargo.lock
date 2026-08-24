@@ -286,9 +286,9 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
+ "neutron-components",
+ "neutron-components-assets",
  "rust-embed",
 ]
 
@@ -297,10 +297,10 @@ name = "app_shell"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "gpui-component-app",
- "gpui-component-assets",
- "gpui-component-manifest",
  "log",
+ "neutron-components-app",
+ "neutron-components-assets",
+ "neutron-components-manifest",
  "serde",
 ]
 
@@ -309,9 +309,9 @@ name = "app_shell_background"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "gpui-component-app",
- "gpui-component-manifest",
  "log",
+ "neutron-components-app",
+ "neutron-components-manifest",
 ]
 
 [[package]]
@@ -2191,9 +2191,9 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
+ "neutron-components",
+ "neutron-components-assets",
 ]
 
 [[package]]
@@ -2765,8 +2765,8 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
  "gpui_platform",
+ "neutron-components",
 ]
 
 [[package]]
@@ -3465,188 +3465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpui-component"
-version = "0.7.0"
-dependencies = [
- "aho-corasick",
- "anyhow",
- "bumpyclock-gpui",
- "chrono",
- "core-text",
- "enum-iterator",
- "fuzzy-matcher",
- "gpui-component-macros",
- "gpui_macros",
- "html5ever 0.27.0",
- "indoc",
- "itertools 0.14.0",
- "lsp-types 0.97.0",
- "markdown",
- "markup5ever_rcdom",
- "notify",
- "nucleo",
- "num-traits",
- "once_cell",
- "paste",
- "raw-window-handle",
- "regex",
- "ropey",
- "rust-i18n",
- "rust_decimal",
- "schemars",
- "serde",
- "serde_json",
- "serde_repr",
- "smallvec",
- "smol",
- "sum_tree",
- "tracing",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cmake",
- "tree-sitter-cpp",
- "tree-sitter-css",
- "tree-sitter-diff",
- "tree-sitter-elixir",
- "tree-sitter-embedded-template",
- "tree-sitter-go",
- "tree-sitter-graphql",
- "tree-sitter-html",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-jsdoc",
- "tree-sitter-json",
- "tree-sitter-kotlin-sg",
- "tree-sitter-lua",
- "tree-sitter-make",
- "tree-sitter-md",
- "tree-sitter-php",
- "tree-sitter-proto",
- "tree-sitter-python",
- "tree-sitter-ruby",
- "tree-sitter-rust",
- "tree-sitter-scala",
- "tree-sitter-sequel",
- "tree-sitter-swift",
- "tree-sitter-toml-ng",
- "tree-sitter-typescript",
- "tree-sitter-yaml",
- "tree-sitter-zig",
- "unicode-segmentation",
- "uuid",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "gpui-component-app"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "bumpyclock-gpui",
- "fix-path-env",
- "gpui-component",
- "gpui-component-manifest",
- "gpui-component-storage",
- "gpui_platform",
- "log",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "toml 0.9.12+spec-1.1.0",
- "wait-timeout",
-]
-
-[[package]]
-name = "gpui-component-assets"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "bumpyclock-gpui",
- "gpui_platform",
- "rust-embed",
-]
-
-[[package]]
-name = "gpui-component-conformance"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "bumpyclock-gpui",
- "gpui-component",
- "gpui-component-app",
- "gpui-component-manifest",
- "raw-window-handle",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "gpui-component-macros"
-version = "0.7.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "gpui-component-manifest"
-version = "0.7.0"
-dependencies = [
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "gpui-component-storage"
-version = "0.7.0"
-dependencies = [
- "dirs 6.0.0",
- "log",
- "serde",
- "tempfile",
- "thiserror 2.0.18",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "gpui-component-story"
-version = "0.5.1"
-dependencies = [
- "anyhow",
- "autocorrect",
- "bumpyclock-gpui",
- "chrono",
- "color-lsp",
- "csv",
- "dirs 6.0.0",
- "fake",
- "framework-reqwest-client",
- "gpui-component",
- "gpui-component-app",
- "gpui-component-assets",
- "gpui_platform",
- "gtk",
- "itertools 0.14.0",
- "lsp-types 0.97.0",
- "rand 0.8.7",
- "regex",
- "rust-i18n",
- "serde",
- "serde_json",
- "smol",
- "tracing",
- "tracing-subscriber",
- "tree-sitter-navi",
- "unindent",
-]
-
-[[package]]
 name = "gpui-wry"
 version = "0.7.0"
 dependencies = [
@@ -4081,8 +3899,8 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
  "gpui_platform",
+ "neutron-components",
 ]
 
 [[package]]
@@ -4545,9 +4363,9 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
+ "neutron-components",
+ "neutron-components-assets",
 ]
 
 [[package]]
@@ -5478,6 +5296,188 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "neutron-components"
+version = "0.7.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "bumpyclock-gpui",
+ "chrono",
+ "core-text",
+ "enum-iterator",
+ "fuzzy-matcher",
+ "gpui_macros",
+ "html5ever 0.27.0",
+ "indoc",
+ "itertools 0.14.0",
+ "lsp-types 0.97.0",
+ "markdown",
+ "markup5ever_rcdom",
+ "neutron-components-macros",
+ "notify",
+ "nucleo",
+ "num-traits",
+ "once_cell",
+ "paste",
+ "raw-window-handle",
+ "regex",
+ "ropey",
+ "rust-i18n",
+ "rust_decimal",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "smallvec",
+ "smol",
+ "sum_tree",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cmake",
+ "tree-sitter-cpp",
+ "tree-sitter-css",
+ "tree-sitter-diff",
+ "tree-sitter-elixir",
+ "tree-sitter-embedded-template",
+ "tree-sitter-go",
+ "tree-sitter-graphql",
+ "tree-sitter-html",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-jsdoc",
+ "tree-sitter-json",
+ "tree-sitter-kotlin-sg",
+ "tree-sitter-lua",
+ "tree-sitter-make",
+ "tree-sitter-md",
+ "tree-sitter-php",
+ "tree-sitter-proto",
+ "tree-sitter-python",
+ "tree-sitter-ruby",
+ "tree-sitter-rust",
+ "tree-sitter-scala",
+ "tree-sitter-sequel",
+ "tree-sitter-swift",
+ "tree-sitter-toml-ng",
+ "tree-sitter-typescript",
+ "tree-sitter-yaml",
+ "tree-sitter-zig",
+ "unicode-segmentation",
+ "uuid",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "neutron-components-app"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "bumpyclock-gpui",
+ "fix-path-env",
+ "gpui_platform",
+ "log",
+ "neutron-components",
+ "neutron-components-manifest",
+ "neutron-components-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 0.9.12+spec-1.1.0",
+ "wait-timeout",
+]
+
+[[package]]
+name = "neutron-components-assets"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "bumpyclock-gpui",
+ "gpui_platform",
+ "rust-embed",
+]
+
+[[package]]
+name = "neutron-components-conformance"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "bumpyclock-gpui",
+ "neutron-components",
+ "neutron-components-app",
+ "neutron-components-manifest",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "neutron-components-macros"
+version = "0.7.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "neutron-components-manifest"
+version = "0.7.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "neutron-components-storage"
+version = "0.7.0"
+dependencies = [
+ "dirs 6.0.0",
+ "log",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "neutron-story"
+version = "0.5.1"
+dependencies = [
+ "anyhow",
+ "autocorrect",
+ "bumpyclock-gpui",
+ "chrono",
+ "color-lsp",
+ "csv",
+ "dirs 6.0.0",
+ "fake",
+ "framework-reqwest-client",
+ "gpui_platform",
+ "gtk",
+ "itertools 0.14.0",
+ "lsp-types 0.97.0",
+ "neutron-components",
+ "neutron-components-app",
+ "neutron-components-assets",
+ "rand 0.8.7",
+ "regex",
+ "rust-i18n",
+ "serde",
+ "serde_json",
+ "smol",
+ "tracing",
+ "tracing-subscriber",
+ "tree-sitter-navi",
+ "unindent",
 ]
 
 [[package]]
@@ -8658,10 +8658,10 @@ dependencies = [
  "battery",
  "bumpyclock-gpui",
  "core-foundation 0.10.0",
- "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
  "metal 0.33.0",
+ "neutron-components",
+ "neutron-components-assets",
  "sysinfo 0.37.2",
  "windows 0.62.2",
 ]
@@ -10340,11 +10340,11 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
  "gpui-wry",
  "gpui_platform",
  "gtk",
  "lb-wry",
+ "neutron-components",
  "raw-window-handle",
 ]
 
@@ -10607,9 +10607,9 @@ version = "0.5.1"
 dependencies = [
  "anyhow",
  "bumpyclock-gpui",
- "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
+ "neutron-components",
+ "neutron-components-assets",
 ]
 
 [[package]]

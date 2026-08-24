@@ -1,8 +1,8 @@
-## Asset composition in GPUI Component
+## Asset composition in Neutron Components
 
-The [IconName](https://github.com/longbridge/gpui-component/blob/6998708b817024c2ac0f1ea164d74ddfc024e124/crates/ui/src/icon.rs#L9) enum defines the icon filenames used by GPUI Component. The separate `gpui-component-assets` crate now also bundles library-owned non-icon assets, such as `surface/NoiseAsset_256.png`.
+The [IconName](https://github.com/longbridge/gpui-component/blob/6998708b817024c2ac0f1ea164d74ddfc024e124/crates/ui/src/icon.rs#L9) enum defines the icon filenames used by Neutron Components. The separate `neutron-components-assets` crate now also bundles library-owned non-icon assets, such as `surface/NoiseAsset_256.png`.
 
-This example keeps app-specific icons in `./assets/icons`, but still composes them with `gpui_component_assets::Assets` so bundled component assets continue to resolve.
+This example keeps app-specific icons in `./assets/icons`, but still composes them with `neutron_components_assets::Assets` so bundled component assets continue to resolve.
 
 You can still ship your own icons. Put them under `icons/...` and register your asset source first so app assets win on conflicts.
 
@@ -22,15 +22,15 @@ app_root
   Cargo.toml
 ```
 
-You also can just copy the svg files you want from the `assets/icons` folder in GPUI Component repo to your own assets folder.
+You also can just copy the svg files you want from the `assets/icons` folder in Neutron Components repo to your own assets folder.
 
 ## How to use
 
-Define an app asset source with `rust-embed`, then compose it with the bundled GPUI Component assets.
+Define an app asset source with `rust-embed`, then compose it with the bundled Neutron Components assets.
 
 ```rs
 use gpui::*;
-use gpui_component_assets::{chain, Assets as ComponentAssets};
+use neutron_components_assets::{chain, Assets as ComponentAssets};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
 
@@ -62,20 +62,20 @@ fn main() {
 }
 ```
 
-This gives you app assets first and GPUI Component assets second. No path aliases are required for bundled resources like `surface/NoiseAsset_256.png`; the library continues to own those namespaced paths.
+This gives you app assets first and Neutron Components assets second. No path aliases are required for bundled resources like `surface/NoiseAsset_256.png`; the library continues to own those namespaced paths.
 
 ## Use only the bundled component assets
 
 If you do not have app-specific assets, use the bundled source directly.
 
 ```rs
-let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+let app = gpui_platform::application().with_assets(neutron_components_assets::Assets);
 ```
 
 ## Dependency
 
 ```toml
 [dependencies]
-gpui-component = "*"
-gpui-component-assets = "*"
+neutron-components = "*"
+neutron-components-assets = "*"
 ```

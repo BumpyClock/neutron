@@ -7,7 +7,7 @@ framework policy into `engine/`.
 
 ## Component contracts
 
-- Call `gpui_component::init(cx)` once during component initialization.
+- Call `neutron_components::init(cx)` once during component initialization.
 - Use `Root` as the first view in each normal framework window.
 - Preserve accessibility roles, names, values, states, actions, and focus behavior.
 - Preserve reduced-motion behavior and platform-specific capability errors.

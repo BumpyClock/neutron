@@ -1,6 +1,6 @@
 use anyhow::Result;
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     IconName, Root, Sizable, WindowExt as _,
     button::{Button, ButtonVariants as _},
     dock::{ClosePanel, DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, ToggleZoom},
@@ -8,8 +8,8 @@ use gpui_component::{
     notification::Notification,
 };
 
-use gpui_component_assets::Assets;
-use gpui_component_story::{
+use neutron_components_assets::Assets;
+use neutron_story::{
     AccordionStory, AppState, AppTitleBar, ButtonStory, CalendarStory, DialogStory, FormStory,
     IconStory, ImageStory, InputStory, LabelStory, ListStory, NotificationStory, Open,
     PopoverStory, ProgressStory, ResizableStory, ScrollbarStory, SelectStory, SidebarStory,
@@ -40,7 +40,7 @@ const STATE_FILE: &str = "docks.json";
 
 pub fn init(cx: &mut App) {
     cx.on_action(|_action: &Open, _cx: &mut App| {});
-    gpui_component_story::init(cx);
+    neutron_story::init(cx);
 
     cx.bind_keys(vec![
         KeyBinding::new("shift-escape", ToggleZoom, None),
@@ -229,7 +229,7 @@ impl StoryWorkspace {
                 });
                 Ok(())
             }
-            Err(gpui_component::dock::DockLoadError::IncompatibleVersion { .. }) => {
+            Err(neutron_components::dock::DockLoadError::IncompatibleVersion { .. }) => {
                 Self::reset_default_layout(weak_dock_area, window, cx);
                 window.push_notification(
                     Notification::warning(
@@ -387,7 +387,7 @@ impl StoryWorkspace {
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(window_bounds)),
                 #[cfg(not(target_os = "linux"))]
-                titlebar: Some(gpui_component::TitleBar::title_bar_options()),
+                titlebar: Some(neutron_components::TitleBar::title_bar_options()),
                 window_min_size: Some(gpui::Size {
                     width: px(640.),
                     height: px(480.),

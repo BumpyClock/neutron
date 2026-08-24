@@ -1731,7 +1731,7 @@ fn topological_sort(mut nodes: BTreeMap<String, PlanNode>) -> Result<Vec<PlanNod
 fn publication_phase(node: &PlanNode) -> u8 {
     match (node.repository.as_str(), node.package.as_str()) {
         (ENGINE_DOMAIN, _) => 0,
-        (FRAMEWORK_DOMAIN, "gpui-component") => 2,
+        (FRAMEWORK_DOMAIN, "neutron-components") => 2,
         _ => 1,
     }
 }
@@ -1741,7 +1741,7 @@ fn cargo_headless_test_args() -> [&'static str; 8] {
         "test",
         "--locked",
         "-p",
-        "gpui-component-app",
+        "neutron-components-app",
         "--test",
         "headless",
         "--features",

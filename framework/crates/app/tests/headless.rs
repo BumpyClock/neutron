@@ -27,10 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui_component_app::gpui::App;
-use gpui_component_app::plugin::test_support::recording_plugin;
-use gpui_component_app::prelude::*;
-use gpui_component_manifest::schema::IdentityRef;
+use neutron_components_app::gpui::App;
+use neutron_components_app::plugin::test_support::recording_plugin;
+use neutron_components_app::prelude::*;
+use neutron_components_manifest::schema::IdentityRef;
 use wait_timeout::ChildExt;
 
 const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -204,7 +204,7 @@ fn assert_successful_run_returns() {
         .on_error(move |error, _cx| {
             assert_eq!(
                 error.operation(),
-                gpui_component_app::error::RuntimeOperation::Lifecycle
+                neutron_components_app::error::RuntimeOperation::Lifecycle
             );
             assert_eq!(error.event(), Some("started"));
             assert!(error.continued());

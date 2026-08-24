@@ -6,7 +6,7 @@ use gpui::{
     Styled, Window, actions, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, IconName, StyledExt as _,
     button::Button,
     dock::PanelControl,

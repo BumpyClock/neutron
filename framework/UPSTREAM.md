@@ -1,6 +1,6 @@
 # Framework upstream relationship
 
-Neutron maintains a selective fork of GPUI Component from
+Neutron maintains a selective framework fork from
 [`longbridge/gpui-component`](https://github.com/longbridge/gpui-component). Neutron preserves
 Longbridge attribution and license notices. This document records semantic adaptations. It does
 not claim a merge, a byte-identical import, or imported Git history.

@@ -3,7 +3,7 @@ use gpui::{
     ParentElement as _, Render, SharedString, Styled, Subscription, Window,
     prelude::FluentBuilder as _, px,
 };
-use gpui_component::{
+use neutron_components::{
     Disableable as _, Sizable, StyledExt,
     checkbox::Checkbox,
     h_flex,

@@ -188,8 +188,8 @@ The 2026-08 macOS validation run passed:
 - `cargo test --locked -p gpui_macos` (12 tests)
 - `cargo test --locked --workspace --all-targets --features test-support`
 - `cargo test --locked --workspace --doc`
-- `cargo test --locked -p gpui-component` (288 tests; 290 with all workspace features)
-- `cargo test --locked -p gpui-component-app` (99 tests)
+- `cargo test --locked -p neutron-components` (288 tests; 290 with all workspace features)
+- `cargo test --locked -p neutron-components-app` (99 tests)
 - `./script/check`
 - `./script/test`
 - `./script/stage1`

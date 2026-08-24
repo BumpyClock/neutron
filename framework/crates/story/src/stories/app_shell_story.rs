@@ -3,7 +3,7 @@ use gpui::{
     IntoElement, KeyBinding, ParentElement as _, Render, Styled as _, Window, div,
     prelude::FluentBuilder as _,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -11,7 +11,7 @@ use gpui_component::{
     label::Label,
     v_flex,
 };
-use gpui_component_app::{
+use neutron_components_app::{
     Capability, PlatformCapabilities,
     commands::{About, OpenSettings},
     liveness::{ExitPolicy, InitialActivation},

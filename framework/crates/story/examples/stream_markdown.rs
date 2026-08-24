@@ -1,11 +1,11 @@
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     button::Button,
     h_flex,
     text::{TextView, TextViewState},
     v_flex,
 };
-use gpui_component_assets::Assets;
+use neutron_components_assets::Assets;
 
 pub struct Example {
     markdown_state: Entity<TextViewState>,
@@ -111,10 +111,10 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component_story::init(cx);
+        neutron_story::init(cx);
         cx.activate(true);
 
-        gpui_component_story::create_new_window_with_size(
+        neutron_story::create_new_window_with_size(
             "Stream Markdown",
             Some(size(px(600.), px(800.))),
             Example::view,

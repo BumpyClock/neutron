@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use gpui_component_storage::{DebouncedStore, StoreConfig};
+use neutron_components_storage::{DebouncedStore, StoreConfig};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,7 +80,7 @@ fn child_contender() {
     let path = store_path();
     match DebouncedStore::<Blob>::open(&path, StoreConfig::new(1)) {
         Ok(_) => println!("CONTENDER_ACQUIRED"),
-        Err(gpui_component_storage::StorageError::WriterConflict { .. }) => {
+        Err(neutron_components_storage::StorageError::WriterConflict { .. }) => {
             println!("CONTENDER_CONFLICT")
         }
         Err(e) => println!("CONTENDER_ERR:{e}"),

@@ -1,4 +1,4 @@
-//! Native downstream conformance runner for gpui-component AppShell.
+//! Native downstream conformance runner for neutron-components AppShell.
 //!
 //! Scenario runs write synchronized, schema-versioned JSONL to stdout. The
 //! executable owns process exit status; AppShell and GPUI never self-terminate.
@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use cli::{Command, Scenario, ValidationProfile};
 use protocol::{Protocol, TerminalOutcome};
 
-gpui_component_app::include_identity!();
+neutron_components_app::include_identity!();
 
 fn main() -> ExitCode {
     match cli::parse(std::env::args()) {

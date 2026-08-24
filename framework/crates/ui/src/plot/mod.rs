@@ -5,7 +5,7 @@ pub mod scale;
 pub mod shape;
 pub mod tooltip;
 
-pub use gpui_component_macros::IntoPlot;
+pub use neutron_components_macros::IntoPlot;
 
 use std::{fmt::Debug, ops::Add};
 

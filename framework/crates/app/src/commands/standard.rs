@@ -1,7 +1,7 @@
 //! Standard desktop command vocabulary and menu configuration.
 
 use gpui::{App, OsAction, actions};
-use gpui_component::input;
+use neutron_components::input;
 
 use super::{
     ABOUT_COMMAND_ID, APP_MENU, AppCommandsExt, Command, CommandError, CommandId, CommandScope,

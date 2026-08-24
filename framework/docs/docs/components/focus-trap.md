@@ -13,7 +13,7 @@ Focus trap utility for constraining keyboard focus within a specific container. 
 ## Import
 
 ```rust
-use gpui_component::FocusTrapElement;
+use neutron_components::FocusTrapElement;
 ```
 
 ## Usage
@@ -125,8 +125,8 @@ The following components have focus trap functionality built-in and don't requir
 
 ## API Reference
 
-- [FocusTrapElement](https://docs.rs/gpui-component/latest/gpui_component/trait.FocusTrapElement.html)
-- [FocusTrapContainer](https://docs.rs/gpui-component/latest/gpui_component/struct.FocusTrapContainer.html)
+- [FocusTrapElement](https://docs.rs/neutron-components/latest/neutron_components/trait.FocusTrapElement.html)
+- [FocusTrapContainer](https://docs.rs/neutron-components/latest/neutron_components/struct.FocusTrapContainer.html)
 
 ## Examples
 
@@ -251,7 +251,7 @@ impl Render for ModalView {
 - [Sheet](/docs/components/sheet) - Uses focus trap automatically
 - [focus-trap-react](https://github.com/focus-trap/focus-trap-react) - Similar concept for React applications
 
-[Root]: https://docs.rs/gpui-component/latest/gpui_component/struct.Root.html
-[FocusTrapElement]: https://docs.rs/gpui-component/latest/gpui_component/trait.FocusTrapElement.html
+[Root]: https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html
+[FocusTrapElement]: https://docs.rs/neutron-components/latest/neutron_components/trait.FocusTrapElement.html
 [Dialog]: /docs/components/dialog
 [Sheet]: /docs/components/sheet

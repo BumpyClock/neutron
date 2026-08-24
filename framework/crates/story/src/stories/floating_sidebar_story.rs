@@ -5,7 +5,7 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Window, div, prelude::FluentBuilder as _, px,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, ElevationToken, FloatingSidebar, Icon, IconName, Side, Sizable, StyledExt,
     animation::{PresenceOptions, keyed_presence, reduced_motion, theme_animation},
     button::Button,

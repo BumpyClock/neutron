@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use gpui_component::{BlurEnabledScope, BlurContext};
+//! use neutron_components::{BlurEnabledScope, BlurContext};
 //!
 //! // Parent provides blur context
 //! BlurEnabledScope::new(true, div().child(my_sidebar))

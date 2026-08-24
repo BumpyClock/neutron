@@ -7,7 +7,7 @@
 //! the command registry.
 
 use gpui::{App, MenuItem};
-use gpui_component::ThemeModePreference;
+use neutron_components::ThemeModePreference;
 
 use crate::commands::{
     AppCommandsExt, MenuPlan, MenusPlugin, StandardMenus, THEME_SECTION, menus_invalidate,

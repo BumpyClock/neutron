@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::App;
-use gpui_component_storage::{
+use neutron_components_storage::{
     AppPaths, DebouncedStore, Envelope, LoadOutcome, StorageError, StoreConfig,
 };
 use serde::de::DeserializeOwned;

@@ -5,7 +5,7 @@ use gpui::{
 use serde::Deserialize;
 
 use crate::section;
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Disableable, IconName, Selectable as _, Sizable as _, Theme,
     button::{Button, ButtonVariants as _, DropdownButton},
     checkbox::Checkbox,

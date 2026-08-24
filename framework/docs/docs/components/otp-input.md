@@ -11,7 +11,7 @@ A specialized input component for one-time passwords (OTP) that displays multipl
 ## Import
 
 ```rust
-use gpui_component::input::{OtpInput, OtpState};
+use neutron_components::input::{OtpInput, OtpState};
 ```
 
 ## Usage

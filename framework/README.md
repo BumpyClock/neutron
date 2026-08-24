@@ -1,4 +1,4 @@
-This is a BumpyClock fork of GPUI Component by Longbridge. Neutron preserves local components and
+This is a BumpyClock fork of Neutron Components by Longbridge. Neutron preserves local components and
 contracts while it selectively adapts compatible upstream behavior.
 
 ## Upstream sync status
@@ -6,7 +6,7 @@ contracts while it selectively adapts compatible upstream behavior.
 See [UPSTREAM.md](UPSTREAM.md) for exact Longbridge source identities, accepted adaptations,
 Neutron conflicts, exclusions, and validation limits.
 
-# GPUI Component
+# Neutron Components
 
 [Neutron repository](https://github.com/BumpyClock/neutron)
 
@@ -34,8 +34,8 @@ single Neutron workspace for local development. Do not add an independent
 engine checkout, Git revision, or mutable branch dependency.
 
 ```toml
-gpui-component = { path = "framework/crates/ui", version = "=0.7.0" }
-gpui-component-assets = { path = "framework/crates/assets", version = "=0.7.0" }
+neutron-components = { path = "framework/crates/ui", version = "=0.7.0" }
+neutron-components-assets = { path = "framework/crates/assets", version = "=0.7.0" }
 ```
 
 The `0.7.0` source tree is unreleased. See [compatibility status](docs/COMPATIBILITY.md)
@@ -44,13 +44,13 @@ and CI](TESTING.md) for validation levels and native-runtime limits.
 
 ### AppShell (experimental)
 
-Native applications can use `gpui-component-app` to centralize identity, paths,
+Native applications can use `neutron-components-app` to centralize identity, paths,
 component initialization, startup/shutdown, settings, managed windows, standard
 desktop menus, and platform capability reporting:
 
 ```rs
 AppShell::builder(APP_IDENTITY)
-    .assets(gpui_component_assets::Assets)
+    .assets(neutron_components_assets::Assets)
     .standard_menus(
         StandardMenus::new()
             .on_settings(open_settings)
@@ -71,18 +71,18 @@ current limitations.
 
 ### Manual GPUI bootstrap
 
-For hosts that need direct GPUI types, depend on `gpui-component-app` from the
+For hosts that need direct GPUI types, depend on `neutron-components-app` from the
 same root workspace and use its re-exports. This prevents a second GPUI type
 identity from entering the application.
 
 ```toml
-gpui-component-app = { path = "framework/crates/app", version = "=0.7.0" }
+neutron-components-app = { path = "framework/crates/app", version = "=0.7.0" }
 ```
 
 ```rs
-use gpui_component_app::gpui::*;
-use gpui_component_app::gpui_platform;
-use gpui_component::{button::*, *};
+use neutron_components_app::gpui::*;
+use neutron_components_app::gpui_platform;
+use neutron_components::{button::*, *};
 
 pub struct HelloWorld;
 impl Render for HelloWorld {
@@ -104,11 +104,11 @@ impl Render for HelloWorld {
 }
 
 fn main() {
-    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+    let app = gpui_platform::application().with_assets(neutron_components_assets::Assets);
 
     app.run(move |cx| {
-        // This must be called before using any GPUI Component features.
-        gpui_component::init(cx);
+        // This must be called before using any Neutron Components features.
+        neutron_components::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
@@ -126,15 +126,15 @@ fn main() {
 
 ### Icons
 
-GPUI Component has an `Icon` element, but it does not include SVG files by default.
+Neutron Components has an `Icon` element, but it does not include SVG files by default.
 
 The example uses [Lucide](https://lucide.dev) icons, but you can use any icons you like. Just name the SVG files as defined in [IconName](https://github.com/BumpyClock/neutron/blob/main/framework/crates/ui/src/icon.rs#L86). You can add any icons you need to your project.
 
-The `gpui-component-assets` crate also bundles library-owned non-icon assets such as `surface/NoiseAsset_256.png`. If your app has its own `AssetSource`, compose it with `gpui_component_assets::chain(app_assets, gpui_component_assets::Assets)` so app assets win first and GPUI Component assets remain available as fallback.
+The `neutron-components-assets` crate also bundles library-owned non-icon assets such as `surface/NoiseAsset_256.png`. If your app has its own `AssetSource`, compose it with `neutron_components_assets::chain(app_assets, neutron_components_assets::Assets)` so app assets win first and Neutron Components assets remain available as fallback.
 
 ## Development
 
-We have a gallery of applications built with GPUI Component.
+We have a gallery of applications built with Neutron Components.
 
 ```bash
 cargo run
@@ -146,7 +146,7 @@ Check out [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 
 ## Compare to others
 
-| Features              | GPUI Component                 | [Iced]             | [egui]                | [Qt 6]                                            |
+| Features              | Neutron Components                 | [Iced]             | [egui]                | [Qt 6]                                            |
 | --------------------- | ------------------------------ | ------------------ | --------------------- | ------------------------------------------------- |
 | Language              | Rust                           | Rust               | Rust                  | C++/QML                                           |
 | Core Render           | GPUI                           | wgpu               | wgpu                  | QT                                                |

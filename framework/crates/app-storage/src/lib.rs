@@ -1,4 +1,4 @@
-//! Foundation storage layer for gpui-component apps.
+//! Foundation storage layer for neutron-components apps.
 //!
 //! Pure, GPUI-free building blocks for persisting application data on disk:
 //!

@@ -9,7 +9,12 @@ use std::{
 
 use autocorrect::ignorer::Ignorer;
 use gpui::{prelude::FluentBuilder, *};
-use gpui_component::{
+use lsp_types::{
+    CodeAction, CodeActionKind, CompletionContext, CompletionItem, CompletionResponse,
+    CompletionTextEdit, InlineCompletionContext, InlineCompletionItem, InlineCompletionResponse,
+    InsertReplaceEdit, InsertTextFormat, TextEdit, WorkspaceEdit,
+};
+use neutron_components::{
     ActiveTheme, IconName, Sizable, WindowExt,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -23,13 +28,8 @@ use gpui_component::{
     tree::{TreeItem, TreeState, tree},
     v_flex,
 };
-use gpui_component_assets::Assets;
-use gpui_component_story::Open;
-use lsp_types::{
-    CodeAction, CodeActionKind, CompletionContext, CompletionItem, CompletionResponse,
-    CompletionTextEdit, InlineCompletionContext, InlineCompletionItem, InlineCompletionResponse,
-    InsertReplaceEdit, InsertTextFormat, TextEdit, WorkspaceEdit,
-};
+use neutron_components_assets::Assets;
+use neutron_story::Open;
 
 enum Lang {
     BuiltIn(Language),
@@ -1114,11 +1114,11 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component_story::init(cx);
+        neutron_story::init(cx);
         init();
         cx.activate(true);
 
-        gpui_component_story::create_new_window_with_size(
+        neutron_story::create_new_window_with_size(
             "Editor",
             Some(size(px(1200.), px(750.))),
             |window, cx| cx.new(|cx| Example::new(window, cx)),

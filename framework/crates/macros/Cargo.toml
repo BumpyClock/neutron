@@ -1,11 +1,11 @@
 [package]
-name = "gpui-component-macros"
-description = "Macros for GPUI Component."
+name = "neutron-components-macros"
+description = "Macros for Neutron Components."
 version = "0.7.0"
 rust-version = "1.90"
 license = "Apache-2.0"
 repository = "https://github.com/BumpyClock/neutron"
-documentation = "https://docs.rs/gpui-component-macros"
+documentation = "https://docs.rs/neutron-components-macros"
 homepage = "https://github.com/BumpyClock/neutron"
 readme = "README.md"
 publish = true

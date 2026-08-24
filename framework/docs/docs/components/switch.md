@@ -12,7 +12,7 @@ labels, disabled state, and theme-aware motion.
 ## Import
 
 ```rust
-use gpui_component::switch::Switch;
+use neutron_components::switch::Switch;
 ```
 
 ## Usage

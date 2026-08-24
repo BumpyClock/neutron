@@ -4,7 +4,7 @@ use gpui::{
 };
 
 use crate::section;
-use gpui_component::{button::*, input::*, *};
+use neutron_components::{button::*, input::*, *};
 
 const CODE_EXAMPLE: &str = r#"{"single_line":"code editor"}"#;
 
@@ -54,7 +54,7 @@ impl InputStory {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input1 = cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value("Hello 世界，this is GPUI component, this is a long text.")
+                .default_value("Hello 世界，this is a Neutron component, this is a long text.")
         });
 
         let input2 = cx.new(|cx| InputState::new(window, cx).placeholder("Enter text here..."));

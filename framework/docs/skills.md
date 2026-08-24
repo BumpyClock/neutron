@@ -1,8 +1,8 @@
 ---
 title: Skills
 layout: home
-description: GPUI Component Skills - Available skills for working with GPUI Component
-summary: "GPUI Component Skills - Available skills for working with GPUI Component"
+description: Neutron Components Skills - Available skills for working with Neutron Components
+summary: "Neutron Components Skills - Available skills for working with Neutron Components"
 ---
 
 <script setup>

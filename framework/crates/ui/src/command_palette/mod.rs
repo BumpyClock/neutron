@@ -1,4 +1,4 @@
-//! Command Palette component for gpui-component.
+//! Command Palette component for neutron-components.
 //!
 //! A modal command palette with fuzzy search, keyboard navigation,
 //! and customizable appearance.
@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use gpui_component::command_palette::{CommandPalette, CommandPaletteConfig, CommandPaletteItem};
-//! use gpui_component::command_palette::StaticProvider;
+//! use neutron_components::command_palette::{CommandPalette, CommandPaletteConfig, CommandPaletteItem};
+//! use neutron_components::command_palette::StaticProvider;
 //!
 //! // Initialize the command palette (call once at startup)
 //! CommandPalette::init(cx, CommandPaletteConfig::default());

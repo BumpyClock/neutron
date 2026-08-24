@@ -11,7 +11,7 @@ A comprehensive charting library providing Line, Bar, Area, Pie, and Candlestick
 ## Import
 
 ```rust
-use gpui_component::chart::{LineChart, BarChart, AreaChart, PieChart, CandlestickChart};
+use neutron_components::chart::{LineChart, BarChart, AreaChart, PieChart, CandlestickChart};
 ```
 
 ## Chart Types
@@ -707,8 +707,8 @@ impl LiveChart {
 }
 ```
 
-[LineChart]: https://docs.rs/gpui-component/latest/gpui_component/chart/struct.LineChart.html
-[BarChart]: https://docs.rs/gpui-component/latest/gpui_component/chart/struct.BarChart.html
-[AreaChart]: https://docs.rs/gpui-component/latest/gpui_component/chart/struct.AreaChart.html
-[PieChart]: https://docs.rs/gpui-component/latest/gpui_component/chart/struct.PieChart.html
-[CandlestickChart]: https://docs.rs/gpui-component/latest/gpui_component/chart/struct.CandlestickChart.html
+[LineChart]: https://docs.rs/neutron-components/latest/neutron_components/chart/struct.LineChart.html
+[BarChart]: https://docs.rs/neutron-components/latest/neutron_components/chart/struct.BarChart.html
+[AreaChart]: https://docs.rs/neutron-components/latest/neutron_components/chart/struct.AreaChart.html
+[PieChart]: https://docs.rs/neutron-components/latest/neutron_components/chart/struct.PieChart.html
+[CandlestickChart]: https://docs.rs/neutron-components/latest/neutron_components/chart/struct.CandlestickChart.html

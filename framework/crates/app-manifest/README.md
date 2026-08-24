@@ -1,3 +1,3 @@
-# gpui-component-manifest
+# neutron-components-manifest
 
-Application identity schema, validation, and build-time code generation for GPUI Component apps.
+Application identity schema, validation, and build-time code generation for Neutron Components apps.

@@ -2,7 +2,7 @@ use gpui::{
     Action, App, AppContext, Context, Corner, Entity, InteractiveElement, IntoElement, KeyBinding,
     ParentElement as _, Render, SharedString, Styled as _, Window, actions, div, px,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme as _, IconName, Side, StyledExt,
     button::Button,
     flyout_secondary_foreground, h_flex,
@@ -203,19 +203,19 @@ impl Render for MenuStory {
                                                 window,
                                                 cx,
                                                 |menu, _, _| {
-                                                    menu.menu("gpui-component", Box::new(Info(0)))
-                                                        .menu("Atlas editor", Box::new(Info(1)))
-                                                        .menu(
-                                                            "Window shell demo",
-                                                            Box::new(Info(2)),
-                                                        )
+                                                    menu.menu(
+                                                        "neutron-components",
+                                                        Box::new(Info(0)),
+                                                    )
+                                                    .menu("Atlas editor", Box::new(Info(1)))
+                                                    .menu("Window shell demo", Box::new(Info(2)))
                                                 },
                                             )
                                             .separator()
                                             .link_with_icon(
                                                 "Component docs",
                                                 IconName::ExternalLink,
-                                                "https://bumpyclock.github.io/gpui-component/",
+                                                "https://bumpyclock.github.io/neutron-components/",
                                             )
                                     }),
                             )

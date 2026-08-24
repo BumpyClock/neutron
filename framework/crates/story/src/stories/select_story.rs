@@ -1,6 +1,6 @@
 use gpui::*;
-use gpui_component::{button::*, checkbox::*, divider::*, input::*, select::*, *};
 use itertools::Itertools as _;
+use neutron_components::{button::*, checkbox::*, divider::*, input::*, select::*, *};
 use serde::{Deserialize, Serialize};
 
 use crate::section;

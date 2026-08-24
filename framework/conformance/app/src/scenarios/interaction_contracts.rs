@@ -6,12 +6,12 @@ use gpui::{
     AccessibleAction, App, AppContext as _, Context, DevicePixels, Entity, EntityInputHandler as _,
     Focusable as _, IntoElement, ParentElement as _, Render, Role, Toggled, Window, px, size,
 };
-use gpui_component::{
+use neutron_components::{
     button::{Button, Toggle},
     input::{Input, InputState, SelectAll},
     v_flex,
 };
-use gpui_component_app::{AppShell, AppShellExt as _, ExitPolicy};
+use neutron_components_app::{AppShell, AppShellExt as _, ExitPolicy};
 use serde_json::json;
 
 use super::{ScenarioOutcome, ScenarioState, finish_normal_run, observe_app_event};
@@ -57,7 +57,7 @@ pub(super) fn run(protocol: Protocol) -> anyhow::Result<ScenarioOutcome> {
             Ok(())
         })
         .start(move |_, cx| {
-            gpui_component::init(cx);
+            neutron_components::init(cx);
             startup_state.emit(&startup_protocol, "startup_transaction_started", json!({}));
             let fields = Rc::new(RefCell::new(None));
             let fields_for_root = fields.clone();

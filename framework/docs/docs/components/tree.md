@@ -11,7 +11,7 @@ A versatile tree component for displaying hierarchical data with expand/collapse
 ## Import
 
 ```rust
-use gpui_component::tree::{tree, TreeState, TreeItem, TreeEntry};
+use neutron_components::tree::{tree, TreeState, TreeItem, TreeEntry};
 ```
 
 ## Usage
@@ -45,7 +45,7 @@ tree(&tree_state, |ix, entry, selected, window, cx| {
 ### File Tree with Icons
 
 ```rust
-use gpui_component::{ListItem, IconName, h_flex};
+use neutron_components::{ListItem, IconName, h_flex};
 
 tree(&tree_state, |ix, entry, selected, window, cx| {
     let item = entry.item();

@@ -3,7 +3,7 @@ use gpui::{
     InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement as _, Render,
     Styled as _, Window, actions, div, px, relative,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Anchor, StyledExt, WindowExt,
     button::{Button, ButtonVariants as _},
     divider::Divider,
@@ -76,7 +76,7 @@ impl ListDelegate for DropdownListDelegate {
 
     fn render_item(
         &mut self,
-        ix: gpui_component::IndexPath,
+        ix: neutron_components::IndexPath,
         _: &mut Window,
         _: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
@@ -85,9 +85,9 @@ impl ListDelegate for DropdownListDelegate {
 
     fn set_selected_index(
         &mut self,
-        _: Option<gpui_component::IndexPath>,
+        _: Option<neutron_components::IndexPath>,
         _: &mut Window,
-        _: &mut Context<gpui_component::list::ListState<Self>>,
+        _: &mut Context<neutron_components::list::ListState<Self>>,
     ) {
     }
 

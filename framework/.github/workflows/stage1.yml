@@ -53,7 +53,7 @@ jobs:
             --stdout "$artifact_dir/headless.stdout.log" \
             --stderr "$artifact_dir/headless.stderr.log" \
             --log "$artifact_dir/headless.watchdog.log" \
-            -- cargo test --locked -p gpui-component-app --test headless --features test-support
+            -- cargo test --locked -p neutron-components-app --test headless --features test-support
       - name: Verify exact source identity
         if: always()
         uses: ./.github/actions/stage1-source-identity
@@ -103,7 +103,7 @@ jobs:
             --stdout (Join-Path $artifactDir "headless.stdout.log") `
             --stderr (Join-Path $artifactDir "headless.stderr.log") `
             --log (Join-Path $artifactDir "headless.watchdog.log") `
-            -- cargo test --locked -p gpui-component-app --test headless --features test-support
+            -- cargo test --locked -p neutron-components-app --test headless --features test-support
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -158,7 +158,7 @@ jobs:
             --stdout "$artifact_dir/headless.stdout.log" \
             --stderr "$artifact_dir/headless.stderr.log" \
             --log "$artifact_dir/headless.watchdog.log" \
-            -- cargo test --locked -p gpui-component-app --test headless --features test-support
+            -- cargo test --locked -p neutron-components-app --test headless --features test-support
       - name: Verify exact source identity
         if: always()
         uses: ./.github/actions/stage1-source-identity
@@ -211,15 +211,15 @@ jobs:
             --stdout "$artifact_dir/focused-contracts.stdout.log" \
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
-            -- cargo test --locked -p gpui-component stage1_contract_
+            -- cargo test --locked -p neutron-components stage1_contract_
       - name: Build native conformance runner
-        run: cargo build --locked -p gpui-component-conformance
+        run: cargo build --locked -p neutron-components-conformance
       - name: Run and validate native scenarios
         shell: bash
         run: |
           set -euo pipefail
           artifact_dir="$RUNNER_TEMP/stage1-${{ github.job }}"
-          binary="target/debug/gpui-component-conformance"
+          binary="target/debug/neutron-components-conformance"
           validation_profile="macos-metal"
 
           run_scenario() {
@@ -309,17 +309,17 @@ jobs:
             --stdout (Join-Path $artifactDir "focused-contracts.stdout.log") `
             --stderr (Join-Path $artifactDir "focused-contracts.stderr.log") `
             --log (Join-Path $artifactDir "focused-contracts.watchdog.log") `
-            -- cargo test --locked -p gpui-component stage1_contract_
+            -- cargo test --locked -p neutron-components stage1_contract_
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
       - name: Build native conformance runner
-        run: cargo build --locked -p gpui-component-conformance
+        run: cargo build --locked -p neutron-components-conformance
       - name: Run and validate native scenarios
         shell: pwsh
         run: |
           $artifactDir = Join-Path $env:RUNNER_TEMP "stage1-${{ github.job }}"
-          $binary = "target\debug\gpui-component-conformance.exe"
+          $binary = "target\debug\neutron-components-conformance.exe"
           $validationProfile = "windows-warp"
 
           function Invoke-ConformanceScenario([string]$Scenario, [int]$ExpectedExitCode) {
@@ -431,9 +431,9 @@ jobs:
             --stdout "$artifact_dir/focused-contracts.stdout.log" \
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
-            -- cargo test --locked -p gpui-component stage1_contract_
+            -- cargo test --locked -p neutron-components stage1_contract_
       - name: Build native conformance runner
-        run: cargo build --locked -p gpui-component-conformance
+        run: cargo build --locked -p neutron-components-conformance
       - name: Run and validate native scenarios
         shell: bash
         run: |
@@ -447,7 +447,7 @@ jobs:
           export VK_ICD_FILENAMES="$lavapipe_icd"
 
           export GPUI_STAGE1_ARTIFACT_DIR="$artifact_dir"
-          export GPUI_STAGE1_BINARY="target/debug/gpui-component-conformance"
+          export GPUI_STAGE1_BINARY="target/debug/neutron-components-conformance"
           export GPUI_STAGE1_VALIDATION_PROFILE="linux-x11-lavapipe"
           python3 tooling/stage1_service_harness.py \
             --timeout-seconds 900 \
@@ -533,9 +533,9 @@ jobs:
             --stdout "$artifact_dir/focused-contracts.stdout.log" \
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
-            -- cargo test --locked -p gpui-component stage1_contract_
+            -- cargo test --locked -p neutron-components stage1_contract_
       - name: Build native conformance runner
-        run: cargo build --locked -p gpui-component-conformance --features wayland-conformance
+        run: cargo build --locked -p neutron-components-conformance --features wayland-conformance
       - name: Build pinned Weston Wayland fixture
         shell: bash
         run: |
@@ -625,7 +625,7 @@ jobs:
           test -n "$lavapipe_icd"
           printf '%s\n' "$lavapipe_icd" > "$artifact_dir/lavapipe-icd.path"
           export VK_ICD_FILENAMES="$lavapipe_icd"
-          binary="$GITHUB_WORKSPACE/target/debug/gpui-component-conformance"
+          binary="$GITHUB_WORKSPACE/target/debug/neutron-components-conformance"
           validation_profile="linux-wayland-lavapipe"
           normal_socket="stage1-wayland-normal"
           export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"

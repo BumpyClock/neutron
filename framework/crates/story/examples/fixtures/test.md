@@ -1,6 +1,6 @@
 # Hello, **World**!
 
-Build status for [GPUI Component](https://github.com/BumpyClock/neutron).
+Build status for [Neutron Components](https://github.com/BumpyClock/neutron).
 
 This is first paragraph, there have **BOLD**, _italic_, and ~strikethrough~, `code` text [^1] [^2].
 
@@ -68,7 +68,7 @@ struct Repository {
 
 fn main() {
     let _ = Repository {
-        name: "GPUI Component".to_string(),
+        name: "Neutron Components".to_string(),
     };
 
     println!("Hello, World!");

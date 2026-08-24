@@ -11,7 +11,7 @@ A component for displaying keyboard shortcuts and key combinations with proper p
 ## Import
 
 ```rust
-use gpui_component::kbd::Kbd;
+use neutron_components::kbd::Kbd;
 use gpui::Keystroke;
 ```
 

@@ -1,8 +1,8 @@
 ---
-title: "GPUI Component Docs"
+title: "Neutron Components Docs"
 summary: "Docs site setup notes for installing dependencies and running the VitePress dev server."
 ---
-# gpui-component-docs
+# neutron-components-docs
 
 To install dependencies:
 

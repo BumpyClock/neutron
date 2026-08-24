@@ -1,6 +1,6 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Root, Sizable, TitleBar, WindowExt as _,
     dock::{
         DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelEvent, PanelInfo, PanelRegistry,
@@ -10,8 +10,8 @@ use gpui_component::{
     notification::Notification,
     scroll::ScrollbarShow,
 };
-use gpui_component_assets::Assets;
-use gpui_component_story::{ButtonStory, IconStory, StoryContainer};
+use neutron_components_assets::Assets;
+use neutron_story::{ButtonStory, IconStory, StoryContainer};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
@@ -140,8 +140,8 @@ actions!(workspace, [Open, CloseWindow]);
 pub fn init(cx: &mut App) {
     cx.on_action(|_action: &Open, _cx: &mut App| {});
 
-    gpui_component::init(cx);
-    gpui_component_story::init(cx);
+    neutron_components::init(cx);
+    neutron_story::init(cx);
 }
 
 pub struct StoryTiles {
@@ -274,7 +274,7 @@ impl StoryTiles {
                 });
                 Ok(())
             }
-            Err(gpui_component::dock::DockLoadError::IncompatibleVersion { .. }) => {
+            Err(neutron_components::dock::DockLoadError::IncompatibleVersion { .. }) => {
                 Self::reset_default_layout(weak_dock_area, window, cx);
                 window.push_notification(
                     Notification::warning(
@@ -433,8 +433,8 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component::init(cx);
-        gpui_component_story::init(cx);
+        neutron_components::init(cx);
+        neutron_story::init(cx);
         ContainerPanel::init(cx);
 
         cx.on_action(quit);

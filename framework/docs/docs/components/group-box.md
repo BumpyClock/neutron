@@ -11,7 +11,7 @@ The GroupBox component is a versatile container that groups related content toge
 ## Import
 
 ```rust
-use gpui_component::group_box::{GroupBox, GroupBoxVariant, GroupBoxVariants as _};
+use neutron_components::group_box::{GroupBox, GroupBoxVariant, GroupBoxVariants as _};
 ```
 
 ## Usage

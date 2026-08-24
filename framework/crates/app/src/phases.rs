@@ -17,7 +17,7 @@ pub enum Phase {
     /// Register raw platform listeners (`on_open_urls`, `on_reopen`) so early
     /// events are captured before services exist.
     EarlyListeners,
-    /// `gpui_component::init` — component library globals.
+    /// `neutron_components::init` — component library globals.
     ComponentInit,
     /// Build core services: [`crate::AppInfo`], [`crate::AppProxy`], shell global.
     CoreServices,

@@ -5,9 +5,9 @@ summary: "To introduce the ElementId concept in GPUI."
 order: -4
 ---
 
-The [ElementId] is a unique identifier for a GPUI element. It is used to reference elements in the GPUI component tree.
+The [ElementId] is a unique identifier for a GPUI element. It references elements in the element tree.
 
-Before you start using GPUI and GPUI Component, you need to understand the [ElementId].
+Before you start using GPUI and Neutron Components, you need to understand the [ElementId].
 
 For example:
 

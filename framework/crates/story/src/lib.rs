@@ -5,7 +5,7 @@ use gpui::{
     WindowBounds, WindowKind, WindowOptions, actions, div, prelude::FluentBuilder as _, px, rems,
     size,
 };
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, IconName, Root, WindowExt, WindowShell,
     button::Button,
     dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle, register_panel},
@@ -154,18 +154,17 @@ pub fn init(cx: &mut App) {
         .with(tracing_subscriber::fmt::layer())
         .with(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("gpui_component=trace".parse().unwrap()),
+                .add_directive("neutron_components=trace".parse().unwrap()),
         )
         .init();
 
-    gpui_component::init(cx);
+    neutron_components::init(cx);
     AppState::init(cx);
     themes::init(cx);
     stories::init(cx);
 
-    let http_client = std::sync::Arc::new(
-        reqwest_client::ReqwestClient::user_agent("gpui-component/story").unwrap(),
-    );
+    let http_client =
+        std::sync::Arc::new(reqwest_client::ReqwestClient::user_agent("neutron-story").unwrap());
     cx.set_http_client(http_client);
 
     cx.bind_keys([
@@ -189,11 +188,7 @@ pub fn init(cx: &mut App) {
             cx.defer(move |cx| {
                 window
                     .update(cx, |root, window, cx| {
-                        root.push_notification(
-                            "GPUI Component Storybook\nVersion 0.1.0",
-                            window,
-                            cx,
-                        );
+                        root.push_notification("Neutron Story\nVersion 0.1.0", window, cx);
                     })
                     .unwrap();
             });

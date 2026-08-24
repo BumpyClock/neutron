@@ -11,7 +11,7 @@ Spinner element displays an animated loading. Perfect for showing loading states
 ## Import
 
 ```rust
-use gpui_component::spinner::Spinner;
+use neutron_components::spinner::Spinner;
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ Spinner::new()
 ### Spinner with Custom Color
 
 ```rust
-use gpui_component::ActiveTheme;
+use neutron_components::ActiveTheme;
 
 // Blue spinner
 Spinner::new()
@@ -63,7 +63,7 @@ Spinner::new().with_size(px(64.))
 ### Spinner with Custom Icon
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 // Loading circle icon
 Spinner::new()

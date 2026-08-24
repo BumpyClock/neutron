@@ -3,8 +3,8 @@ use gpui::{
     Action, App, AppContext, Axis, Context, Entity, FocusHandle, Focusable, IntoElement,
     ParentElement, Render, Styled, Window,
 };
-use gpui_component::{AxisExt, h_flex, menu::DropdownMenu as _};
-use gpui_component::{
+use neutron_components::{AxisExt, h_flex, menu::DropdownMenu as _};
+use neutron_components::{
     Sizable as _, Size,
     button::Button,
     checkbox::Checkbox,
@@ -30,14 +30,14 @@ pub struct DescriptionListStory {
 impl DescriptionListStory {
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         let items = vec![
-            ("Name", "GPUI Component", 1),
+            ("Name", "Neutron Components", 1),
             (
                 "Description",
                 "UI components for building fantastic desktop application by using [GPUI](https://gpui.rs).\
                 \n\n \
                 Contains a lot of useful UI components, such as **Button**, **Input**, **Table**, **List**, **Select**, **DatePicker** ... \
                 \n\n \
-                You can easily create your native desktop application by using GPUI Component.
+                You can easily create your native desktop application by using Neutron Components.
                 ",
                 3,
             ),

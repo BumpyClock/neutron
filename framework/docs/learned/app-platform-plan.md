@@ -1,10 +1,10 @@
 ---
 title: "App Platform Plan"
 summary: "Current AppShell architecture, platform contract, evidence gates, and adopter roadmap."
-read_when: "starting work on gpui-component-app, app storage/manifest, identity, or an adopter migration"
+read_when: "starting work on neutron-components-app, app storage/manifest, identity, or an adopter migration"
 ---
 
-# App Platform Plan — making gpui-component a viable app-building platform
+# App Platform Plan — making neutron-components a viable app-building platform
 
 > Status: current architecture plan v3, 2026-07-27.
 
@@ -12,9 +12,9 @@ read_when: "starting work on gpui-component-app, app storage/manifest, identity,
 
 The workspace already contains the platform foundation:
 
-- `gpui-component-manifest`: compiled identity and metadata verification
-- `gpui-component-storage`: paths, envelopes, atomic/debounced stores, backups
-- `gpui-component-app`: lifecycle, proxy, liveness, managed windows, settings,
+- `neutron-components-manifest`: compiled identity and metadata verification
+- `neutron-components-storage`: paths, envelopes, atomic/debounced stores, backups
+- `neutron-components-app`: lifecycle, proxy, liveness, managed windows, settings,
   commands/menus, theme, capabilities, and headless runner
 - `examples/app_shell`: conventional windowed-app conformance
 - `examples/app_shell_background`: passive activation, zero-window liveness, and
@@ -89,7 +89,7 @@ adoption order. Where it conflicts with v3 above, v3 wins.
 
 ## 1. Problem statement (verified, not aspirational)
 
-Three real apps build on gpui-component today. Each re-implements the same app shell:
+Three real apps build on neutron-components today. Each re-implements the same app shell:
 
 | | agent-term | ansible | Andromeda |
 |---|---|---|---|
@@ -103,7 +103,7 @@ Three real apps build on gpui-component today. Each re-implements the same app s
 
 Cross-cutting problems:
 
-1. **Version drift** — the three apps pin *three different revs* of gpui AND of gpui-component.
+1. **Version drift** — the three apps pin *three different revs* of gpui AND of neutron-components.
 2. **Identity scattered** — bundle id/name/version live in 5–8 places per app; nothing derives from one declaration.
 3. **Same glue ×3** — bootstrap, App/Edit menu wiring, theme-settings glue, asset chaining.
 4. **Nobody has window-bounds persistence**; layout persistence solved once (agent-term), settings solved well once (ansible).
@@ -115,28 +115,28 @@ Cross-cutting problems:
 
 ## 2. Decisions
 
-**D1 — Build the platform layer in the gpui-component workspace, not a separate repo.**
+**D1 — Build the platform layer in the neutron-components workspace, not a separate repo.**
 A separate repo adds a fourth independently-pinned link and worsens drift. In-workspace,
 the platform inherits the workspace's single gpui rev by construction and releases in
-lockstep with gpui-component.
+lockstep with neutron-components.
 
 **D2 — Three new crates (revised from two).**
-- `crates/app-manifest` → **`gpui-component-manifest`** — **Phase 1, not Phase 4**
+- `crates/app-manifest` → **`neutron-components-manifest`** — **Phase 1, not Phase 4**
   (blocker fix, see D4): no-gpui identity schema, parsing, validation,
   target-version derivation, and build.rs codegen helper. The packaging CLI later
   reuses this same library.
-- `crates/app-storage` → **`gpui-component-storage`** — foundation, no gpui dependency:
+- `crates/app-storage` → **`neutron-components-storage`** — foundation, no gpui dependency:
   path resolution, atomic write, schema-version envelope, debounced store with backup
   rotation. Seeded from ansible's `config.rs` and agent-term's `DebouncedStorage`
   **plus a written portability/concurrency contract** (§4a) — "copy verbatim" is the
   seed, not the spec.
-- `crates/app` → **`gpui-component-app`** — the `AppShell` builder over an internal
+- `crates/app` → **`neutron-components-app`** — the `AppShell` builder over an internal
   (sealed) plugin/phase mechanism. Services are **always-compiled modules activated at
   runtime by builder calls**; Cargo features are reserved for heavy native deps only
   (`tray`, maybe `file-logging`, `theme-watch`). Rationale: features are unioned across
   the dep graph and additive — a default-on feature matrix for cheap modules is
   cosmetic and leaks transitively. Tray may become its own crate
-  (`gpui-component-tray`) if GTK/AppIndicator deps hurt build times — that's a
+  (`neutron-components-tray`) if GTK/AppIndicator deps hurt build times — that's a
   legitimate crate boundary; "tray + tokio" is not.
 
 **D3 — Naming (locked).**
@@ -166,11 +166,11 @@ lockstep with gpui-component.
 
 ```toml
 [build-dependencies]
-gpui-component-manifest = { ... }
+neutron-components-manifest = { ... }
 ```
 ```rust
 // app's own build.rs (2 lines)
-fn main() { gpui_component_manifest::build::emit_identity().expect("invalid [package.metadata.gpui-app]"); }
+fn main() { neutron_components_manifest::build::emit_identity().expect("invalid [package.metadata.gpui-app]"); }
 ```
 `include_identity!()` then includes codegen from the **app's** `OUT_DIR` (with
 `rerun-if-changed`). `version` is never declared in the metadata table — canonical
@@ -186,15 +186,15 @@ mask the manifest-boundary bug).
 apps or 1 app + worse hand-rolls elsewhere. Labeled exceptions stay opt-in/thin.
 
 **D6 — Versioning: one *resolved* gpui, not "one dependency".**
-v1's "apps may only depend on gpui-component-app" reverses layering — reusable UI
-crates inside an app workspace legitimately depend on `gpui-component`/`gpui` directly.
+v1's "apps may only depend on neutron-components-app" reverses layering — reusable UI
+crates inside an app workspace legitimately depend on `neutron-components`/`gpui` directly.
 Corrected invariant:
-- app binary/shell crate → `gpui-component-app` (re-exports as ergonomic convenience);
-- reusable UI crates → `gpui-component`; direct `gpui` where layering/macros need it
+- app binary/shell crate → `neutron-components-app` (re-exports as ergonomic convenience);
+- reusable UI crates → `neutron-components`; direct `gpui` where layering/macros need it
   (audit gpui proc-macros for generated `::gpui` paths before relying on re-exports);
 - each app repo centralizes versions in `[workspace.dependencies]`;
 - **CI lint on `cargo metadata`/`cargo tree -d`**: reject >1 resolved package
-  ID/source/rev for `gpui`, `gpui_platform`, `gpui-component` — catches transitive
+  ID/source/rev for `gpui`, `gpui_platform`, `neutron-components` — catches transitive
   duplicates a source-grep never sees.
 - Engine and framework versions stay independent. Update exact root path
   dependencies and `compatibility.toml` in one change, then run `./script/check`.
@@ -226,9 +226,9 @@ code — a library can't set a crate-level attribute; the Phase-4 scaffold templ
 
 ```rust
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use gpui_component_app::prelude::*;
+use neutron_components_app::prelude::*;
 
-gpui_component_app::include_identity!(); // codegen from app's build.rs (D4)
+neutron_components_app::include_identity!(); // codegen from app's build.rs (D4)
 
 fn main() -> anyhow::Result<()> {
     AppShell::builder(APP_IDENTITY)
@@ -392,12 +392,12 @@ legacy path migration aliases (agent-term's `~/.agent-term`).
 **Phase 0 — foundations**
 1. CI matrix (macOS/Windows/Linux): build + **launch** native smoke apps (compile-green
    proves little for platform-divergent code); feature-matrix builds (none/default/tray/all).
-2. `gpui-component-storage` with the §4a contract + process-level concurrency tests.
-3. `gpui-component-manifest` + downstream-workspace test fixture (D4 blocker fix).
+2. `neutron-components-storage` with the §4a contract + process-level concurrency tests.
+3. `neutron-components-manifest` + downstream-workspace test fixture (D4 blocker fix).
 4. Keep engine and framework tag discipline; root scripts own validation.
 5. agent-term: retain its updater until an independently verified replacement exists (D7).
 
-**Phase 1 — `gpui-component-app` MVP**
+**Phase 1 — `neutron-components-app` MVP**
 Identity include, `AppShell` phases/plugin core (sealed trait until all three
 migrations exercised it), lifecycle events + queueing, `AppInfo`/`AppProxy`/globals
 split (+ auto-trait compile assertions), window manager, settings plugin,

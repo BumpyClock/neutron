@@ -5,7 +5,7 @@ use gpui::{
     Pixels, Render, SharedString, Styled, Window, div, prelude::FluentBuilder, px, relative,
 };
 
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Icon, IconName, Side, Sizable,
     badge::Badge,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
@@ -489,7 +489,7 @@ impl Render for SidebarStory {
                 .child(self.render_content(window, cx)),
         );
         let on_resize = {
-            move |state: &gpui::Entity<gpui_component::resizable::ResizableState>,
+            move |state: &gpui::Entity<neutron_components::resizable::ResizableState>,
                   _: &mut Window,
                   cx: &mut gpui::App| {
                 let Some(width) = state.read(cx).sizes().get(sidebar_panel_ix).copied() else {

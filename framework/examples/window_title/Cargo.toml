@@ -1,6 +1,6 @@
 [package]
 name = "window_title"
-description = "An example of using gpui-component to create a window with a custom title bar."
+description = "An example of using neutron-components to create a window with a custom title bar."
 version = "0.5.1"
 rust-version = "1.95.0"
 publish = false
@@ -10,8 +10,8 @@ edition.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
-gpui-component.workspace = true
-gpui-component-assets.workspace = true
+neutron-components.workspace = true
+neutron-components-assets.workspace = true
 
 [lints]
 workspace = true

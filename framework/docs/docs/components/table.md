@@ -23,7 +23,7 @@ A comprehensive data table component designed for handling large datasets with h
 ## Import
 
 ```rust
-use gpui_component::table::{
+use neutron_components::table::{
     Table, TableState, TableDelegate,
     Column, ColumnSort, ColumnFixed,
     TableEvent
@@ -39,7 +39,7 @@ To create a table, you need to implement the `TableDelegate` trait and provide c
 ```rust
 use std::ops::Range;
 use gpui::{App, Context, Window, IntoElement};
-use gpui_component::table::{Table, TableDelegate, Column, ColumnSort};
+use neutron_components::table::{Table, TableDelegate, Column, ColumnSort};
 
 struct MyData {
     id: usize,
@@ -669,10 +669,10 @@ impl TableDelegate for MyTableDelegate {
 - `MoveColumn(usize, usize)` - Column moved (from_ix, to_ix)
 - `ClearSelection` - All selections cleared
 
-[Table]: https://docs.rs/gpui-component/latest/gpui_component/table/struct.Table.html
-[TableState]: https://docs.rs/gpui-component/latest/gpui_component/table/struct.TableState.html
-[TableDelegate]: https://docs.rs/gpui-component/latest/gpui_component/table/trait.TableDelegate.html
-[Column]: https://docs.rs/gpui-component/latest/gpui_component/table/struct.Column.html
-[TableEvent]: https://docs.rs/gpui-component/latest/gpui_component/table/enum.TableEvent.html
-[ColumnSort]: https://docs.rs/gpui-component/latest/gpui_component/table/enum.ColumnSort.html
-[ColumnFixed]: https://docs.rs/gpui-component/latest/gpui_component/table/enum.ColumnFixed.html
+[Table]: https://docs.rs/neutron-components/latest/neutron_components/table/struct.Table.html
+[TableState]: https://docs.rs/neutron-components/latest/neutron_components/table/struct.TableState.html
+[TableDelegate]: https://docs.rs/neutron-components/latest/neutron_components/table/trait.TableDelegate.html
+[Column]: https://docs.rs/neutron-components/latest/neutron_components/table/struct.Column.html
+[TableEvent]: https://docs.rs/neutron-components/latest/neutron_components/table/enum.TableEvent.html
+[ColumnSort]: https://docs.rs/neutron-components/latest/neutron_components/table/enum.ColumnSort.html
+[ColumnFixed]: https://docs.rs/neutron-components/latest/neutron_components/table/enum.ColumnFixed.html

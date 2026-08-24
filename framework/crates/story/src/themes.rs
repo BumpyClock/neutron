@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use gpui::{Action, App, SharedString};
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Theme, ThemeModePreference, ThemeRegistry, scroll::ScrollbarShow,
 };
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,7 @@ pub(crate) struct SwitchThemeMode(pub(crate) ThemeModePreference);
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use gpui_component::{ThemeModePreference, scroll::ScrollbarShow};
+    use neutron_components::{ThemeModePreference, scroll::ScrollbarShow};
 
     use super::{State, load_state, persist_state};
 
@@ -150,7 +150,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("gpui-component-{name}-{nanos}.json"))
+        std::env::temp_dir().join(format!("neutron-components-{name}-{nanos}.json"))
     }
 
     #[test]

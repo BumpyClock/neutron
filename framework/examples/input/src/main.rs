@@ -1,9 +1,9 @@
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     input::{Input, InputEvent, InputState},
     *,
 };
-use gpui_component_assets::Assets;
+use neutron_components_assets::Assets;
 
 pub struct Example {
     input_state: Entity<InputState>,
@@ -57,8 +57,8 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        // This must be called before using any GPUI Component features.
-        gpui_component::init(cx);
+        // This must be called before using any Neutron Components features.
+        neutron_components::init(cx);
 
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::centered(size(px(800.), px(600.)), cx)),

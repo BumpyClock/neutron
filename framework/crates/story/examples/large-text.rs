@@ -1,12 +1,12 @@
 use gpui::*;
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Selectable, Sizable, WindowExt,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{self, Input, InputEvent, InputState, TabSize},
     v_flex,
 };
-use gpui_component_assets::Assets;
+use neutron_components_assets::Assets;
 
 pub struct Example {
     editor: Entity<InputState>,
@@ -157,9 +157,9 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
 
     app.run(move |cx| {
-        gpui_component_story::init(cx);
+        neutron_story::init(cx);
         cx.activate(true);
 
-        gpui_component_story::create_new_window("Large Text Editor", Example::view, cx);
+        neutron_story::create_new_window("Large Text Editor", Example::view, cx);
     });
 }

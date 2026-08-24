@@ -1,6 +1,6 @@
 ---
 title: Components
-summary: "Index of available GPUI Component UI components."
+summary: "Index of available Neutron Components UI components."
 order: 2
 collapsed: false
 ---

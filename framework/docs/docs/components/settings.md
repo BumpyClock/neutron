@@ -14,7 +14,7 @@ We can search by title and description to filter the settings to display only re
 ## Import
 
 ```rust
-use gpui_component::setting::{Settings, SettingPage, SettingGroup, SettingItem, SettingControl};
+use neutron_components::setting::{Settings, SettingPage, SettingGroup, SettingItem, SettingControl};
 ```
 
 ## Usage
@@ -44,7 +44,7 @@ Settings
 ### Basic Settings
 
 ```rust
-use gpui_component::setting::{Settings, SettingPage, SettingGroup, SettingItem, SettingControl};
+use neutron_components::setting::{Settings, SettingPage, SettingGroup, SettingItem, SettingControl};
 
 Settings::new("my-settings")
     .pages(vec![
@@ -105,7 +105,7 @@ Settings::new("app-settings")
 ### Group Variants
 
 ```rust
-use gpui_component::group_box::GroupBoxVariant;
+use neutron_components::group_box::GroupBoxVariant;
 
 Settings::new("my-settings")
     .with_group_variant(GroupBoxVariant::Outline)
@@ -226,13 +226,13 @@ SettingItem::new(
 ### With Markdown Description
 
 ```rust
-use gpui_component::text::markdown;
+use neutron_components::text::markdown;
 
 SettingItem::new(
     "Documentation",
     SettingControl::element(...)
 )
-.description(markdown("Rust doc for the `gpui-component` crate."))
+.description(markdown("Rust doc for the `neutron-components` crate."))
 ```
 
 ## Setting Fields
@@ -317,7 +317,7 @@ SettingItem::new(
 ### NumberInput
 
 ```rust
-use gpui_component::setting::NumberFieldOptions;
+use neutron_components::setting::NumberFieldOptions;
 
 SettingItem::new(
     "Font Size",
@@ -362,7 +362,7 @@ You may have a complex field that you want to reuse, you may want split the elem
 In this case, the [SettingFieldElement] trait can help you to create a custom field element.
 
 ````rust
-use gpui_component::setting::{SettingFieldElement, RenderOptions};
+use neutron_components::setting::{SettingFieldElement, RenderOptions};
 
 struct OpenURLSettingField {
     label: SharedString,
@@ -422,7 +422,7 @@ Implements [Sizable] trait:
 
 ```rust
 use gpui::{App, SharedString};
-use gpui_component::{
+use neutron_components::{
     Settings, SettingPage, SettingGroup, SettingItem, SettingControl,
     setting::NumberFieldOptions,
     group_box::GroupBoxVariant,
@@ -504,13 +504,13 @@ Settings::new("app-settings")
     ])
 ```
 
-[Settings]: https://docs.rs/gpui-component/latest/gpui_component/setting/struct.Settings.html
-[SettingPage]: https://docs.rs/gpui-component/latest/gpui_component/setting/struct.SettingPage.html
-[SettingGroup]: https://docs.rs/gpui-component/latest/gpui_component/setting/struct.SettingGroup.html
-[SettingItem]: https://docs.rs/gpui-component/latest/gpui_component/setting/struct.SettingItem.html
-[SettingControl]: https://docs.rs/gpui-component/latest/gpui_component/setting/enum.SettingControl.html
-[SettingFieldElement]: https://docs.rs/gpui-component/latest/gpui_component/setting/trait.SettingFieldElement.html
-[NumberFieldOptions]: https://docs.rs/gpui-component/latest/gpui_component/setting/struct.NumberFieldOptions.html
+[Settings]: https://docs.rs/neutron-components/latest/neutron_components/setting/struct.Settings.html
+[SettingPage]: https://docs.rs/neutron-components/latest/neutron_components/setting/struct.SettingPage.html
+[SettingGroup]: https://docs.rs/neutron-components/latest/neutron_components/setting/struct.SettingGroup.html
+[SettingItem]: https://docs.rs/neutron-components/latest/neutron_components/setting/struct.SettingItem.html
+[SettingControl]: https://docs.rs/neutron-components/latest/neutron_components/setting/enum.SettingControl.html
+[SettingFieldElement]: https://docs.rs/neutron-components/latest/neutron_components/setting/trait.SettingFieldElement.html
+[NumberFieldOptions]: https://docs.rs/neutron-components/latest/neutron_components/setting/struct.NumberFieldOptions.html
 [GroupBox]: ./group-box.md
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html
 ````

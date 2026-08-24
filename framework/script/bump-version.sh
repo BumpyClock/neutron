@@ -73,16 +73,16 @@ fi
 
 # Update only packages whose manifests belong to framework/.
 framework_packages=(
-  gpui-component-app
-  gpui-component
-  gpui-component-macros
-  gpui-component-manifest
-  gpui-component-storage
-  gpui-component-story
-  gpui-component-assets
+  neutron-components-app
+  neutron-components
+  neutron-components-macros
+  neutron-components-manifest
+  neutron-components-storage
+  neutron-story
+  neutron-components-assets
   framework-reqwest-client
   gpui-wry
-  gpui-component-conformance
+  neutron-components-conformance
   app_assets
   app_shell
   app_shell_background

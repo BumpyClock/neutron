@@ -11,8 +11,8 @@ A powerful List component that provides a virtualized, searchable list interface
 ## Import
 
 ```rust
-use gpui_component::list::{List, ListState, ListDelegate, ListItem, ListEvent, ListSeparatorItem};
-use gpui_component::IndexPath;
+use neutron_components::list::{List, ListState, ListDelegate, ListItem, ListEvent, ListSeparatorItem};
+use neutron_components::IndexPath;
 ```
 
 ## Usage

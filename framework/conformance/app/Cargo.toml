@@ -1,5 +1,5 @@
 [package]
-name = "gpui-component-conformance"
+name = "neutron-components-conformance"
 description = "Native AppShell conformance executable."
 version = "0.7.0"
 rust-version = "1.95.0"
@@ -7,24 +7,24 @@ publish = false
 edition.workspace = true
 
 [package.metadata.gpui-app]
-app_id = "com.gpui-component.conformance"
-display_name = "GPUI Component Conformance"
+app_id = "com.neutron-components.conformance"
+display_name = "Neutron Components Conformance"
 categories = ["Development"]
 
 [features]
-wayland-conformance = ["gpui-component-app/wayland-conformance"]
+wayland-conformance = ["neutron-components-app/wayland-conformance"]
 
 [dependencies]
 anyhow.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
-gpui-component.workspace = true
-gpui-component-app.workspace = true
+neutron-components.workspace = true
+neutron-components-app.workspace = true
 raw-window-handle.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [build-dependencies]
-gpui-component-manifest.workspace = true
+neutron-components-manifest.workspace = true
 
 [lints]
 workspace = true

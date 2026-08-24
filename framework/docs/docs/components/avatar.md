@@ -11,7 +11,7 @@ The Avatar component displays user profile images with intelligent fallbacks. Wh
 ## Import
 
 ```rust
-use gpui_component::avatar::{Avatar, AvatarGroup};
+use neutron_components::avatar::{Avatar, AvatarGroup};
 ```
 
 ## Usage
@@ -45,7 +45,7 @@ Avatar::new()
 For anonymous users or when no name is provided:
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 // Default user icon placeholder
 Avatar::new()
@@ -189,7 +189,7 @@ AvatarGroup::new()
 ### Team Display
 
 ```rust
-use gpui_component::{h_flex, v_flex};
+use neutron_components::{h_flex, v_flex};
 
 v_flex()
     .gap_4()
@@ -230,7 +230,7 @@ h_flex()
 ### Anonymous User
 
 ```rust
-use gpui_component::IconName;
+use neutron_components::IconName;
 
 Avatar::new()
     .placeholder(IconName::UserCircle)
@@ -247,6 +247,6 @@ Avatar::new().name("Bob")      // Gets a different color
 Avatar::new().name("Charlie")  // Gets another color
 ```
 
-[Avatar]: https://docs.rs/gpui-component/latest/gpui_component/avatar/struct.Avatar.html
-[AvatarGroup]: https://docs.rs/gpui-component/latest/gpui_component/avatar/struct.AvatarGroup.html
-[Sizable]: https://docs.rs/gpui-component/latest/gpui_component/trait.Sizable.html
+[Avatar]: https://docs.rs/neutron-components/latest/neutron_components/avatar/struct.Avatar.html
+[AvatarGroup]: https://docs.rs/neutron-components/latest/neutron_components/avatar/struct.AvatarGroup.html
+[Sizable]: https://docs.rs/neutron-components/latest/neutron_components/trait.Sizable.html

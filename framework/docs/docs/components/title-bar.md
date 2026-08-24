@@ -11,7 +11,7 @@ TitleBar provides a customizable window title bar that can replace the default O
 ## Import
 
 ```rust
-use gpui_component::TitleBar;
+use neutron_components::TitleBar;
 ```
 
 ## Usage
@@ -96,7 +96,7 @@ TitleBar::new()
 
 ```rust
 use gpui::{WindowOptions, TitlebarOptions};
-use gpui_component::WindowShell;
+use neutron_components::WindowShell;
 
 WindowOptions {
     titlebar: Some(TitleBar::title_bar_options()),
@@ -177,7 +177,7 @@ registers the bar and reloads it when commands or theme state change. macOS uses
 the native global application menu.
 
 ```rust
-use gpui_component::{TitleBar, button::Button, menu::AppMenuBar};
+use neutron_components::{TitleBar, button::Button, menu::AppMenuBar};
 
 struct AppTitleBar {
     app_menu_bar: Entity<AppMenuBar>,

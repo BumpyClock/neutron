@@ -16,7 +16,7 @@ Their default action buttons are centered. They expose the accessibility role
 ## Import
 
 ```rust
-use gpui_component::{WindowExt as _, dialog::DialogButtonProps};
+use neutron_components::{WindowExt as _, dialog::DialogButtonProps};
 ```
 
 ## Basic alert

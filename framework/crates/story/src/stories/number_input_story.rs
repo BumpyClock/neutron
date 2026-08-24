@@ -5,7 +5,7 @@ use gpui::{
 use regex::Regex;
 
 use crate::section;
-use gpui_component::{
+use neutron_components::{
     ActiveTheme, Disableable, IconName, Sizable,
     button::{Button, ButtonVariants},
     input::{InputEvent, InputState, MaskPattern, NumberInput, NumberInputEvent, StepAction},

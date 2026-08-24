@@ -28,8 +28,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use neutron_components_app::commands::AppMenusExt as _;
 use neutron_components_app::commands::StandardMenus;
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
@@ -44,22 +42,7 @@ const BACKGROUND_OPEN_DELAY: Duration = Duration::from_secs(1);
 const SMOKE_LIFETIME: Duration = Duration::from_secs(3);
 static WINDOW_READY: AtomicBool = AtomicBool::new(false);
 /// Window opened after background work; themed so the theme service is visibly live.
-struct BackgroundWindow {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
-}
-
-impl BackgroundWindow {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    fn with_menu_bar(menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>) -> Self {
-        Self { menu_bar }
-    }
-
-    #[cfg(target_os = "macos")]
-    fn new() -> Self {
-        Self {}
-    }
-}
+struct BackgroundWindow;
 
 impl Render for BackgroundWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -70,13 +53,7 @@ impl Render for BackgroundWindow {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child("Opened after background work");
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        return v_flex()
-            .size_full()
-            .child(self.menu_bar.clone())
-            .child(content);
-        #[cfg(target_os = "macos")]
-        content
+        v_flex().size_full().child(content)
     }
 }
 
@@ -118,16 +95,7 @@ fn open_main_window(cx: &mut App, hold: ShellHold) -> anyhow::Result<()> {
     WindowManager::open_singleton(
         cx,
         WindowSpec::new("main").title("App Shell Background Example"),
-        |_, cx| {
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            let menu_bar = cx.new_app_menu_bar();
-            cx.new(|_| {
-                #[cfg(any(target_os = "windows", target_os = "linux"))]
-                return BackgroundWindow::with_menu_bar(menu_bar);
-                #[cfg(target_os = "macos")]
-                BackgroundWindow::new()
-            })
-        },
+        |_, cx| cx.new(|_| BackgroundWindow),
     )?;
     WINDOW_READY.store(true, Ordering::SeqCst);
     // The window now keeps the app alive, so background work can release its hold.

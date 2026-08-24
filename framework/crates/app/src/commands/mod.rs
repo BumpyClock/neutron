@@ -446,6 +446,14 @@ impl AppMenusExt for App {
     }
 }
 
+/// Whether the active command registry projects at least one application menu.
+pub(crate) fn has_projected_menus(cx: &App) -> bool {
+    let Some(registry) = cx.command_registry() else {
+        return false;
+    };
+    menu::build_menus(cx, registry).is_some_and(|menus| !menus.is_empty())
+}
+
 /// What a live registration must do about keybindings and menus.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum RegistrationEffect {

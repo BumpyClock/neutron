@@ -84,7 +84,7 @@ version source.
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
 use neutron_components_app::{
-    AppMenusExt as _, StandardMenus, WindowManager,
+    StandardMenus, WindowManager,
 };
 use neutron_components_app::ui::{ActiveTheme as _, v_flex};
 use serde::{Deserialize, Serialize};
@@ -100,10 +100,7 @@ impl AppSettings for Settings {
     const SCHEMA_VERSION: u32 = 1;
 }
 
-struct MainView {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
-}
+struct MainView;
 
 impl Render for MainView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -111,16 +108,6 @@ impl Render for MainView {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .when(cfg!(any(target_os = "windows", target_os = "linux")), |view| {
-                #[cfg(any(target_os = "windows", target_os = "linux"))]
-                {
-                    view.child(self.menu_bar.clone())
-                }
-                #[cfg(target_os = "macos")]
-                {
-                    view
-                }
-            })
             .child("My App")
     }
 }
@@ -140,12 +127,7 @@ fn main() -> Result<(), AppShellError> {
             WindowManager::open(
                 cx,
                 WindowSpec::new("main").title("My App"),
-                |_, cx| {
-                    cx.new(|cx| MainView {
-                        #[cfg(any(target_os = "windows", target_os = "linux"))]
-                        menu_bar: cx.new_app_menu_bar(),
-                    })
-                },
+                |_, cx| cx.new(|_| MainView),
             )?;
             Ok(())
         })
@@ -200,6 +182,11 @@ the transaction does not roll back arbitrary external side effects.
 - `app.settings` and `app.about` are stable command IDs shared by menu,
   keybinding, direct action dispatch, and future projections.
 
+Calling `.standard_menus(...)` or `.menus(...)` opts the application into desktop
+menus. AppShell automatically inserts an in-window `AppMenuBar` in each managed
+normal window on Windows and Linux. macOS uses the global native application
+menu. Raw windows remain app-owned and do not receive an automatic menu bar.
+
 Defaults follow host conventions:
 
 | Behavior | macOS | Windows | Linux |
@@ -211,9 +198,8 @@ Defaults follow host conventions:
 | Close window | `cmd-w` | `ctrl-w` | `ctrl-w` |
 | About | App menu | Help menu | Help menu |
 
-macOS installs the menu globally. Windows and Linux apps place
-`cx.new_app_menu_bar()` in each window's own title bar or chrome. AppShell keeps
-every registered bar synchronized when commands or theme state change.
+macOS installs the menu globally. AppShell keeps in-window menu bars synchronized
+when commands or theme state change.
 
 Use `menus(MenuPlan)` for exact custom ordering. Do not combine
 `standard_menus`, raw `menus`, and direct `cx.set_menus` ownership in one app.

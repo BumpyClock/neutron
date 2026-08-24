@@ -21,8 +21,6 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::bail;
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use neutron_components_app::commands::AppMenusExt as _;
 use neutron_components_app::commands::StandardMenus;
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
@@ -74,22 +72,7 @@ impl AssetSource for ExampleAssets {
     }
 }
 
-struct MainView {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>,
-}
-
-impl MainView {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    fn with_menu_bar(menu_bar: Entity<neutron_components_app::ui::menu::AppMenuBar>) -> Self {
-        Self { menu_bar }
-    }
-
-    #[cfg(target_os = "macos")]
-    fn new() -> Self {
-        Self {}
-    }
-}
+struct MainView;
 
 impl Render for MainView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -106,13 +89,7 @@ impl Render for MainView {
             .text_color(cx.theme().foreground)
             .child("App Shell conformance example")
             .child(format!("Settings live in {}", config_dir));
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        return v_flex()
-            .size_full()
-            .child(self.menu_bar.clone())
-            .child(content);
-        #[cfg(target_os = "macos")]
-        content
+        v_flex().size_full().child(content)
     }
 }
 
@@ -215,16 +192,7 @@ fn run() -> Result<(), AppShellError> {
             WindowManager::open(
                 cx,
                 WindowSpec::new("main").title("App Shell Example"),
-                |_, cx| {
-                    #[cfg(any(target_os = "windows", target_os = "linux"))]
-                    let menu_bar = cx.new_app_menu_bar();
-                    cx.new(|_| {
-                        #[cfg(any(target_os = "windows", target_os = "linux"))]
-                        return MainView::with_menu_bar(menu_bar);
-                        #[cfg(target_os = "macos")]
-                        MainView::new()
-                    })
-                },
+                |_, cx| cx.new(|_| MainView),
             )?;
             if smoke {
                 schedule_smoke_quit(cx);

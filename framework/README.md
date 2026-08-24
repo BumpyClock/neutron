@@ -66,8 +66,10 @@ AppShell::builder(APP_IDENTITY)
 ```
 
 See [Building an Application](docs/docs/app-shell.md) for identity codegen,
-Windows/Linux menu-bar placement, persistent settings, platform evidence, and
-current limitations.
+desktop-menu opt-in, automatic Windows/Linux menu-bar placement, persistent
+settings, platform evidence, and current limitations. Managed normal windows
+receive in-window menu bars on Windows/Linux. macOS uses the global native menu.
+Raw windows remain app-owned.
 
 ### Manual GPUI bootstrap
 

@@ -27,13 +27,13 @@ mod spec;
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, Bounds, Entity, Render, Subscription, Window,
+    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Render, Subscription, Window,
     WindowBounds, WindowHandle,
 };
-use neutron_components::Root;
+use neutron_components::{Root, menu::AppMenuBar};
 
 use crate::capabilities::Capability;
-use crate::commands::CloseWindow;
+use crate::commands::{AppMenusExt as _, CloseWindow, has_projected_menus};
 #[cfg(target_os = "macos")]
 use crate::commands::{Minimize, Zoom};
 use crate::error::AppShellError;
@@ -48,6 +48,12 @@ pub use spec::{OverlaySpec, RootPolicy, WindowSize, WindowSpec};
 
 /// The liveness reason recorded for a window's lease.
 const WINDOW_HOLD_REASON: &str = "window";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MenuSurface {
+    NativeGlobal,
+    InWindow,
+}
 
 /// Errors from window/overlay operations.
 ///
@@ -150,8 +156,17 @@ impl WindowManager {
     /// `build`. Returns the `Root` handle and the content entity.
     pub fn open<V: 'static + Render>(
         cx: &mut App,
+        spec: WindowSpec,
+        build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+    ) -> Result<OpenedWindow<V>, WindowError> {
+        Self::open_for_menu_surface(cx, spec, build, managed_menu_surface())
+    }
+
+    fn open_for_menu_surface<V: 'static + Render>(
+        cx: &mut App,
         mut spec: WindowSpec,
         build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+        menu_surface: MenuSurface,
     ) -> Result<OpenedWindow<V>, WindowError> {
         validate_root_policy(&spec, RootPolicy::ComponentRoot)?;
         let key = spec.key();
@@ -166,9 +181,11 @@ impl WindowManager {
             if let Some(post_open) = post_open {
                 post_open(window, cx);
             }
+            let app_menu_bar = should_attach_app_menu_bar(menu_surface, has_projected_menus(cx))
+                .then(|| cx.new_app_menu_bar());
             let content = build(window, cx);
             content_slot = Some(content.clone());
-            cx.new(|cx| Root::new(content, window, cx))
+            cx.new(|cx| compose_managed_root(content, window, cx, app_menu_bar))
         });
 
         let window = match opened {
@@ -195,6 +212,15 @@ impl WindowManager {
         cx: &mut App,
         spec: WindowSpec,
         build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+    ) -> Result<Singleton<V>, WindowError> {
+        Self::open_singleton_for_menu_surface(cx, spec, build, managed_menu_surface())
+    }
+
+    fn open_singleton_for_menu_surface<V: 'static + Render>(
+        cx: &mut App,
+        spec: WindowSpec,
+        build: impl FnOnce(&mut Window, &mut App) -> Entity<V>,
+        menu_surface: MenuSurface,
     ) -> Result<Singleton<V>, WindowError> {
         validate_root_policy(&spec, RootPolicy::ComponentRoot)?;
         let key = spec.key();
@@ -232,7 +258,7 @@ impl WindowManager {
             .registry
             .begin_singleton(key, SingletonMetadata::of::<V>(spec.declared_root_policy()));
 
-        match Self::open(cx, spec, build) {
+        match Self::open_for_menu_surface(cx, spec, build, menu_surface) {
             Ok(opened) => {
                 let handle: AnyWindowHandle = opened.window.into();
                 cx.global_mut::<WindowManager>()
@@ -507,9 +533,225 @@ fn window_options(cx: &App, spec: &mut WindowSpec, title: &str) -> gpui::WindowO
     options
 }
 
+fn managed_menu_surface() -> MenuSurface {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        MenuSurface::InWindow
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        MenuSurface::NativeGlobal
+    }
+}
+
+fn compose_managed_root<V: 'static + Render>(
+    content: Entity<V>,
+    window: &mut Window,
+    cx: &mut Context<Root>,
+    app_menu_bar: Option<Entity<AppMenuBar>>,
+) -> Root {
+    if let Some(app_menu_bar) = app_menu_bar {
+        Root::new(content, window, cx).with_app_menu_bar(app_menu_bar)
+    } else {
+        Root::new(content, window, cx)
+    }
+}
+
+fn should_attach_app_menu_bar(menu_surface: MenuSurface, menus_projected: bool) -> bool {
+    menu_surface == MenuSurface::InWindow && menus_projected
+}
+
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
     use super::*;
+    use gpui::{Empty, Role, TestAppContext, VisualTestContext, actions};
+
+    use crate::commands::{Command, CommandId, CommandRegistry, CommandScope, MenuPlan};
+    use crate::handles::{self, AppInfo, PendingEvents};
+    use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+    use crate::phases::PhaseTracker;
+    use crate::{AppPaths, IdentityRef, PathLayout};
+
+    actions!(window_menu_test, [MenuAction]);
+
+    fn identity() -> IdentityRef {
+        IdentityRef {
+            app_id: "com.example.window-menu-test",
+            display_name: "Window Menu Test",
+            data_namespace: "window-menu-test",
+            binary_name: None,
+            org: None,
+            publisher: None,
+            url_schemes: &[],
+            categories: &[],
+            macos: None,
+            linux: None,
+            windows: None,
+            legacy_ids: &[],
+            min_os: None,
+            version: "0.0.0",
+            cfbundle_short_version: "0.0.0",
+            msix_version: "0.0.0.0",
+        }
+    }
+
+    fn initialize_window_manager(cx: &mut App) {
+        neutron_components::init(cx);
+        let info = AppInfo::new(
+            identity(),
+            AppPaths::new(
+                "window-menu-test",
+                PathLayout::SingleRoot("window-menu-test".to_string()),
+            )
+            .expect("test paths resolve"),
+            crate::PlatformCapabilities::detect(),
+        );
+        let proxy = handles::install(
+            cx,
+            info.clone(),
+            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Vec::new(),
+            Vec::new(),
+            Arc::new(PendingEvents::default()),
+            HashMap::new(),
+            PhaseTracker::new(),
+            Box::new(|_, _| {}),
+        );
+        WindowsPlugin::new()
+            .init(cx, &ShellSeed { info, proxy })
+            .expect("window manager initializes");
+    }
+
+    fn configure_nonempty_menus(cx: &mut App) {
+        cx.set_global(CommandRegistry::new());
+        let registry = cx.global_mut::<CommandRegistry>();
+        registry
+            .register(
+                Command::new(
+                    CommandId("window-menu-test.action"),
+                    "Menu Action",
+                    CommandScope::App,
+                    MenuAction,
+                )
+                .placed("Test", 0, 0),
+            )
+            .expect("test command registers");
+        registry.set_plan(MenuPlan::from_keys(["Test"]));
+    }
+
+    fn configure_empty_menus(cx: &mut App) {
+        cx.set_global(CommandRegistry::new());
+        cx.global_mut::<CommandRegistry>()
+            .set_plan(MenuPlan::from_keys(["Test"]));
+    }
+
+    fn window_has_app_menu_bar(window: AnyWindowHandle, cx: &mut TestAppContext) -> bool {
+        let mut visual_cx = VisualTestContext::from_window(window, cx);
+        visual_cx.update(|window, cx| {
+            window.set_a11y_active_for_test(true);
+            window.draw(cx).clear(cx);
+            let tree = window
+                .last_a11y_tree_for_test()
+                .cloned()
+                .expect("accessibility tree captured");
+            window.set_a11y_active_for_test(false);
+            tree.nodes
+                .iter()
+                .any(|(_, node)| node.role() == Role::MenuBar)
+        })
+    }
+
+    #[test]
+    fn menu_surface_policy_attaches_bars_only_for_nonempty_in_window_menus() {
+        assert!(should_attach_app_menu_bar(MenuSurface::InWindow, true));
+        assert!(!should_attach_app_menu_bar(MenuSurface::InWindow, false));
+        assert!(!should_attach_app_menu_bar(MenuSurface::NativeGlobal, true));
+    }
+
+    #[gpui::test]
+    fn managed_open_attaches_app_menu_bar_for_nonempty_projected_menus(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            initialize_window_manager(cx);
+            configure_nonempty_menus(cx);
+            WindowManager::open_for_menu_surface(
+                cx,
+                WindowSpec::new("main"),
+                |_, cx| cx.new(|_| Empty),
+                MenuSurface::InWindow,
+            )
+            .expect("managed window opens")
+            .window
+        });
+
+        assert!(window_has_app_menu_bar(window.into(), cx));
+    }
+
+    #[gpui::test]
+    fn managed_open_skips_app_menu_bar_without_nonempty_projected_menus(cx: &mut TestAppContext) {
+        let (without_menus, with_empty_menus) = cx.update(|cx| {
+            initialize_window_manager(cx);
+            let without_menus = WindowManager::open_for_menu_surface(
+                cx,
+                WindowSpec::new("without-menus"),
+                |_, cx| cx.new(|_| Empty),
+                MenuSurface::InWindow,
+            )
+            .expect("managed window without menus opens")
+            .window;
+
+            configure_empty_menus(cx);
+            let with_empty_menus = WindowManager::open_for_menu_surface(
+                cx,
+                WindowSpec::new("empty-menus"),
+                |_, cx| cx.new(|_| Empty),
+                MenuSurface::InWindow,
+            )
+            .expect("managed window with empty menus opens")
+            .window;
+            (without_menus, with_empty_menus)
+        });
+
+        assert!(!window_has_app_menu_bar(without_menus.into(), cx));
+        assert!(!window_has_app_menu_bar(with_empty_menus.into(), cx));
+    }
+
+    #[gpui::test]
+    fn raw_windows_do_not_get_app_menu_bars(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            initialize_window_manager(cx);
+            configure_nonempty_menus(cx);
+            WindowManager::open_raw(cx, WindowSpec::new("raw").raw(), |_, cx| cx.new(|_| Empty))
+                .expect("raw window opens")
+        });
+
+        assert!(!window_has_app_menu_bar(window.into(), cx));
+    }
+
+    #[gpui::test]
+    fn managed_singleton_inherits_app_menu_bar_policy(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            initialize_window_manager(cx);
+            configure_nonempty_menus(cx);
+            match WindowManager::open_singleton_for_menu_surface(
+                cx,
+                WindowSpec::new("singleton"),
+                |_, cx| cx.new(|_| Empty),
+                MenuSurface::InWindow,
+            )
+            .expect("singleton window opens")
+            {
+                Singleton::Opened(opened) => opened.window,
+                Singleton::Reused | Singleton::InFlight => {
+                    panic!("first singleton open must create")
+                }
+            }
+        });
+
+        assert!(window_has_app_menu_bar(window.into(), cx));
+    }
 
     #[test]
     fn root_policy_mismatches_are_typed_errors() {

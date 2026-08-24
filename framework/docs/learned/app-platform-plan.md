@@ -52,7 +52,7 @@ this foundation instead of adding a second framework abstraction:
 
 | Behavior | macOS | Windows | Linux |
 |---|---|---|---|
-| Menu surface | Native global application menu | App-owned in-window `AppMenuBar` | App-owned in-window `AppMenuBar` |
+| Menu surface | Native global application menu | AppShell-managed in-window `AppMenuBar` | AppShell-managed in-window `AppMenuBar` |
 | Structure | App, Edit, custom, Window | File, Edit, optional View/custom, Window, Help | File, Edit, optional View/custom, Window, Help |
 | Settings | Settings… / `cmd-,` | Settings / `ctrl-,` | Preferences / `ctrl-,` |
 | Quit | `cmd-q` | `ctrl-q` | `ctrl-q` |
@@ -61,6 +61,8 @@ this foundation instead of adding a second framework abstraction:
 Optional Settings/About items, commands, and chords do not exist without a
 callback. Raw `MenuPlan` stays available for exact custom ordering. Direct
 `set_menus`, raw `MenuPlan`, and `StandardMenus` are separate ownership modes.
+`StandardMenus` and raw `MenuPlan` enable this surface for managed normal
+windows. Raw windows remain app-owned and do not receive an automatic menu bar.
 
 ### Capability boundary
 

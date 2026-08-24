@@ -3,8 +3,10 @@ use crate::{
     dialog::Dialog,
     focus_trap::FocusTrapManager,
     input::InputState,
+    menu::AppMenuBar,
     notification::{Notification, NotificationList},
     sheet::Sheet,
+    title_bar::TITLE_BAR_HEIGHT,
     window_border,
 };
 use gpui::{
@@ -34,6 +36,7 @@ pub struct Root {
     pub(super) focused_input: Option<Entity<InputState>>,
     pub notification: Entity<NotificationList>,
     sheet_size: Option<DefiniteLength>,
+    app_menu_bar: Option<Entity<AppMenuBar>>,
     view: AnyView,
     style: StyleRefinement,
 }
@@ -85,9 +88,16 @@ impl Root {
             focused_input: None,
             notification: cx.new(|cx| NotificationList::new(window, cx)),
             sheet_size: None,
+            app_menu_bar: None,
             view: view.into(),
             style: StyleRefinement::default(),
         }
+    }
+
+    /// Add an in-window application menu bar above the root content.
+    pub fn with_app_menu_bar(mut self, app_menu_bar: Entity<AppMenuBar>) -> Self {
+        self.app_menu_bar = Some(app_menu_bar);
+        self
     }
 
     pub fn update<F, R>(window: &mut Window, cx: &mut App, f: F) -> R
@@ -526,6 +536,33 @@ impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_rem_size(cx.theme().font_size);
 
+        let view = self.app_menu_bar.clone().map_or_else(
+            || self.view.clone().into_any_element(),
+            |app_menu_bar| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .size_full()
+                    .child(
+                        div()
+                            .debug_selector(|| "root-app-menu-bar".to_string())
+                            .w_full()
+                            .h(TITLE_BAR_HEIGHT)
+                            .flex_none()
+                            .overflow_hidden()
+                            .child(app_menu_bar),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .child(self.view.clone()),
+                    )
+                    .into_any_element()
+            },
+        );
+
         window_border().child(
             div()
                 .id("root")
@@ -538,7 +575,7 @@ impl Render for Root {
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .refine_style(&self.style)
-                .child(self.view.clone()),
+                .child(view),
         )
     }
 }
@@ -547,9 +584,21 @@ impl Render for Root {
 mod tests {
     use std::{cell::RefCell, rc::Rc};
 
-    use gpui::{Empty, TestAppContext, VisualTestContext};
+    use gpui::{Empty, Role, TestAppContext, VisualTestContext, div, px, size};
+
+    use crate::menu::AppMenuBar;
 
     use super::*;
+
+    struct LayoutProbe;
+
+    impl Render for LayoutProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .debug_selector(|| "root-content".to_string())
+                .size_full()
+        }
+    }
 
     fn root_window(
         cx: &mut TestAppContext,
@@ -591,6 +640,67 @@ mod tests {
             root.finalize_sheet_close(window, cx);
             assert!(original_focus.is_focused(window));
         });
+    }
+
+    #[gpui::test]
+    fn configured_root_renders_app_menu_bar(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let content = cx.new(|_| Empty);
+                let app_menu_bar = AppMenuBar::new(cx);
+                cx.new(|cx| Root::new(content, window, cx).with_app_menu_bar(app_menu_bar))
+            })
+            .unwrap()
+        });
+        let mut visual_cx = VisualTestContext::from_window(window.into(), cx);
+
+        let a11y_tree = visual_cx.update(|window, cx| {
+            window.set_a11y_active_for_test(true);
+            window.draw(cx).clear(cx);
+            let tree = window
+                .last_a11y_tree_for_test()
+                .cloned()
+                .expect("accessibility tree should be captured after drawing");
+            window.set_a11y_active_for_test(false);
+            tree
+        });
+
+        assert!(
+            a11y_tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.role() == Role::MenuBar)
+        );
+    }
+
+    #[gpui::test]
+    fn app_menu_bar_reserves_title_bar_height(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let content = cx.new(|_| LayoutProbe);
+                let app_menu_bar = AppMenuBar::new(cx);
+                cx.new(|cx| Root::new(content, window, cx).with_app_menu_bar(app_menu_bar))
+            })
+            .unwrap()
+        });
+        let mut visual_cx = VisualTestContext::from_window(window.into(), cx);
+        visual_cx.simulate_resize(size(px(800.), px(600.)));
+        visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let menu_bar_bounds = visual_cx
+            .debug_bounds("root-app-menu-bar")
+            .expect("app menu bar bounds should be captured");
+        let content_bounds = visual_cx
+            .debug_bounds("root-content")
+            .expect("root content bounds should be captured");
+        assert_eq!(menu_bar_bounds.origin.y, px(0.));
+        assert_eq!(menu_bar_bounds.size.width, px(800.));
+        assert_eq!(menu_bar_bounds.size.height, TITLE_BAR_HEIGHT);
+        assert_eq!(content_bounds.origin.y, TITLE_BAR_HEIGHT);
+        assert_eq!(content_bounds.size.width, px(800.));
+        assert_eq!(content_bounds.size.height, px(600.) - TITLE_BAR_HEIGHT);
     }
 
     #[gpui::test]

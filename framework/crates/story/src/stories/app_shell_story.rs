@@ -156,7 +156,7 @@ impl Render for AppShellStory {
             .gap_6()
             .child(
                 section("Standard desktop menus")
-                    .sub_title("Native on macOS; render AppMenuBar in-window on Windows and Linux")
+                    .sub_title("AppShell uses the native global menu on macOS and inserts AppMenuBar in managed normal windows on Windows and Linux")
                     .child(menu_preview(cx)),
             )
             .child(

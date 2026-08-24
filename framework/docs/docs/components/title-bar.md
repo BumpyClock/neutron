@@ -45,15 +45,23 @@ TitleBar::new()
     )
 ```
 
-### Title Bar with Menu Bar
+### Title Bar with Menu Bar (raw AppShell or custom GPUI)
+
+Use this pattern when the app owns window content and composes its own title
+bar. Raw AppShell windows must use `cx.new_app_menu_bar()` so the command
+registry tracks and reloads the bar. Use `AppMenuBar::new(cx)` only for fully
+manual GPUI menu ownership. AppShell-managed normal windows insert
+`AppMenuBar` automatically when standard or custom menus are enabled.
 
 ```rust
+let app_menu_bar = cx.new_app_menu_bar();
+
 TitleBar::new()
     .child(
         div()
             .flex()
             .items_center()
-            .child(AppMenuBar::new(window, cx))
+            .child(app_menu_bar)
     )
     .child(
         div()
@@ -169,49 +177,16 @@ The `TitleBarElement` provides window dragging functionality on Linux platforms.
 
 ## Examples
 
-### Application Title Bar
+### AppShell-managed application title bar
 
-With AppShell on Windows/Linux, create this entity through
-`cx.new_app_menu_bar()` rather than `AppMenuBar::new(cx)`. AppShell weakly
-registers the bar and reloads it when commands or theme state change. macOS uses
-the native global application menu.
+AppShell-managed normal windows do not need manual `AppMenuBar` composition.
+When `.standard_menus(...)` or `.menus(...)` is enabled, AppShell inserts an
+in-window menu bar on Windows and Linux. macOS uses the native global
+application menu.
 
-```rust
-use neutron_components::{TitleBar, button::Button, menu::AppMenuBar};
-
-struct AppTitleBar {
-    app_menu_bar: Entity<AppMenuBar>,
-}
-
-impl Render for AppTitleBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        TitleBar::new()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .child(self.app_menu_bar.clone())
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        Button::new("settings")
-                            .ghost()
-                            .icon(IconName::Settings)
-                    )
-                    .child(
-                        Button::new("help")
-                            .ghost()
-                            .icon(IconName::HelpCircle)
-                    )
-            )
-    }
-}
-```
+For raw AppShell windows, create the bar with `cx.new_app_menu_bar()` as shown
+in [Title Bar with Menu Bar](#title-bar-with-menu-bar-raw-appshell-or-custom-gpui).
+For fully manual GPUI menu ownership, use `AppMenuBar::new(cx)`.
 
 ### Title Bar with Breadcrumbs
 

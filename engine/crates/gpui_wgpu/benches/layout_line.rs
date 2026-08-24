@@ -12,7 +12,7 @@ const IBM_PLEX: &[u8] = include_bytes!(concat!(
     "/../gpui_web/assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf"
 ));
 
-// 991 chars of typical ASCII code text.
+// 991 chars of typical ASCII code text on one display line.
 fn code_text() -> String {
     concat!(
         "    fn compute_run_spans(\n",
@@ -43,6 +43,7 @@ fn code_text() -> String {
         "    }\n",
     )
     .repeat(8) // 7,928 chars
+    .replace('\n', " ")
 }
 
 fn mixed_fallback_text() -> String {
@@ -65,6 +66,7 @@ fn bench_layout_line(c: &mut Criterion) {
 
     let text = code_text();
     let mixed_text = mixed_fallback_text();
+    let text_mixed_direction = text.clone() + "\u{001c}\u{05d0}\u{05d1}";
 
     let runs_no_fallback = vec![FontRun {
         len: text.len(),
@@ -77,6 +79,10 @@ fn bench_layout_line(c: &mut Criterion) {
     let runs_with_mixed_fallback = vec![FontRun {
         len: mixed_text.len(),
         font_id: font_id_with_fallback,
+    }];
+    let runs_mixed_direction = vec![FontRun {
+        len: text_mixed_direction.len(),
+        font_id: font_id_no_fallback,
     }];
 
     let mut group = c.benchmark_group("layout_line");
@@ -103,6 +109,16 @@ fn bench_layout_line(c: &mut Criterion) {
                 black_box(&mixed_text),
                 px(14.0),
                 black_box(&runs_with_mixed_fallback),
+            ))
+        })
+    });
+
+    group.bench_function("mixed_direction_paragraphs", |b| {
+        b.iter(|| {
+            black_box(system.layout_line(
+                black_box(&text_mixed_direction),
+                px(14.0),
+                black_box(&runs_mixed_direction),
             ))
         })
     });

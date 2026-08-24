@@ -4,7 +4,6 @@ use crate::{
         PresenceOptions, PresencePhase, expand_collapse_durations,
         expand_collapse_layout_animation, keyed_presence,
     },
-    global_state::GlobalState,
     h_flex,
     sidebar::SidebarItem,
     v_flex,
@@ -68,7 +67,7 @@ impl<E: SidebarItem> SidebarItem for SidebarGroup<E> {
         cx: &mut App,
     ) -> impl IntoElement {
         let id = id.into();
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = cx.theme().motion.clone();
         let (open_duration, close_duration) = expand_collapse_durations(&motion);
         let label_presence = keyed_presence(

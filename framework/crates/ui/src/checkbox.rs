@@ -2,8 +2,7 @@ use std::{rc::Rc, time::Duration};
 
 use crate::{
     ActiveTheme, Disableable, FocusableExt, IconName, Selectable, Sizable, Size, StyledExt as _,
-    animation::animation_with_theme_easing, global_state::GlobalState, icon::IconNamed, text::Text,
-    v_flex,
+    animation::animation_with_theme_easing, icon::IconNamed, text::Text, v_flex,
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
@@ -142,7 +141,7 @@ pub(crate) fn checkbox_check_icon(
     cx: &mut App,
 ) -> impl IntoElement {
     let toggle_state = window.use_keyed_state(id, cx, |_, _| checked);
-    let reduced_motion = GlobalState::global(cx).reduced_motion();
+    let reduced_motion = crate::animation::reduced_motion(cx);
     let color = if disabled {
         cx.theme().primary_foreground.opacity(0.5)
     } else {

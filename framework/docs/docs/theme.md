@@ -58,8 +58,8 @@ Key relationships:
 
 ## Motion tokens
 
-`theme.motion` is four durations, one spring, and four easing curves — every
-animated surface draws from this set so the system moves as one:
+`theme.motion` contains four durations, two spring values, and four easing
+curves. Components use these values for shared motion timing:
 
 - `fade_duration_ms` (83) — micro state changes: tooltips, carets, tab strips.
 - `exit_duration_ms` (167) — every dismiss. Presence close windows use the same
@@ -68,17 +68,37 @@ animated surface draws from this set so the system moves as one:
 - `enter_duration_ms` (187) — every reveal, and the settle window for the
   spring, so a fade and its transform partner end together.
 - `emphasis_duration_ms` (667) — the overshoot accent (badges), used sparingly.
-- `spring_damping_ratio` / `spring_frequency` (0.78 / 2.0) — the one spring for
-  transform reveals.
+- `spring_damping_ratio` / `spring_frequency` (0.78 / 2.0) — normalized spring
+  tokens for transform reveals and retargetable control geometry.
 - Easings: `decelerate_easing` for enters, `standard_easing` for
   point-to-point moves and exits, `emphasis_easing` for the overshoot,
   `fade_easing` (linear).
 
-Flyouts share one motion grammar: enter = spring slide from the trigger plus a
-standard fade over `enter`; exit = standard fade over `exit`. Use
-`animation::enter_animation` / `exit_animation` / `spring_animation` /
-`standard_animation` / `fade_animation` rather than raw durations, and
-`animation::enter_duration` / `exit_duration` for presence windows.
+Two spring paths serve different lifecycles:
+
+- `animation::spring_animation` samples a spring into GPUI's duration-based
+  `Animation`. It is for fixed-duration presence transforms. A target change
+  restarts this animation.
+- GPUI's stateful `SpringAnimation` with `with_spring` preserves position and
+  velocity when a continuously mounted element changes target. `Switch` uses
+  this path for its thumb.
+
+Use `animation::enter_animation`, `exit_animation`, `spring_animation`,
+`standard_animation`, and `fade_animation` for presence and fixed-duration
+motion. Use `enter_duration` and `exit_duration` for presence windows. Keep
+backdrop blur, native blur, and material surface behavior separate from motion.
+
+`theme_spring_config` maps normalized theme values to GPUI's physical spring
+parameters. For enter duration `d` seconds, frequency `f`, damping ratio `ζ`,
+and unit mass, it uses `ω = 2πf/d`, `k = ω²`, `c = 2ζω`, and `m = 1`. Non-finite
+or non-positive duration and non-finite spring values use default theme tokens.
+Frequency and damping ratio are bounded before conversion.
+
+Reduced motion is enabled when either the GPUI engine signal
+(`App::reduce_motion()`) or the framework signal (`GlobalState::reduced_motion()`)
+is enabled. Components must use `animation::reduced_motion(cx)` so both signals
+take effect. Reduced motion snaps stateful geometry and skips duration-based
+animations.
 
 ## AppShell integration
 

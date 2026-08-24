@@ -31,19 +31,23 @@ pub(crate) struct TestWindowState {
     resize_callback: Option<Box<dyn FnMut(Size<Pixels>, f32)>>,
     scale_factor: f32,
     moved_callback: Option<Box<dyn FnMut()>>,
+    appearance_change_callback: Option<Box<dyn FnMut()>>,
     input_handler: Option<PlatformInputHandler>,
     input_region: Option<Vec<Bounds<Pixels>>>,
     is_fullscreen: bool,
+    appearance: WindowAppearance,
 }
 
 #[derive(Clone)]
 pub struct TestWindow(pub(crate) Rc<Mutex<TestWindowState>>);
 
+// Test windows are not backed by a real platform window, so there is no raw
+// handle to report; `NotSupported` is `raw_window_handle`'s variant for exactly this.
 impl HasWindowHandle for TestWindow {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -51,7 +55,7 @@ impl HasDisplayHandle for TestWindow {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -84,9 +88,11 @@ impl TestWindow {
             resize_callback: None,
             scale_factor: 2.0,
             moved_callback: None,
+            appearance_change_callback: None,
             input_handler: None,
             input_region: None,
             is_fullscreen: false,
+            appearance: WindowAppearance::Light,
         })))
     }
 
@@ -130,6 +136,17 @@ impl TestWindow {
         drop(lock);
         callback(active);
         self.0.lock().active_status_change_callback = Some(callback);
+    }
+
+    pub fn simulate_appearance_change(&self, appearance: WindowAppearance) {
+        let mut lock = self.0.lock();
+        lock.appearance = appearance;
+        let Some(mut callback) = lock.appearance_change_callback.take() else {
+            return;
+        };
+        drop(lock);
+        callback();
+        self.0.lock().appearance_change_callback = Some(callback);
     }
 
     pub fn simulate_input(&mut self, event: PlatformInput) -> bool {
@@ -176,7 +193,7 @@ impl PlatformWindow for TestWindow {
     }
 
     fn appearance(&self) -> WindowAppearance {
-        WindowAppearance::Light
+        self.0.lock().appearance
     }
 
     fn display(&self) -> Option<std::rc::Rc<dyn crate::PlatformDisplay>> {
@@ -310,7 +327,9 @@ impl PlatformWindow for TestWindow {
         self.0.lock().hit_test_window_control_callback = Some(callback);
     }
 
-    fn on_appearance_changed(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_appearance_changed(&self, callback: Box<dyn FnMut()>) {
+        self.0.lock().appearance_change_callback = Some(callback);
+    }
 
     fn draw(&self, _scene: &Scene) {}
 

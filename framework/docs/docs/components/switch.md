@@ -6,7 +6,8 @@ summary: "A control that allows the user to toggle between checked and not check
 
 # Switch
 
-A toggle switch component for binary on/off states. Features smooth animations, different sizes, labels, disabled state, and customizable positioning.
+A toggle switch component for binary on/off states. It supports different sizes,
+labels, disabled state, and theme-aware motion.
 
 ## Import
 
@@ -99,6 +100,17 @@ Switch::new("switch")
     .checked(false)
 ```
 
+## Motion
+
+The thumb uses GPUI's stateful `SpringAnimation`. The spring keeps its position
+and velocity when `checked` changes while the switch remains mounted. This
+keeps rapid toggles continuous instead of restarting a duration-based animation.
+
+The spring uses `theme.motion.spring_damping_ratio` and
+`theme.motion.spring_frequency`, converted with `theme_spring_config`. Reduced
+motion combines the engine and framework signals and moves the thumb directly
+to its target.
+
 ## API Reference
 
 ### Switch
@@ -108,7 +120,6 @@ Switch::new("switch")
 | `new(id)`          | Create a new switch with the given ID                       |
 | `checked(bool)`    | Set the checked/toggled state                               |
 | `label(text)`      | Set label text for the switch                               |
-| `label_side(side)` | Position label (Side::Left or Side::Right)                  |
 | `disabled(bool)`   | Set disabled state                                          |
 | `tooltip(text)`    | Add tooltip text                                            |
 | `on_click(fn)`     | Callback when clicked, receives `&bool` (new checked state) |
@@ -194,21 +205,18 @@ v_flex()
     .child(
         Switch::new("wifi")
             .label("Wi-Fi")
-            .label_side(Side::Left)
             .checked(true)
             .small()
     )
     .child(
         Switch::new("bluetooth")
             .label("Bluetooth")
-            .label_side(Side::Left)
             .checked(false)
             .small()
     )
     .child(
         Switch::new("airplane")
             .label("Airplane Mode")
-            .label_side(Side::Left)
             .checked(false)
             .disabled(true)
             .small()

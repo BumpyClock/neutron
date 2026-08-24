@@ -8,7 +8,7 @@ use crate::{
 use gpui::{
     Action, AnyElement, App, ClickEvent, Corners, Div, Edges, ElementId, Hsla, InteractiveElement,
     Interactivity, IntoElement, MouseButton, ParentElement, Pixels, RenderOnce, Role, SharedString,
-    Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
+    Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled, Toggled, Window, div,
     prelude::FluentBuilder as _, px, relative,
 };
 
@@ -185,6 +185,7 @@ pub struct Button {
     children: Vec<AnyElement>,
     disabled: bool,
     pub(crate) selected: bool,
+    toggled: Option<bool>,
     variant: ButtonVariant,
     rounded: ButtonRounded,
     outline: bool,
@@ -226,6 +227,7 @@ impl Button {
             label: None,
             disabled: false,
             selected: false,
+            toggled: None,
             variant: ButtonVariant::default(),
             rounded: ButtonRounded::Medium,
             border_corners: Corners::all(true),
@@ -361,6 +363,12 @@ impl Button {
         self
     }
 
+    /// Expose this button as a toggle button to assistive technology.
+    pub fn toggled(mut self, toggled: bool) -> Self {
+        self.toggled = Some(toggled);
+        self
+    }
+
     #[inline]
     fn clickable(&self) -> bool {
         !(self.disabled || self.loading) && self.on_click.is_some()
@@ -427,6 +435,7 @@ impl RenderOnce for Button {
         let style: ButtonVariant = self.variant;
         let clickable = self.clickable();
         let is_disabled = self.disabled || self.loading;
+        let toggled = self.toggled;
         let hoverable = self.hoverable();
         let normal_style = style.normal(self.outline, cx);
         let aria_label = self
@@ -455,8 +464,19 @@ impl RenderOnce for Button {
         };
 
         self.base
-            .role(Role::Button)
+            .role(if self.variant.is_link() {
+                Role::Link
+            } else {
+                Role::Button
+            })
             .when_some(aria_label, |this, label| this.aria_label(label))
+            .when_some(toggled, |this, toggled| {
+                this.aria_toggled(if toggled {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
+            })
             .aria_disabled(is_disabled)
             .when(!is_disabled, |this| {
                 this.track_focus(
@@ -1000,7 +1020,10 @@ impl ButtonVariant {
 mod tests {
     use super::*;
     use gpui::AppContext as _;
-    use std::{cell::Cell, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     struct ButtonPropagationFixture {
         parent_clicks: Rc<Cell<usize>>,
@@ -1043,6 +1066,31 @@ mod tests {
         }
     }
 
+    struct ButtonHoverFixture {
+        target_left: Pixels,
+        hover_transitions: Rc<RefCell<Vec<bool>>>,
+    }
+
+    impl gpui::Render for ButtonHoverFixture {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            let hover_transitions = self.hover_transitions.clone();
+
+            div().relative().size_full().child(
+                div()
+                    .id("hover-button")
+                    .absolute()
+                    .left(self.target_left)
+                    .top_0()
+                    .w(px(100.))
+                    .child(Button::new("hover-target").label("Hover").on_hover(
+                        move |hovered, _, _| {
+                            hover_transitions.borrow_mut().push(*hovered);
+                        },
+                    )),
+            )
+        }
+    }
+
     #[gpui::test]
     fn test_button_builder(_cx: &mut gpui::TestAppContext) {
         let button = Button::new("complex-button")
@@ -1070,10 +1118,22 @@ mod tests {
         assert!(!button.loading);
         assert!(!button.disabled);
         assert!(!button.selected);
+        assert_eq!(button.toggled, None);
         assert_eq!(button.tab_index, 1);
         assert!(button.tab_stop);
         assert!(!button.dropdown_caret);
         assert!(matches!(button.rounded, ButtonRounded::Medium));
+    }
+
+    #[test]
+    fn selected_presentation_does_not_imply_toggle_semantics() {
+        let selected = Button::new("menu-trigger").selected(true);
+        assert!(selected.selected);
+        assert_eq!(selected.toggled, None);
+
+        let toggle = Button::new("toggle").selected(true).toggled(false);
+        assert!(toggle.selected);
+        assert_eq!(toggle.toggled, Some(false));
     }
 
     #[gpui::test]
@@ -1107,7 +1167,7 @@ mod tests {
         });
         let mut visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
 
-        visual_cx.update(|window, cx| window.draw(cx).clear());
+        visual_cx.update(|window, cx| window.draw(cx).clear(cx));
         for selector in ["disabled-button-parent", "loading-button-parent"] {
             let bounds = visual_cx
                 .debug_bounds(selector)
@@ -1116,6 +1176,52 @@ mod tests {
         }
 
         assert_eq!(parent_clicks.get(), 0);
+    }
+
+    #[gpui::test]
+    fn test_button_hover_reconciles_after_layout_change(cx: &mut gpui::TestAppContext) {
+        let hover_transitions = Rc::new(RefCell::new(Vec::new()));
+        let hover_transitions_for_root = hover_transitions.clone();
+        let fixture_slot = Rc::new(RefCell::new(None));
+        let fixture_slot_for_root = fixture_slot.clone();
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let fixture = cx.new(|_| ButtonHoverFixture {
+                    target_left: px(40.),
+                    hover_transitions: hover_transitions_for_root,
+                });
+                fixture_slot_for_root.replace(Some(fixture.clone()));
+                cx.new(|cx| crate::Root::new(fixture, window, cx))
+            })
+            .unwrap()
+        });
+        let fixture = fixture_slot
+            .borrow_mut()
+            .take()
+            .expect("fixture should exist");
+        let mut visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        let mouse_position = gpui::point(px(10.), px(10.));
+
+        visual_cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.simulate_mouse_move(mouse_position, cx);
+        });
+        assert!(hover_transitions.borrow().is_empty());
+
+        fixture.update_in(&mut visual_cx, |fixture, _, cx| {
+            fixture.target_left = px(0.);
+            cx.notify();
+        });
+        visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(*hover_transitions.borrow(), [true]);
+
+        fixture.update_in(&mut visual_cx, |fixture, _, cx| {
+            fixture.target_left = px(40.);
+            cx.notify();
+        });
+        visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(*hover_transitions.borrow(), [true, false]);
     }
 
     #[gpui::test]

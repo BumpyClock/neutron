@@ -10,7 +10,6 @@ use gpui::{
 use crate::{
     ActiveTheme,
     animation::{FlyoutSlide, PresenceOptions, flyout_motion, flyout_presence},
-    global_state::GlobalState,
     menu::PopupMenu,
 };
 
@@ -20,6 +19,7 @@ pub trait ContextMenuExt: ParentElement + Styled {
     ///
     /// This will changed the element to be `relative` positioned, and add a child `ContextMenu` element.
     /// Because the `ContextMenu` element is positioned `absolute`, it will not affect the layout of the parent element.
+    #[track_caller]
     fn context_menu(
         self,
         f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
@@ -27,10 +27,8 @@ pub trait ContextMenuExt: ParentElement + Styled {
     where
         Self: Sized,
     {
-        // Generate a unique ID based on the element's memory address to ensure
-        // each context menu has its own state and doesn't share with others
-        let id = format!("context-menu-{:p}", &self as *const _);
-        ContextMenu::new(id, self).menu(f)
+        let caller = std::panic::Location::caller();
+        ContextMenu::new(ElementId::CodeLocation(*caller), self).menu(f)
     }
 }
 
@@ -170,7 +168,7 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                 };
                 let menu_view = state.shared_state.borrow().menu_view.clone();
                 let mut menu_element = None;
-                let reduced_motion = GlobalState::global(cx).reduced_motion();
+                let reduced_motion = crate::animation::reduced_motion(cx);
                 let motion = cx.theme().motion.clone();
                 let presence = flyout_presence(
                     SharedString::from(format!("context-menu-presence-{:?}", this.id)),
@@ -291,6 +289,16 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                         && event.button == MouseButton::Right
                         && hitbox.is_hovered(window)
                     {
+                        let previous_focus_handle = window.focused(cx).and_then(|focused| {
+                            let shared_state = shared_state.borrow();
+                            match shared_state.menu_view.as_ref() {
+                                Some(menu) if menu.read(cx).focus_handle == focused => {
+                                    menu.read(cx).action_context.clone()
+                                }
+                                _ => Some(focused),
+                            }
+                        });
+
                         {
                             let mut shared_state = shared_state.borrow_mut();
                             // Clear any existing menu view to allow immediate replacement
@@ -311,6 +319,9 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                                         return menu;
                                     };
                                     build(menu, window, cx)
+                                });
+                                menu.update(cx, |menu, cx| {
+                                    menu.set_action_context(previous_focus_handle, cx);
                                 });
 
                                 // Set up the subscription for dismiss handling
@@ -335,5 +346,33 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
                 });
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct NonInteractiveParent {
+        style: StyleRefinement,
+        children: Vec<AnyElement>,
+    }
+
+    impl ParentElement for NonInteractiveParent {
+        fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+            self.children.extend(elements);
+        }
+    }
+
+    impl Styled for NonInteractiveParent {
+        fn style(&mut self) -> &mut StyleRefinement {
+            &mut self.style
+        }
+    }
+
+    #[test]
+    fn context_menu_extension_accepts_non_interactive_parents() {
+        let _menu = NonInteractiveParent::default().context_menu(|menu, _, _| menu);
     }
 }

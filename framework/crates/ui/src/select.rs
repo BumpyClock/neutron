@@ -1,21 +1,23 @@
+use std::{cell::RefCell, rc::Rc};
+
 use gpui::{
-    AbsoluteLength, Anchor, AnyElement, App, AppContext, Bounds, ClickEvent, Context,
-    DefiniteLength, DismissEvent, Edges, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
+    AbsoluteLength, Anchor, AnyElement, App, Bounds, ClickEvent, Context, DefiniteLength,
+    DismissEvent, Edges, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Length, ParentElement, Pixels, Render, RenderOnce,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Task,
-    WeakEntity, Window, anchored, deferred, div, point, prelude::FluentBuilder, px, rems,
+    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Task, WeakEntity, Window,
+    anchored, deferred, div, point, prelude::FluentBuilder, px, rems,
 };
 use rust_i18n::t;
 
 use crate::{
-    ActiveTheme, Disableable, ElementExt as _, FlyoutTokens, Icon, IconName, IndexPath, Selectable,
-    Sizable, Size, StyleSized, StyledExt, SurfaceContext, SurfacePreset,
+    ActiveTheme, Disableable, ElementExt as _, FlyoutTokens, Icon, IconName, IndexPath, Sizable,
+    Size, StyleSized, StyledExt, SurfaceContext, SurfacePreset,
     actions::{Cancel, Confirm, SelectDown, SelectUp},
     animation::{FlyoutSlide, PresenceOptions, flyout_motion, flyout_presence},
-    global_state::GlobalState,
     h_flex,
     input::clear_button,
-    list::{List, ListDelegate, ListState},
+    list::List,
+    searchable_list::{SearchableListDelegate, SearchableListItem, SearchableListState},
     v_flex,
 };
 
@@ -64,23 +66,26 @@ pub(crate) fn init(cx: &mut App) {
     ])
 }
 
-/// A trait for items that can be displayed in a select.
+/// An item that can be displayed in a select.
 pub trait SelectItem: Clone {
     type Value: Clone;
+
     fn title(&self) -> SharedString;
-    /// Customize the display title used to selected item in Select Input.
-    ///
-    /// If return None, the title will be used.
+
+    /// Customize the display title used for the selected item in the Select input.
     fn display_title(&self) -> Option<AnyElement> {
         None
     }
-    /// Render the item for the select dropdown menu, default is to render the title.
+
+    /// Render the item for the Select dropdown menu.
     fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
         self.title().into_element()
     }
+
     /// Get the value of the item.
     fn value(&self) -> &Self::Value;
-    /// Check if the item matches the query for search, default is to match the title.
+
+    /// Check if the item matches the query for search.
     fn matches(&self, query: &str) -> bool {
         self.title().to_lowercase().contains(&query.to_lowercase())
     }
@@ -90,31 +95,7 @@ impl SelectItem for String {
     type Value = Self;
 
     fn title(&self) -> SharedString {
-        SharedString::from(self.to_string())
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self
-    }
-}
-
-impl SelectItem for SharedString {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        SharedString::from(self.to_string())
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self
-    }
-}
-
-impl SelectItem for &'static str {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        SharedString::from(self.to_string())
+        self.clone().into()
     }
 
     fn value(&self) -> &Self::Value {
@@ -122,26 +103,46 @@ impl SelectItem for &'static str {
     }
 }
 
+impl SelectItem for SharedString {
+    type Value = Self;
+
+    fn title(&self) -> SharedString {
+        self.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        self
+    }
+}
+
+impl SelectItem for &'static str {
+    type Value = Self;
+
+    fn title(&self) -> SharedString {
+        (*self).into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        self
+    }
+}
+
+/// A data source for a Select.
 pub trait SelectDelegate: Sized {
     type Item: SelectItem;
 
-    /// Returns the number of sections in the [`Select`].
     fn sections_count(&self, _: &App) -> usize {
         1
     }
 
-    /// Returns the section header element for the given section index.
     fn section(&self, _section: usize) -> Option<AnyElement> {
-        return None;
+        None
     }
 
-    /// Returns the number of items in the given section.
     fn items_count(&self, section: usize) -> usize;
 
-    /// Returns the item at the given index path (Only section, row will be use).
     fn item(&self, ix: IndexPath) -> Option<&Self::Item>;
 
-    /// Returns the index of the item with the given value, or None if not found.
     fn position<V>(&self, _value: &V) -> Option<IndexPath>
     where
         Self::Item: SelectItem<Value = V>,
@@ -165,7 +166,7 @@ impl<T: SelectItem> SelectDelegate for Vec<T> {
     }
 
     fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        self.as_slice().get(ix.row)
+        self.get(ix.row)
     }
 
     fn position<V>(&self, value: &V) -> Option<IndexPath>
@@ -174,163 +175,214 @@ impl<T: SelectItem> SelectDelegate for Vec<T> {
         V: PartialEq,
     {
         self.iter()
-            .position(|v| v.value() == value)
-            .map(|ix| IndexPath::default().row(ix))
+            .position(|item| item.value() == value)
+            .map(IndexPath::new)
     }
 }
 
-struct SelectListDelegate<D: SelectDelegate + 'static> {
-    delegate: D,
-    state: WeakEntity<SelectState<D>>,
-    selected_index: Option<IndexPath>,
-}
+pub use crate::searchable_list::{SearchableGroup as SelectGroup, SearchableVec};
 
-impl<D> ListDelegate for SelectListDelegate<D>
-where
-    D: SelectDelegate + 'static,
-{
-    type Item = SelectListItem;
+impl<I: SelectItem> SelectDelegate for SearchableVec<I> {
+    type Item = I;
 
-    fn sections_count(&self, cx: &App) -> usize {
-        self.delegate.sections_count(cx)
+    fn items_count(&self, _: usize) -> usize {
+        self.matched_items().len()
     }
 
-    fn items_count(&self, section: usize, _: &App) -> usize {
-        self.delegate.items_count(section)
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.matched_items().get(ix.row)
     }
 
-    fn render_section_header(
-        &mut self,
-        section: usize,
-        _: &mut Window,
-        cx: &mut Context<ListState<Self>>,
-    ) -> Option<impl IntoElement> {
-        let state = self.state.upgrade()?.read(cx);
-        let Some(item) = self.delegate.section(section) else {
-            return None;
-        };
-
-        return Some(
-            div()
-                .py_0p5()
-                .px_2()
-                .list_size(state.options.size)
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(item),
-        );
-    }
-
-    fn render_item(
-        &mut self,
-        ix: IndexPath,
-        window: &mut Window,
-        cx: &mut Context<ListState<Self>>,
-    ) -> Option<Self::Item> {
-        let selected = self
-            .selected_index
-            .map_or(false, |selected_index| selected_index == ix);
-        let (size, committed) = self.state.upgrade().map_or((Size::Medium, false), |state| {
-            let state = state.read(cx);
-            (state.options.size, state.final_selected_index == Some(ix))
-        });
-
-        if let Some(item) = self.delegate.item(ix) {
-            let list_item = SelectListItem::new(ix.row)
-                .selected(selected)
-                .committed(committed)
-                .with_size(size)
-                .child(div().whitespace_nowrap().child(item.render(window, cx)));
-            Some(list_item)
-        } else {
-            None
-        }
-    }
-
-    fn cancel(&mut self, window: &mut Window, cx: &mut Context<ListState<Self>>) {
-        let state = self.state.clone();
-        let final_selected_index = state
-            .read_with(cx, |this, _| this.final_selected_index)
-            .ok()
-            .flatten();
-
-        // If the selected index is not the final selected index, we need to restore it.
-        let need_restore = if final_selected_index != self.selected_index {
-            self.selected_index = final_selected_index;
-            true
-        } else {
-            false
-        };
-
-        cx.defer_in(window, move |this, window, cx| {
-            if need_restore {
-                this.set_selected_index(final_selected_index, window, cx);
-            }
-
-            _ = state.update(cx, |this, cx| {
-                this.open = false;
-                this.focus(window, cx);
-            });
-        });
-    }
-
-    fn confirm(&mut self, _: bool, window: &mut Window, cx: &mut Context<ListState<Self>>) {
-        let selected_index = self.selected_index;
-        let selected_value = selected_index
-            .and_then(|ix| self.delegate.item(ix))
-            .map(|item| item.value().clone());
-        let state = self.state.clone();
-
-        cx.defer_in(window, move |_, window, cx| {
-            _ = state.update(cx, |this, cx| {
-                cx.emit(SelectEvent::Confirm(selected_value.clone()));
-                this.final_selected_index = selected_index;
-                this.selected_value = selected_value;
-                this.open = false;
-                this.focus(window, cx);
-            });
-        });
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SelectItem<Value = V>,
+        V: PartialEq,
+    {
+        self.find_position(value, |item| item.value())
     }
 
     fn perform_search(
         &mut self,
         query: &str,
-        window: &mut Window,
-        cx: &mut Context<ListState<Self>>,
+        _: &mut Window,
+        _: &mut Context<SelectState<Self>>,
     ) -> Task<()> {
-        self.state.upgrade().map_or(Task::ready(()), |state| {
-            state.update(cx, |_, cx| self.delegate.perform_search(query, window, cx))
+        self.filter_items(|item| item.matches(query));
+        Task::ready(())
+    }
+}
+
+impl<I: SelectItem> SelectDelegate for SearchableVec<SelectGroup<I>> {
+    type Item = I;
+
+    fn sections_count(&self, _: &App) -> usize {
+        self.matched_items().len()
+    }
+
+    fn section(&self, section: usize) -> Option<AnyElement> {
+        self.matched_items()
+            .get(section)
+            .map(|group| group.title.clone().into_any_element())
+    }
+
+    fn items_count(&self, section: usize) -> usize {
+        self.matched_items()
+            .get(section)
+            .map_or(0, |group| group.items.len())
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.matched_items().get(ix.section)?.items.get(ix.row)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SelectItem<Value = V>,
+        V: PartialEq,
+    {
+        self.find_group_position(value, |group| group.items.as_slice(), |item| item.value())
+    }
+
+    fn perform_search(
+        &mut self,
+        query: &str,
+        _: &mut Window,
+        _: &mut Context<SelectState<Self>>,
+    ) -> Task<()> {
+        let normalized = query.to_lowercase();
+        self.filter_groups(
+            |group| group.title.to_lowercase().contains(&normalized),
+            |group| {
+                group.retain_items(|item| item.matches(query));
+                !group.items.is_empty()
+            },
+        );
+        Task::ready(())
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct SelectItemAdapter<I: SelectItem>(I);
+
+impl<I: SelectItem> SearchableListItem for SelectItemAdapter<I> {
+    type Value = ();
+
+    fn title(&self) -> SharedString {
+        self.0.title()
+    }
+
+    fn display_title(&self) -> Option<AnyElement> {
+        self.0.display_title()
+    }
+
+    fn render(&self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.0.render(window, cx)
+    }
+
+    fn value(&self) -> &Self::Value {
+        static UNIT: () = ();
+        &UNIT
+    }
+
+    fn matches(&self, query: &str) -> bool {
+        self.0.matches(query)
+    }
+}
+
+/// Bridges the legacy Select delegate into the shared searchable-list delegate.
+pub(crate) struct SelectDelegateAdapter<D: SelectDelegate + 'static> {
+    delegate: D,
+    state: WeakEntity<SelectState<D>>,
+    items: Vec<(IndexPath, SelectItemAdapter<D::Item>)>,
+}
+
+impl<D: SelectDelegate + 'static> SelectDelegateAdapter<D> {
+    fn new(delegate: D, state: WeakEntity<SelectState<D>>) -> Self {
+        Self {
+            delegate,
+            state,
+            items: Vec::new(),
+        }
+    }
+
+    fn refresh_items(&mut self, cx: &App) {
+        let mut items = Vec::new();
+        for section in 0..self.delegate.sections_count(cx) {
+            for row in 0..self.delegate.items_count(section) {
+                let ix = IndexPath::default().section(section).row(row);
+                if let Some(item) = self.delegate.item(ix) {
+                    items.push((ix, SelectItemAdapter(item.clone())));
+                }
+            }
+        }
+        self.items = items;
+    }
+
+    fn source_item(&self, ix: IndexPath) -> Option<&D::Item> {
+        self.delegate.item(ix)
+    }
+}
+
+impl<D: SelectDelegate + 'static> SearchableListDelegate for SelectDelegateAdapter<D> {
+    type Item = SelectItemAdapter<D::Item>;
+
+    fn sections_count(&self, cx: &App) -> usize {
+        self.delegate.sections_count(cx)
+    }
+
+    fn section(&self, section: usize) -> Option<AnyElement> {
+        self.delegate.section(section)
+    }
+
+    fn items_count(&self, section: usize) -> usize {
+        self.delegate.items_count(section)
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.items
+            .iter()
+            .find_map(|(item_ix, item)| (*item_ix == ix).then_some(item))
+    }
+
+    fn position<V>(&self, _value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        None
+    }
+
+    fn perform_search_with_context<P: 'static>(
+        &mut self,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<P>,
+    ) -> Task<()> {
+        let Some(state) = self.state.upgrade() else {
+            return Task::ready(());
+        };
+
+        let search = state.update(cx, |_, cx| self.delegate.perform_search(query, window, cx));
+        let state = state.downgrade();
+        cx.spawn_in(window, async move |_, window| {
+            search.await;
+            _ = state.update_in(window, |state, _, cx| {
+                state.state.list.update(cx, |list, list_cx| {
+                    list.delegate_mut().delegate.refresh_items(list_cx);
+                    list_cx.notify();
+                });
+            });
         })
     }
 
-    fn set_selected_index(
-        &mut self,
-        ix: Option<IndexPath>,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) {
-        self.selected_index = ix;
-    }
-
-    fn render_empty(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<ListState<Self>>,
-    ) -> impl IntoElement {
-        if let Some(empty) = self
-            .state
-            .upgrade()
-            .and_then(|state| state.read(cx).empty.as_ref())
-        {
-            empty(window, cx).into_any_element()
-        } else {
-            h_flex()
-                .justify_center()
-                .py_6()
-                .text_color(cx.theme().muted_foreground.opacity(0.6))
-                .child(Icon::new(IconName::Inbox).size(px(28.)))
-                .into_any_element()
-        }
+    fn is_item_checked(
+        &self,
+        ix: IndexPath,
+        _: &Self::Item,
+        selection: &[(IndexPath, Self::Item)],
+        _: &App,
+    ) -> bool {
+        selection.iter().any(|(selected_ix, _)| *selected_ix == ix)
     }
 }
 
@@ -347,7 +399,7 @@ struct SelectOptions {
     placeholder: Option<SharedString>,
     title_prefix: Option<SharedString>,
     search_placeholder: Option<SharedString>,
-    empty: Option<AnyElement>,
+    empty: Option<Box<dyn Fn(&mut Window, &App) -> Option<AnyElement> + 'static>>,
     menu_width: Length,
     disabled: bool,
     appearance: bool,
@@ -373,17 +425,10 @@ impl Default for SelectOptions {
 
 /// State of the [`Select`].
 pub struct SelectState<D: SelectDelegate + 'static> {
-    focus_handle: FocusHandle,
-    options: SelectOptions,
+    pub(crate) state: SearchableListState<SelectDelegateAdapter<D>>,
     searchable: bool,
-    list: Entity<ListState<SelectListDelegate<D>>>,
-    empty: Option<Box<dyn Fn(&Window, &App) -> AnyElement>>,
-    /// Store the bounds of the input
-    bounds: Bounds<Pixels>,
-    open: bool,
-    selected_value: Option<<D::Item as SelectItem>::Value>,
-    final_selected_index: Option<IndexPath>,
-    _subscriptions: Vec<Subscription>,
+    icon: Option<Icon>,
+    title_prefix: Option<SharedString>,
 }
 
 /// A Select element.
@@ -392,184 +437,6 @@ pub struct Select<D: SelectDelegate + 'static> {
     id: ElementId,
     state: Entity<SelectState<D>>,
     options: SelectOptions,
-}
-
-/// A built-in searchable vector for select items.
-#[derive(Debug, Clone)]
-pub struct SearchableVec<T> {
-    items: Vec<T>,
-    matched_items: Vec<T>,
-}
-
-impl<T: Clone> SearchableVec<T> {
-    pub fn push(&mut self, item: T) {
-        self.items.push(item.clone());
-        self.matched_items.push(item);
-    }
-}
-
-impl<T: Clone> SearchableVec<T> {
-    pub fn new(items: impl Into<Vec<T>>) -> Self {
-        let items = items.into();
-        Self {
-            items: items.clone(),
-            matched_items: items,
-        }
-    }
-}
-
-impl<T: SelectItem> From<Vec<T>> for SearchableVec<T> {
-    fn from(items: Vec<T>) -> Self {
-        Self {
-            items: items.clone(),
-            matched_items: items,
-        }
-    }
-}
-
-impl<I: SelectItem> SelectDelegate for SearchableVec<I> {
-    type Item = I;
-
-    fn items_count(&self, _: usize) -> usize {
-        self.matched_items.len()
-    }
-
-    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        self.matched_items.get(ix.row)
-    }
-
-    fn position<V>(&self, value: &V) -> Option<IndexPath>
-    where
-        Self::Item: SelectItem<Value = V>,
-        V: PartialEq,
-    {
-        for (ix, item) in self.matched_items.iter().enumerate() {
-            if item.value() == value {
-                return Some(IndexPath::default().row(ix));
-            }
-        }
-
-        None
-    }
-
-    fn perform_search(
-        &mut self,
-        query: &str,
-        _window: &mut Window,
-        _: &mut Context<SelectState<Self>>,
-    ) -> Task<()> {
-        self.matched_items = self
-            .items
-            .iter()
-            .filter(|item| item.matches(query))
-            .cloned()
-            .collect();
-
-        Task::ready(())
-    }
-}
-
-impl<I: SelectItem> SelectDelegate for SearchableVec<SelectGroup<I>> {
-    type Item = I;
-
-    fn sections_count(&self, _: &App) -> usize {
-        self.matched_items.len()
-    }
-
-    fn items_count(&self, section: usize) -> usize {
-        self.matched_items
-            .get(section)
-            .map_or(0, |group| group.items.len())
-    }
-
-    fn section(&self, section: usize) -> Option<AnyElement> {
-        Some(
-            self.matched_items
-                .get(section)?
-                .title
-                .clone()
-                .into_any_element(),
-        )
-    }
-
-    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
-        let section = self.matched_items.get(ix.section)?;
-
-        section.items.get(ix.row)
-    }
-
-    fn position<V>(&self, value: &V) -> Option<IndexPath>
-    where
-        Self::Item: SelectItem<Value = V>,
-        V: PartialEq,
-    {
-        for (ix, group) in self.matched_items.iter().enumerate() {
-            for (row_ix, item) in group.items.iter().enumerate() {
-                if item.value() == value {
-                    return Some(IndexPath::default().section(ix).row(row_ix));
-                }
-            }
-        }
-
-        None
-    }
-
-    fn perform_search(
-        &mut self,
-        query: &str,
-        _window: &mut Window,
-        _: &mut Context<SelectState<Self>>,
-    ) -> Task<()> {
-        self.matched_items = self
-            .items
-            .iter()
-            .filter(|item| item.matches(&query))
-            .cloned()
-            .map(|mut item| {
-                item.items.retain(|item| item.matches(&query));
-                item
-            })
-            .collect();
-
-        Task::ready(())
-    }
-}
-
-/// A group of select items with a title.
-#[derive(Debug, Clone)]
-pub struct SelectGroup<I: SelectItem> {
-    pub title: SharedString,
-    pub items: Vec<I>,
-}
-
-impl<I> SelectGroup<I>
-where
-    I: SelectItem,
-{
-    /// Create a new SelectGroup with the given title.
-    pub fn new(title: impl Into<SharedString>) -> Self {
-        Self {
-            title: title.into(),
-            items: vec![],
-        }
-    }
-
-    /// Add an item to the group.
-    pub fn item(mut self, item: I) -> Self {
-        self.items.push(item);
-        self
-    }
-
-    /// Add multiple items to the group.
-    pub fn items(mut self, items: impl IntoIterator<Item = I>) -> Self {
-        self.items.extend(items);
-        self
-    }
-
-    fn matches(&self, query: &str) -> bool {
-        self.title.to_lowercase().contains(&query.to_lowercase())
-            || self.items.iter().any(|item| item.matches(query))
-    }
 }
 
 impl<D> SelectState<D>
@@ -583,41 +450,88 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let focus_handle = cx.focus_handle();
-        let delegate = SelectListDelegate {
+        let weak = cx.entity().downgrade();
+        let weak_confirm = weak.clone();
+        let weak_cancel = weak.clone();
+        let weak_empty = weak.clone();
+
+        let mut delegate = SelectDelegateAdapter::new(delegate, weak);
+        delegate.refresh_items(cx);
+
+        let state = SearchableListState::new_with_empty(
             delegate,
-            state: cx.entity().downgrade(),
-            selected_index,
-        };
+            selected_index.into_iter().collect(),
+            move |selected_index, _secondary, window, cx| {
+                cx.defer_in(window, {
+                    let weak_confirm = weak_confirm.clone();
+                    move |list_state, window, cx| {
+                        let selection = selected_index
+                            .and_then(|ix| list_state.delegate().delegate.item(ix).cloned())
+                            .map(|item| (selected_index.unwrap(), item))
+                            .into_iter()
+                            .collect::<Vec<_>>();
 
-        let list = cx.new(|cx| {
-            ListState::new(delegate, window, cx)
-                .reset_on_cancel(false)
-                .select_on_hover(true)
-        });
-        let list_focus_handle = list.read(cx).focus_handle.clone();
-        let list_search_focus_handle = list.read(cx).query_input.focus_handle(cx);
+                        let new_selection = weak_confirm.update(cx, |this, cx| {
+                            this.state.selection = selection;
+                            let value = this
+                                .state
+                                .selection
+                                .first()
+                                .map(|(_, item)| item.0.value().clone());
 
-        let _subscriptions = vec![
-            cx.on_blur(&list_focus_handle, window, Self::on_blur),
-            cx.on_blur(&list_search_focus_handle, window, Self::on_blur),
-            cx.on_blur(&focus_handle, window, Self::on_blur),
-        ];
+                            cx.emit(SelectEvent::Confirm(value));
+                            this.state.open = false;
+                            this.focus(window, cx);
+                            cx.notify();
 
-        let mut this = Self {
-            focus_handle,
-            options: SelectOptions::default(),
+                            this.state.selection.clone()
+                        });
+
+                        if let Ok(new_selection) = new_selection {
+                            list_state
+                                .delegate_mut()
+                                .update_selection_snapshot(new_selection);
+                        }
+                    }
+                });
+            },
+            move |_final_selected_index, window, cx| {
+                cx.defer_in(window, {
+                    let weak_cancel = weak_cancel.clone();
+                    move |list_state, window, cx| {
+                        let committed_ix = weak_cancel.upgrade().and_then(|entity| {
+                            entity.read(cx).state.selection.first().map(|(ix, _)| *ix)
+                        });
+
+                        list_state.set_selected_index(committed_ix, window, cx);
+                        _ = weak_cancel.update(cx, |this, cx| {
+                            this.state.open = false;
+                            this.focus(window, cx);
+                        });
+                    }
+                });
+            },
+            Some(Box::new(move |window, cx| {
+                weak_empty.upgrade().and_then(|entity| {
+                    entity
+                        .read(cx)
+                        .state
+                        .empty
+                        .as_ref()
+                        .and_then(|f| f(window, cx))
+                })
+            })),
+            Self::on_blur,
+            window,
+            cx,
+        );
+
+        Self {
+            state,
             searchable: false,
-            list,
-            selected_value: None,
-            open: false,
-            bounds: Bounds::default(),
-            empty: None,
-            final_selected_index: None,
-            _subscriptions,
-        };
-        this.set_selected_index(selected_index, window, cx);
-        this
+            icon: None,
+            title_prefix: None,
+        }
     }
 
     /// Sets whether the dropdown menu is searchable, default is `false`.
@@ -635,11 +549,18 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.list.update(cx, |list, cx| {
+        self.state.list.update(cx, |list, cx| {
             list._set_selected_index(selected_index, window, cx);
         });
-        self.final_selected_index = selected_index;
-        self.update_selected_value(window, cx);
+
+        let item = selected_index
+            .and_then(|ix| self.state.list.read(cx).delegate().delegate.source_item(ix))
+            .cloned();
+        self.state.selection = match (selected_index, item) {
+            (Some(ix), Some(item)) => vec![(ix, SelectItemAdapter(item))],
+            _ => vec![],
+        };
+        self.state.sync_snapshot(cx);
     }
 
     /// Set selected value for the select.
@@ -653,110 +574,129 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) where
-        <<D as SelectDelegate>::Item as SelectItem>::Value: PartialEq,
+        <D::Item as SelectItem>::Value: PartialEq,
     {
-        let delegate = self.list.read(cx).delegate();
-        let selected_index = delegate.delegate.position(selected_value);
+        self.state.list.update(cx, |list, cx| {
+            if !list.query_input.read(cx).value().is_empty() {
+                list.set_query("", window, cx);
+            }
+        });
+
+        let selected_index = self
+            .state
+            .list
+            .read(cx)
+            .delegate()
+            .delegate
+            .delegate
+            .position(selected_value);
         self.set_selected_index(selected_index, window, cx);
     }
 
     /// Set the items for the select state.
-    pub fn set_items(&mut self, items: D, _: &mut Window, cx: &mut Context<Self>)
-    where
-        D: SelectDelegate + 'static,
-    {
-        self.list.update(cx, |list, _| {
-            list.delegate_mut().delegate = items;
+    pub fn set_items(&mut self, items: D, _: &mut Window, cx: &mut Context<Self>) {
+        self.state.list.update(cx, |list, list_cx| {
+            let delegate = &mut list.delegate_mut().delegate;
+            delegate.delegate = items;
+            delegate.refresh_items(list_cx);
         });
     }
 
     /// Get the selected index of the select.
     pub fn selected_index(&self, cx: &App) -> Option<IndexPath> {
-        self.list.read(cx).selected_index()
+        self.state.list.read(cx).selected_index()
     }
 
     /// Get the selected value of the select.
     pub fn selected_value(&self) -> Option<&<D::Item as SelectItem>::Value> {
-        self.selected_value.as_ref()
+        self.state.selection.first().map(|(_, item)| item.0.value())
     }
 
     /// Focus the select input.
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
-        self.focus_handle.focus(window, cx);
-    }
-
-    fn update_selected_value(&mut self, _: &Window, cx: &App) {
-        self.selected_value = self
-            .selected_index(cx)
-            .and_then(|ix| self.list.read(cx).delegate().delegate.item(ix))
-            .map(|item| item.value().clone());
+        self.state.focus_handle.focus(window, cx);
     }
 
     fn on_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // When the select and dropdown menu are both not focused, close the dropdown menu.
-        if self.list.read(cx).is_focused(window, cx) || self.focus_handle.is_focused(window) {
+        if self.state.list.read(cx).is_focused(window, cx)
+            || self.state.focus_handle.is_focused(window)
+        {
             return;
         }
 
-        // If the selected index is not the final selected index, we need to restore it.
-        let final_selected_index = self.final_selected_index;
-        let selected_index = self.selected_index(cx);
-        if final_selected_index != selected_index {
-            self.list.update(cx, |list, cx| {
-                list.set_selected_index(self.final_selected_index, window, cx);
+        let committed_ix = self.state.selection.first().map(|(ix, _)| *ix);
+        if self.selected_index(cx) != committed_ix {
+            self.state.list.update(cx, |list, cx| {
+                list.set_selected_index(committed_ix, window, cx);
             });
         }
 
-        self.open = false;
+        self.state.open = false;
         cx.notify();
     }
 
     fn up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.open {
-            self.open = true;
+        if self.state.disabled {
+            cx.propagate();
+            return;
+        }
+        if !self.state.open {
+            self.state.open = true;
         }
 
-        self.list.focus_handle(cx).focus(window, cx);
+        self.state.list.focus_handle(cx).focus(window, cx);
         cx.propagate();
     }
 
     fn down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.open {
-            self.open = true;
+        if self.state.disabled {
+            cx.propagate();
+            return;
+        }
+        if !self.state.open {
+            self.state.open = true;
         }
 
-        self.list.focus_handle(cx).focus(window, cx);
+        self.state.list.focus_handle(cx).focus(window, cx);
         cx.propagate();
     }
 
     fn enter(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.disabled {
+            cx.propagate();
+            return;
+        }
         // Propagate the event to the parent view, for example to the Dialog to support ENTER to confirm.
         cx.propagate();
 
-        if !self.open {
-            self.open = true;
+        if !self.state.open {
+            self.state.open = true;
             cx.notify();
         }
 
-        self.list.focus_handle(cx).focus(window, cx);
+        self.state.list.focus_handle(cx).focus(window, cx);
     }
 
     fn toggle_menu(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
 
-        self.open = !self.open;
-        if self.open {
-            self.list.focus_handle(cx).focus(window, cx);
+        self.state.open = !self.state.open;
+        if self.state.open {
+            self.state.list.focus_handle(cx).focus(window, cx);
         }
         cx.notify();
     }
 
-    fn escape(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.open {
+    fn escape(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.open {
             cx.propagate();
+            return;
         }
 
-        self.open = false;
+        cx.stop_propagation();
+        self.state.open = false;
+        self.focus(window, cx);
         cx.notify();
     }
 
@@ -769,7 +709,7 @@ where
     /// Returns the title element for the select input.
     fn display_title(&mut self, _: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let default_title = div().text_color(cx.theme().muted_foreground).child(
-            self.options
+            self.state
                 .placeholder
                 .clone()
                 .unwrap_or_else(|| t!("Select.placeholder").into()),
@@ -780,16 +720,17 @@ where
         };
 
         let Some(title) = self
+            .state
             .list
             .read(cx)
             .delegate()
             .delegate
-            .item(*selected_index)
+            .source_item(*selected_index)
             .map(|item| {
                 if let Some(el) = item.display_title() {
                     el
                 } else {
-                    if let Some(prefix) = self.options.title_prefix.as_ref() {
+                    if let Some(prefix) = self.title_prefix.as_ref() {
                         format!("{}{}", prefix, item.title()).into_any_element()
                     } else {
                         item.title().into_any_element()
@@ -801,7 +742,7 @@ where
         };
 
         div()
-            .when(self.options.disabled, |this| {
+            .when(self.state.disabled, |this| {
                 this.text_color(cx.theme().muted_foreground)
             })
             .child(title)
@@ -814,17 +755,17 @@ where
 {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let searchable = self.searchable;
-        let is_focused = self.focus_handle.is_focused(window);
-        let show_clean = self.options.cleanable && self.selected_index(cx).is_some();
-        let bounds = self.bounds;
-        let allow_open = !(self.open || self.options.disabled);
-        let outline_visible = self.open || is_focused && !self.options.disabled;
-        let tokens = FlyoutTokens::sized(self.options.size, cx);
+        let is_focused = self.state.focus_handle.is_focused(window);
+        let show_clean = self.state.cleanable && self.selected_index(cx).is_some();
+        let bounds = self.state.bounds;
+        let allow_open = !(self.state.open || self.state.disabled);
+        let outline_visible = self.state.open || is_focused && !self.state.disabled;
+        let tokens = FlyoutTokens::sized(self.state.size, cx);
         let surface_ctx = SurfaceContext::new(cx);
         let base_width = bounds.size.width.into();
         let base_height = bounds.size.height.into();
         let rem_size = window.rem_size();
-        let menu_width = match self.options.menu_width {
+        let menu_width = match self.state.menu_width {
             Length::Auto => bounds.size.width + px(2.),
             Length::Definite(width) => width.to_pixels(base_width, rem_size),
         };
@@ -843,8 +784,11 @@ where
             .position(placement.position)
             .snap_to_window_with_margin(POPUP_MARGIN);
 
-        self.list
-            .update(cx, |list, cx| list.set_searchable(searchable, cx));
+        let size = self.state.size;
+        self.state.list.update(cx, |list, cx| {
+            list.set_searchable(searchable, cx);
+            list.delegate_mut().size = size;
+        });
 
         div()
             .size_full()
@@ -858,23 +802,23 @@ where
                     .justify_between()
                     .border_1()
                     .border_color(cx.theme().transparent)
-                    .when(self.options.appearance, |this| {
+                    .when(self.state.appearance, |this| {
                         this.bg(cx.theme().background)
                             .border_color(cx.theme().input)
                             .rounded(cx.theme().radius)
                             .when(cx.theme().shadow, |this| this.shadow_xs())
                     })
                     .map(|this| {
-                        if self.options.disabled {
+                        if self.state.disabled {
                             this.shadow_none()
                         } else {
                             this
                         }
                     })
                     .overflow_hidden()
-                    .input_size(self.options.size)
-                    .input_text_size(self.options.size)
-                    .refine_style(&self.options.style)
+                    .input_size(self.state.size)
+                    .input_text_size(self.state.size)
+                    .refine_style(&self.state.style)
                     .when(outline_visible, |this| this.focused_border(cx))
                     .when(allow_open, |this| {
                         this.on_click(cx.listener(Self::toggle_menu))
@@ -897,7 +841,7 @@ where
                             )
                             .when(show_clean, |this| {
                                 this.child(clear_button(cx).map(|this| {
-                                    if self.options.disabled {
+                                    if self.state.disabled {
                                         this.disabled(true)
                                     } else {
                                         this.on_click(cx.listener(Self::clean))
@@ -905,12 +849,12 @@ where
                                 }))
                             })
                             .when(!show_clean, |this| {
-                                let icon = match self.options.icon.clone() {
+                                let icon = match self.icon.clone() {
                                     Some(icon) => icon,
                                     None => Icon::new(IconName::ChevronDown),
                                 };
 
-                                this.child(icon.xsmall().text_color(match self.options.disabled {
+                                this.child(icon.xsmall().text_color(match self.state.disabled {
                                     true => cx.theme().muted_foreground.opacity(0.5),
                                     false => cx.theme().muted_foreground,
                                 }))
@@ -918,18 +862,18 @@ where
                     )
                     .on_prepaint({
                         let state = cx.entity();
-                        move |bounds, _, cx| state.update(cx, |r, _| r.bounds = bounds)
+                        move |bounds, _, cx| state.update(cx, |r, _| r.state.bounds = bounds)
                     }),
             )
             .map(|this| {
                 let motion = cx.theme().motion.clone();
-                let reduced_motion = GlobalState::global(cx).reduced_motion();
+                let reduced_motion = crate::animation::reduced_motion(cx);
                 let presence = flyout_presence(
                     SharedString::from(format!(
                         "select-popup-presence-{}",
                         cx.entity().entity_id()
                     )),
-                    self.open,
+                    self.state.open,
                     PresenceOptions::default(),
                     window,
                     cx,
@@ -963,14 +907,14 @@ where
                                         .with_radius(tokens.radius)
                                         .wrap_with_bounds(
                                             v_flex().occlude().child(
-                                                List::new(&self.list)
+                                                List::new(&self.state.list)
                                                     .when_some(
-                                                        self.options.search_placeholder.clone(),
+                                                        self.state.search_placeholder.clone(),
                                                         |this, placeholder| {
                                                             this.search_placeholder(placeholder)
                                                         },
                                                     )
-                                                    .with_size(self.options.size)
+                                                    .with_size(self.state.size)
                                                     .max_h(rems(20.))
                                                     .paddings(Edges::all(tokens.inset)),
                                             ),
@@ -1060,9 +1004,24 @@ where
         self
     }
 
-    /// Set the element to display when the select list is empty.
-    pub fn empty(mut self, el: impl IntoElement) -> Self {
-        self.options.empty = Some(el.into_any_element());
+    /// Set the element to display when the Select list is empty.
+    ///
+    /// This legacy form consumes `element` on its first render. Use [`Self::empty_with`] for
+    /// content that must render more than once.
+    pub fn empty(mut self, element: impl IntoElement) -> Self {
+        let element = Rc::new(RefCell::new(Some(element.into_any_element())));
+        self.options.empty = Some(Box::new(move |_, _| element.borrow_mut().take()));
+        self
+    }
+
+    /// Set a reusable builder for the empty-state element.
+    pub fn empty_with<E: IntoElement + 'static>(
+        mut self,
+        builder: impl Fn(&mut Window, &App) -> E + 'static,
+    ) -> Self {
+        self.options.empty = Some(Box::new(move |window, cx| {
+            Some(builder(window, cx).into_any_element())
+        }));
         self
     }
 
@@ -1087,20 +1046,20 @@ impl<D> EventEmitter<SelectEvent<D>> for SelectState<D> where D: SelectDelegate 
 impl<D> EventEmitter<DismissEvent> for SelectState<D> where D: SelectDelegate + 'static {}
 impl<D> Focusable for SelectState<D>
 where
-    D: SelectDelegate,
+    D: SelectDelegate + 'static,
 {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        if self.open {
-            self.list.focus_handle(cx)
+        if self.state.open {
+            self.state.list.focus_handle(cx)
         } else {
-            self.focus_handle.clone()
+            self.state.focus_handle.clone()
         }
     }
 }
 
 impl<D> Styled for Select<D>
 where
-    D: SelectDelegate,
+    D: SelectDelegate + 'static,
 {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.options.style
@@ -1113,10 +1072,23 @@ where
 {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let disabled = self.options.disabled;
-        let focus_handle = self.state.focus_handle(cx);
-        // If the size has change, set size to self.list, to change the QueryInput size.
+        let focus_handle = self.state.read(cx).state.focus_handle.clone();
+        let options = self.options;
         self.state.update(cx, |this, _| {
-            this.options = self.options;
+            this.state.style = options.style;
+            this.state.size = options.size;
+            this.state.cleanable = options.cleanable;
+            this.state.placeholder = options.placeholder;
+            this.state.search_placeholder = options.search_placeholder;
+            this.state.menu_width = options.menu_width;
+            this.state.disabled = options.disabled;
+            this.state.appearance = options.appearance;
+            this.icon = options.icon;
+            this.title_prefix = options.title_prefix;
+            this.state.empty = options.empty;
+            if disabled {
+                this.state.open = false;
+            }
         });
 
         div()
@@ -1134,119 +1106,260 @@ where
     }
 }
 
-#[derive(IntoElement)]
-struct SelectListItem {
-    id: ElementId,
-    size: Size,
-    style: StyleRefinement,
-    selected: bool,
-    committed: bool,
-    disabled: bool,
-    children: Vec<AnyElement>,
-}
-
-impl SelectListItem {
-    pub fn new(ix: usize) -> Self {
-        Self {
-            id: ("select-item", ix).into(),
-            size: Size::default(),
-            style: StyleRefinement::default(),
-            selected: false,
-            committed: false,
-            disabled: false,
-            children: Vec::new(),
-        }
-    }
-}
-
-impl ParentElement for SelectListItem {
-    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
-    }
-}
-
-impl Disableable for SelectListItem {
-    fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
-}
-
-impl SelectListItem {
-    fn committed(mut self, committed: bool) -> Self {
-        self.committed = committed;
-        self
-    }
-}
-
-impl Selectable for SelectListItem {
-    fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-
-    fn is_selected(&self) -> bool {
-        self.selected
-    }
-}
-
-impl Sizable for SelectListItem {
-    fn with_size(mut self, size: impl Into<Size>) -> Self {
-        self.size = size.into();
-        self
-    }
-}
-
-impl Styled for SelectListItem {
-    fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
-    }
-}
-
-impl RenderOnce for SelectListItem {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        h_flex()
-            .id(self.id)
-            .relative()
-            .gap_x_1()
-            .py_1()
-            .px_2()
-            .rounded(cx.theme().radius)
-            .text_base()
-            .text_color(cx.theme().foreground)
-            .relative()
-            .items_center()
-            .justify_between()
-            .input_text_size(self.size)
-            .list_size(self.size)
-            .refine_style(&self.style)
-            .when(!self.disabled, |this| {
-                this.when(!self.selected, |this| {
-                    this.hover(|this| this.bg(cx.theme().accent.alpha(0.7)))
-                })
-            })
-            .when(self.selected, |this| this.bg(cx.theme().accent))
-            .when(self.disabled, |this| {
-                this.text_color(cx.theme().muted_foreground)
-            })
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .gap_x_1()
-                    .child(div().flex_1().children(self.children))
-                    .when(self.committed, |this| {
-                        this.child(Icon::new(IconName::Check).xsmall())
-                    }),
-            )
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::{cell::Cell, rc::Rc, time::Duration};
+
     use super::*;
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{AppContext, TestAppContext, VisualTestContext, size};
+
+    use crate::list::ListDelegate;
+
+    struct SelectEscapeHarness {
+        state: Entity<SelectState<Vec<&'static str>>>,
+        parent_cancels: Rc<Cell<usize>>,
+    }
+
+    struct SelectEmptyHarness {
+        state: Entity<SelectState<Vec<&'static str>>>,
+        render_count: Rc<Cell<usize>>,
+    }
+
+    struct SelectLegacyEmptyHarness {
+        state: Entity<SelectState<Vec<&'static str>>>,
+    }
+
+    #[derive(Clone)]
+    struct LegacyValue;
+
+    #[derive(Clone)]
+    struct LegacyItem {
+        title: SharedString,
+        value: LegacyValue,
+    }
+
+    impl SelectItem for LegacyItem {
+        type Value = LegacyValue;
+
+        fn title(&self) -> SharedString {
+            self.title.clone()
+        }
+
+        fn value(&self) -> &Self::Value {
+            &self.value
+        }
+    }
+
+    struct LegacyDelegate {
+        item: LegacyItem,
+    }
+
+    impl SelectDelegate for LegacyDelegate {
+        type Item = LegacyItem;
+
+        fn items_count(&self, _: usize) -> usize {
+            1
+        }
+
+        fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+            (ix.row == 0).then_some(&self.item)
+        }
+
+        fn position<V>(&self, _: &V) -> Option<IndexPath>
+        where
+            Self::Item: SelectItem<Value = V>,
+            V: PartialEq,
+        {
+            None
+        }
+
+        fn perform_search(
+            &mut self,
+            _: &str,
+            _: &mut Window,
+            _: &mut Context<SelectState<Self>>,
+        ) -> Task<()> {
+            Task::ready(())
+        }
+    }
+
+    #[derive(Clone)]
+    struct BorrowedItem<'a>(&'a str);
+
+    impl<'a> SelectItem for BorrowedItem<'a> {
+        type Value = &'a str;
+
+        fn title(&self) -> SharedString {
+            self.0.into()
+        }
+
+        fn value(&self) -> &Self::Value {
+            &self.0
+        }
+    }
+
+    struct BorrowedDelegate<'a> {
+        item: BorrowedItem<'a>,
+    }
+
+    impl<'a> SelectDelegate for BorrowedDelegate<'a> {
+        type Item = BorrowedItem<'a>;
+
+        fn items_count(&self, _: usize) -> usize {
+            1
+        }
+
+        fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+            (ix.row == 0).then_some(&self.item)
+        }
+
+        fn position<V>(&self, _: &V) -> Option<IndexPath>
+        where
+            Self::Item: SelectItem<Value = V>,
+            V: PartialEq,
+        {
+            None
+        }
+    }
+
+    fn assert_select_delegate<D: SelectDelegate>() {}
+
+    #[allow(dead_code)]
+    fn borrowed_select_delegate_impl_is_source_compatible<'a>(delegate: BorrowedDelegate<'a>) {
+        assert_select_delegate::<BorrowedDelegate<'a>>();
+        let _ = delegate;
+    }
+
+    struct BorrowedEmpty<'a>(&'a str);
+
+    impl<'a> IntoElement for BorrowedEmpty<'a> {
+        type Element = &'static str;
+
+        fn into_element(self) -> Self::Element {
+            let _ = self.0;
+            "No Data"
+        }
+    }
+
+    #[allow(dead_code)]
+    fn borrowed_select_empty_is_source_compatible<D: SelectDelegate + 'static>(
+        select: Select<D>,
+        text: &str,
+    ) {
+        let _ = select.empty(BorrowedEmpty(text));
+    }
+
+    #[derive(Clone)]
+    struct DelayedItem {
+        title: &'static str,
+        render_count: Rc<Cell<usize>>,
+    }
+
+    impl SelectItem for DelayedItem {
+        type Value = &'static str;
+
+        fn title(&self) -> SharedString {
+            self.title.into()
+        }
+
+        fn value(&self) -> &Self::Value {
+            &self.title
+        }
+
+        fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+            self.render_count.set(self.render_count.get() + 1);
+            self.title.into_element()
+        }
+    }
+
+    #[derive(Clone)]
+    struct CaseSensitiveItem(&'static str);
+
+    impl SelectItem for CaseSensitiveItem {
+        type Value = &'static str;
+
+        fn title(&self) -> SharedString {
+            self.0.into()
+        }
+
+        fn value(&self) -> &Self::Value {
+            &self.0
+        }
+
+        fn matches(&self, query: &str) -> bool {
+            self.0.contains(query)
+        }
+    }
+
+    struct DelayedDelegate {
+        ready: Rc<Cell<bool>>,
+        old: DelayedItem,
+        new: DelayedItem,
+    }
+
+    impl SelectDelegate for DelayedDelegate {
+        type Item = DelayedItem;
+
+        fn items_count(&self, _: usize) -> usize {
+            1
+        }
+
+        fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+            (ix.row == 0).then_some(if self.ready.get() {
+                &self.new
+            } else {
+                &self.old
+            })
+        }
+
+        fn position<V>(&self, _: &V) -> Option<IndexPath>
+        where
+            Self::Item: SelectItem<Value = V>,
+            V: PartialEq,
+        {
+            None
+        }
+
+        fn perform_search(
+            &mut self,
+            _: &str,
+            _: &mut Window,
+            cx: &mut Context<SelectState<Self>>,
+        ) -> Task<()> {
+            let ready = self.ready.clone();
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(Duration::ZERO).await;
+                ready.set(true);
+            })
+        }
+    }
+
+    impl Render for SelectEscapeHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let parent_cancels = self.parent_cancels.clone();
+            div()
+                .on_action(move |_: &Cancel, _, _| {
+                    parent_cancels.set(parent_cancels.get() + 1);
+                })
+                .child(Select::new(&self.state))
+        }
+    }
+
+    impl Render for SelectEmptyHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let render_count = self.render_count.clone();
+            Select::new(&self.state).empty_with(move |_, _| {
+                render_count.set(render_count.get() + 1);
+                div().child("No Data")
+            })
+        }
+    }
+
+    impl Render for SelectLegacyEmptyHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            List::new(&self.state.read(cx).state.list)
+        }
+    }
 
     fn new_select_state(
         cx: &mut TestAppContext,
@@ -1270,6 +1383,120 @@ mod tests {
         });
         let visual_cx = VisualTestContext::from_window(window.into(), cx);
         (window, visual_cx)
+    }
+
+    #[gpui::test]
+    fn legacy_select_delegate_without_partial_eq_compiles(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                cx.new(|cx| {
+                    SelectState::new(
+                        LegacyDelegate {
+                            item: LegacyItem {
+                                title: "Legacy".into(),
+                                value: LegacyValue,
+                            },
+                        },
+                        None,
+                        window,
+                        cx,
+                    )
+                })
+            })
+            .unwrap()
+        });
+    }
+
+    #[gpui::test]
+    fn legacy_async_search_refreshes_shared_adapter_items(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let ready = Rc::new(Cell::new(false));
+        let render_count = Rc::new(Cell::new(0));
+        let state = cx.update(|window, cx| {
+            cx.new(|cx| {
+                SelectState::new(
+                    DelayedDelegate {
+                        ready: ready.clone(),
+                        old: DelayedItem {
+                            title: "old",
+                            render_count: render_count.clone(),
+                        },
+                        new: DelayedItem {
+                            title: "new",
+                            render_count: render_count.clone(),
+                        },
+                    },
+                    None,
+                    window,
+                    cx,
+                )
+            })
+        });
+        let list = cx.update(|_, cx| state.read(cx).state.list.clone());
+
+        cx.update(|window, cx| {
+            list.update(cx, |list, cx| list.set_query("new", window, cx));
+        });
+        cx.run_until_parked();
+
+        cx.update(|_, cx| {
+            assert!(ready.get());
+            let list = list.read(cx);
+            assert_eq!(list.delegate().delegate.items_count(0), 1);
+            assert_eq!(
+                list.delegate()
+                    .delegate
+                    .item(IndexPath::new(0))
+                    .unwrap()
+                    .title(),
+                "new"
+            );
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(400.), px(400.)), |_, _| {
+            List::new(&list).into_any_element()
+        });
+        assert!(render_count.get() > 0);
+    }
+
+    #[gpui::test]
+    fn legacy_group_search_preserves_original_query(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let state = cx.update(|window, cx| {
+            cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![
+                        SelectGroup::new("Other").item(CaseSensitiveItem("Rust")),
+                    ]),
+                    None,
+                    window,
+                    cx,
+                )
+            })
+        });
+        let list = cx.update(|_, cx| state.read(cx).state.list.clone());
+
+        cx.update(|window, cx| {
+            list.update(cx, |list, cx| list.set_query("R", window, cx));
+        });
+        cx.run_until_parked();
+
+        cx.update(|_, cx| {
+            let list = list.read(cx);
+            assert_eq!(list.delegate().delegate.sections_count(cx), 1);
+            assert_eq!(list.delegate().delegate.items_count(0), 1);
+            assert_eq!(
+                list.delegate()
+                    .delegate
+                    .item(IndexPath::new(0))
+                    .unwrap()
+                    .0
+                    .0,
+                "Rust"
+            );
+        });
     }
 
     #[test]
@@ -1299,7 +1526,7 @@ mod tests {
     fn test_select_hover_moves_active_row_without_committing(cx: &mut TestAppContext) {
         let (window, mut cx) = new_select_state(cx);
         let state = window.root(&mut cx).unwrap();
-        let list = state.read_with(&cx, |state, _| state.list.clone());
+        let list = state.read_with(&cx, |state, _| state.state.list.clone());
 
         list.update_in(&mut cx, |list, window, cx| {
             list.select_item_on_hover(IndexPath::default().row(0), window, cx);
@@ -1307,20 +1534,19 @@ mod tests {
                 .delegate_mut()
                 .render_item(IndexPath::default().row(0), window, cx)
                 .unwrap();
-            assert!(active.selected);
-            assert!(!active.committed);
+            assert!(!active.is_checked());
             let committed = list
                 .delegate_mut()
                 .render_item(IndexPath::default().row(1), window, cx)
                 .unwrap();
-            assert!(!committed.selected);
-            assert!(committed.committed);
+            assert!(committed.is_checked());
+            assert_eq!(list.selected_index(), Some(IndexPath::default().row(0)));
         });
 
         state.read_with(&cx, |state, cx| {
             assert_eq!(state.selected_index(cx), Some(IndexPath::default().row(0)));
             assert_eq!(
-                state.final_selected_index,
+                state.state.selection().first().map(|(ix, _)| *ix),
                 Some(IndexPath::default().row(1))
             );
             assert_eq!(state.selected_value(), Some(&"Beta"));
@@ -1333,8 +1559,8 @@ mod tests {
         let state = window.root(&mut cx).unwrap();
 
         state.update_in(&mut cx, |state, window, cx| {
-            state.open = true;
-            state.list.update(cx, |list, cx| {
+            state.state.open = true;
+            state.state.list.update(cx, |list, cx| {
                 list._set_selected_index(Some(IndexPath::default().row(0)), window, cx);
             });
             state.on_blur(window, cx);
@@ -1342,11 +1568,11 @@ mod tests {
 
         state.read_with(&cx, |state, cx| {
             assert_eq!(
-                state.final_selected_index,
+                state.state.selection().first().map(|(ix, _)| *ix),
                 Some(IndexPath::default().row(1))
             );
             assert_eq!(state.selected_index(cx), Some(IndexPath::default().row(1)));
-            assert!(!state.open);
+            assert!(!state.state.open);
         });
     }
 
@@ -1356,8 +1582,8 @@ mod tests {
         let state = window.root(&mut cx).unwrap();
 
         state.update_in(&mut cx, |state, window, cx| {
-            state.open = true;
-            state.list.update(cx, |list, cx| {
+            state.state.open = true;
+            state.state.list.update(cx, |list, cx| {
                 let selected_index = Some(IndexPath::default().row(2));
                 list._set_selected_index(selected_index, window, cx);
                 list.delegate_mut().confirm(false, window, cx);
@@ -1367,12 +1593,145 @@ mod tests {
 
         state.read_with(&cx, |state, cx| {
             assert_eq!(
-                state.final_selected_index,
+                state.state.selection().first().map(|(ix, _)| *ix),
                 Some(IndexPath::default().row(2))
             );
             assert_eq!(state.selected_index(cx), Some(IndexPath::default().row(2)));
             assert_eq!(state.selected_value(), Some(&"Gamma"));
-            assert!(!state.open);
+            assert!(!state.state.open);
         });
+    }
+
+    #[gpui::test]
+    fn test_select_escape_closes_once_then_propagates(cx: &mut TestAppContext) {
+        let parent_cancels = Rc::new(Cell::new(0));
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), {
+                let parent_cancels = parent_cancels.clone();
+                move |window, cx| {
+                    let state = cx.new(|cx| {
+                        SelectState::new(
+                            vec!["Alpha", "Beta", "Gamma"],
+                            Some(IndexPath::default()),
+                            window,
+                            cx,
+                        )
+                    });
+                    cx.new(|_| SelectEscapeHarness {
+                        state,
+                        parent_cancels,
+                    })
+                }
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let harness = window.root(&mut cx).unwrap();
+        let state = harness.read_with(&cx, |harness, _| harness.state.clone());
+
+        state.update_in(&mut cx, |state, window, cx| {
+            state.state.open = true;
+            state.state.list.update(cx, |list, cx| {
+                list._set_selected_index(Some(IndexPath::default().row(2)), window, cx);
+            });
+            state.state.list.focus_handle(cx).focus(window, cx);
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.dispatch_action(Cancel);
+        cx.run_until_parked();
+        state.read_with(&cx, |state, cx| {
+            assert!(!state.state.open);
+            assert_eq!(state.selected_index(cx), Some(IndexPath::default().row(0)));
+        });
+        cx.update(|window, cx| {
+            assert!(state.read(cx).state.focus_handle.is_focused(window));
+        });
+        assert_eq!(parent_cancels.get(), 0);
+
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.dispatch_action(Cancel);
+        cx.run_until_parked();
+        assert_eq!(parent_cancels.get(), 1);
+    }
+
+    #[gpui::test]
+    fn test_select_custom_empty_builder_renders_repeatedly(cx: &mut TestAppContext) {
+        let render_count = Rc::new(Cell::new(0));
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            let render_count = render_count.clone();
+            cx.open_window(Default::default(), move |window, cx| {
+                let state =
+                    cx.new(|cx| SelectState::new(Vec::<&'static str>::new(), None, window, cx));
+                cx.new(|_| SelectEmptyHarness {
+                    state,
+                    render_count,
+                })
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let harness = window.root(&mut cx).unwrap();
+        let state = harness.read_with(&cx, |harness, _| harness.state.clone());
+        state.read_with(&cx, |state, _| assert!(state.state.empty.is_some()));
+
+        state.update_in(&mut cx, |state, _, cx| {
+            state.state.open = true;
+            cx.notify();
+        });
+
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let first_render_count = render_count.get();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(first_render_count > 0);
+        assert!(render_count.get() > first_render_count);
+    }
+
+    #[gpui::test]
+    fn legacy_empty_element_falls_back_after_first_render(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let state =
+                    cx.new(|cx| SelectState::new(Vec::<&'static str>::new(), None, window, cx));
+                let empty = Select::new(&state)
+                    .empty(
+                        div()
+                            .debug_selector(|| "select-empty-legacy".into())
+                            .child("No Data"),
+                    )
+                    .options
+                    .empty;
+                assert!(empty.is_some());
+                let first = empty.as_ref().unwrap()(window, cx);
+                assert!(first.is_some());
+                drop(first);
+                let second = empty.as_ref().unwrap()(window, cx);
+                assert!(second.is_none());
+                state.update(cx, |state, _| state.state.empty = empty);
+                cx.new(|_| SelectLegacyEmptyHarness { state })
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let harness = window.root(&mut cx).unwrap();
+        let state = harness.read_with(&cx, |harness, _| harness.state.clone());
+
+        state.update_in(&mut cx, |state, _, cx| {
+            state.state.open = true;
+            cx.notify();
+        });
+
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("select-empty-legacy").is_none());
+        assert!(cx.debug_bounds("searchable-list-empty-default").is_some());
+
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("select-empty-legacy").is_none());
+        assert!(cx.debug_bounds("searchable-list-empty-default").is_some());
     }
 }

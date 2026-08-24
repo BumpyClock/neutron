@@ -1,7 +1,6 @@
 use crate::{
     ActiveTheme, Sizable, Size, StyledExt,
     animation::{enter_duration, standard_animation},
-    global_state::GlobalState,
 };
 use gpui::{
     Animation, AnimationExt as _, App, ElementId, Hsla, InteractiveElement as _, IntoElement,
@@ -88,7 +87,7 @@ impl RenderOnce for Progress {
 
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| ProgressState { value });
         let prev_value = state.read(cx).value;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
 
         div()
             .id(self.id)

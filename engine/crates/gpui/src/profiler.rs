@@ -23,8 +23,7 @@ use crate::{SharedString, TasksIncluded, WindowId};
 #[cfg(feature = "profiler")]
 #[doc(hidden)]
 pub fn get_all_timings(included: gpui::TasksIncluded) -> Vec<gpui::ThreadTaskTimings> {
-    let global_thread_timings = GLOBAL_THREAD_TIMINGS.lock();
-    ThreadTaskTimings::collect(&global_thread_timings, included)
+    ThreadTaskTimings::collect_upgraded(upgraded_thread_timings(), included)
 }
 
 #[cfg(feature = "profiler")]
@@ -36,8 +35,7 @@ pub fn get_current_thread_timings(included: TasksIncluded) -> gpui::ThreadTaskTi
 #[cfg(feature = "profiler")]
 #[doc(hidden)]
 pub fn take_all_stats(included: TasksIncluded) -> Vec<gpui::ThreadTaskStatistics> {
-    let global_timings = GLOBAL_THREAD_TIMINGS.lock();
-    ThreadTaskStatistics::collect_and_reset(&global_timings, included)
+    ThreadTaskStatistics::collect_and_reset_upgraded(upgraded_thread_timings(), included)
 }
 
 #[cfg(not(feature = "profiler"))]
@@ -138,12 +136,15 @@ impl ThreadTaskTimings {
 
     /// Convert global thread timings into their structured format.
     pub fn collect(timings: &[GlobalThreadTimings], included: TasksIncluded) -> Vec<Self> {
+        Self::collect_upgraded(upgrade_thread_timings(timings), included)
+    }
+
+    fn collect_upgraded(
+        timings: Vec<(ThreadId, Arc<GuardedTaskTimings>)>,
+        included: TasksIncluded,
+    ) -> Vec<Self> {
         timings
-            .iter()
-            .filter_map(|t| match t.timings.upgrade() {
-                Some(timings) => Some((t.thread_id, timings)),
-                _ => None,
-            })
+            .into_iter()
             .map(|(thread_id, timings)| {
                 let timings = timings.lock();
                 let thread_name = timings.thread_name.clone();
@@ -190,12 +191,15 @@ impl ThreadTaskStatistics {
         timings: &[GlobalThreadTimings],
         include_running: TasksIncluded,
     ) -> Vec<Self> {
+        Self::collect_and_reset_upgraded(upgrade_thread_timings(timings), include_running)
+    }
+
+    fn collect_and_reset_upgraded(
+        timings: Vec<(ThreadId, Arc<GuardedTaskTimings>)>,
+        include_running: TasksIncluded,
+    ) -> Vec<Self> {
         timings
-            .iter()
-            .filter_map(|t| match t.timings.upgrade() {
-                Some(timings) => Some((t.thread_id, timings)),
-                _ => None,
-            })
+            .into_iter()
             .map(|(thread_id, timings)| {
                 let mut timings = timings.lock();
                 let thread_name = timings.thread_name.clone();
@@ -535,6 +539,20 @@ impl TaskStatistics {
 pub static GLOBAL_THREAD_TIMINGS: spin::Mutex<Vec<GlobalThreadTimings>> =
     spin::Mutex::new(Vec::new());
 
+fn upgrade_thread_timings(
+    timings: &[GlobalThreadTimings],
+) -> Vec<(ThreadId, Arc<GuardedTaskTimings>)> {
+    timings
+        .iter()
+        .filter_map(|timing| Some((timing.thread_id, timing.timings.upgrade()?)))
+        .collect()
+}
+
+fn upgraded_thread_timings() -> Vec<(ThreadId, Arc<GuardedTaskTimings>)> {
+    let global_thread_timings = GLOBAL_THREAD_TIMINGS.lock();
+    upgrade_thread_timings(&global_thread_timings)
+}
+
 thread_local! {
     #[doc(hidden)]
     pub static THREAD_TIMINGS: LazyCell<Arc<GuardedTaskTimings>> = LazyCell::new(|| {
@@ -747,13 +765,11 @@ pub fn set_trace_enabled(enabled: bool) -> bool {
     }
 
     if !enabled {
-        for global in GLOBAL_THREAD_TIMINGS.lock().iter() {
-            if let Some(timings) = global.timings.upgrade() {
-                let mut timings = timings.lock();
-                timings.timings.clear();
-                timings.timings.shrink_to_fit();
-                timings.total_pushed = 0;
-            }
+        for (_, timings) in upgraded_thread_timings() {
+            let mut timings = timings.lock();
+            timings.timings.clear();
+            timings.timings.shrink_to_fit();
+            timings.total_pushed = 0;
         }
     }
     true
@@ -892,6 +908,78 @@ impl FrameTimingCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "profiler")]
+    const PROFILER_STRESS_CHILD: &str = "GPUI_PROFILER_STRESS_CHILD";
+
+    #[cfg(feature = "profiler")]
+    fn run_thread_exit_stress() {
+        use std::sync::Barrier;
+
+        for _ in 0..64 {
+            set_trace_enabled(true);
+            let barrier = Arc::new(Barrier::new(2));
+            let worker = std::thread::spawn({
+                let barrier = barrier.clone();
+                move || {
+                    THREAD_TIMINGS.with(|timings| {
+                        let _ = timings.lock().thread_id;
+                    });
+                    barrier.wait();
+                }
+            });
+            let collector = std::thread::spawn(move || {
+                barrier.wait();
+                let _ = get_all_timings(TasksIncluded::OnlyCompleted);
+                let _ = take_all_stats(TasksIncluded::OnlyCompleted);
+                set_trace_enabled(false);
+            });
+
+            worker.join().expect("profiler worker should exit");
+            collector.join().expect("profiler collector should finish");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "profiler")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "process regression test must supervise a synchronous child with a timeout"
+    )]
+    fn collection_completes_during_thread_exit() {
+        if std::env::var_os(PROFILER_STRESS_CHILD).is_some() {
+            run_thread_exit_stress();
+            return;
+        }
+
+        let test_name = "profiler::tests::collection_completes_during_thread_exit";
+        let mut child = std::process::Command::new(
+            std::env::current_exe().expect("test executable should have a path"),
+        )
+        .arg("--exact")
+        .arg(test_name)
+        .arg("--nocapture")
+        .env(PROFILER_STRESS_CHILD, "1")
+        .spawn()
+        .expect("profiler stress child should start");
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        loop {
+            if let Some(status) = child
+                .try_wait()
+                .expect("stress child status should be readable")
+            {
+                assert!(status.success(), "profiler stress child failed: {status}");
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("profiler collection deadlocked during thread exit");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     #[test]
     #[cfg(not(feature = "profiler"))]

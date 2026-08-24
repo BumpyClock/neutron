@@ -9,7 +9,6 @@ use std::time::Duration;
 use crate::{
     ActiveTheme as _, Anchor, ElementExt, StyledExt as _,
     animation::{FlyoutSlide, PresenceOptions, flyout_motion, flyout_presence},
-    global_state::GlobalState,
     popover::Popover,
 };
 
@@ -301,7 +300,7 @@ impl RenderOnce for HoverCard {
         // Same presence and motion as Popover: enter spring+fade, exit fade —
         // previously the card popped in and out with no transition at all.
         let motion = cx.theme().motion.clone();
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let presence = flyout_presence(
             SharedString::from(format!("hover-card-presence-{}", state.entity_id())),
             open,

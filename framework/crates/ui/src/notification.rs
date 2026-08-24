@@ -20,7 +20,6 @@ use crate::{
     ActiveTheme as _, Anchor, Edges, Icon, IconName, Sizable as _, StyledExt, TITLE_BAR_HEIGHT,
     animation::{enter_animation, exit_animation},
     button::{Button, ButtonVariants as _},
-    global_state::GlobalState,
     h_flex, v_flex,
 };
 
@@ -250,7 +249,7 @@ impl Notification {
         self.closing = true;
         cx.notify();
 
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let dismiss_duration = if reduced_motion {
             Duration::ZERO
         } else {
@@ -307,7 +306,7 @@ impl Render for Notification {
         };
         let has_icon = icon.is_some();
         let placement = cx.theme().notification.placement;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = &cx.theme().motion;
         let animation = if closing {
             exit_animation(motion, reduced_motion)
@@ -359,7 +358,10 @@ impl Render for Notification {
                             .icon(IconName::Close)
                             .ghost()
                             .xsmall()
-                            .on_click(cx.listener(|this, _, window, cx| this.dismiss(window, cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.dismiss(window, cx);
+                            })),
                     ),
             )
             .when_some(self.on_click.clone(), |this, on_click| {

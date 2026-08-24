@@ -6,7 +6,6 @@ use super::state::{CommandPaletteEvent, CommandPaletteState};
 use super::types::{CommandPaletteConfig, MatchedItem};
 use crate::actions::{Cancel, Confirm, SelectDown, SelectUp};
 use crate::animation::{exit_animation, fade_animation, spring_animation, standard_animation};
-use crate::global_state::GlobalState;
 use crate::input::{Input, InputEvent, InputState};
 use crate::kbd::Kbd;
 use crate::spinner::Spinner;
@@ -404,7 +403,7 @@ impl CommandPaletteView {
     }
 
     fn render_footer(&self, status_text: Option<SharedString>, cx: &App) -> impl IntoElement {
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let has_status = status_text.is_some();
         let tokens = FlyoutTokens::new(cx);
 
@@ -595,7 +594,7 @@ impl Render for CommandPaletteView {
             .as_ref()
             .and_then(|provider| provider(&state.query));
         let max_height = px(config.max_height);
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = cx.theme().motion.clone();
         let reveal_opacity_animation = fade_animation(&motion, reduced_motion);
         let reveal_transform_animation = spring_animation(&motion, reduced_motion);

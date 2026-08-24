@@ -3,8 +3,9 @@ use std::rc::Rc;
 use gpui::{
     AnimationExt as _, AnyElement, App, Bounds, BoxShadow, ClickEvent, Edges, ElementId,
     FocusHandle, Hsla, InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement,
-    Pixels, Point, RenderOnce, SharedString, StyleRefinement, Styled, Window, WindowControlArea,
-    anchored, div, hsla, point, prelude::FluentBuilder, px, relative,
+    Pixels, Point, RenderOnce, Role, SharedString, StatefulInteractiveElement as _,
+    StyleRefinement, Styled, Window, WindowControlArea, anchored, div, hsla, point,
+    prelude::FluentBuilder, px, relative,
 };
 use rust_i18n::t;
 
@@ -17,7 +18,6 @@ use crate::{
         keyed_presence, spring_animation, standard_animation,
     },
     button::{Button, ButtonVariant, ButtonVariants as _},
-    global_state::GlobalState,
     h_flex,
     scroll::ScrollableElement as _,
     v_flex,
@@ -123,6 +123,7 @@ pub struct Dialog {
     animate: bool,
     defer_close: bool,
     appearance: bool,
+    accessibility_role: Role,
 
     /// This will be change when open the dialog, the focus handle is create when open the dialog.
     pub(crate) focus_handle: FocusHandle,
@@ -157,6 +158,7 @@ impl Dialog {
             animate: true,
             defer_close: false,
             appearance: true,
+            accessibility_role: Role::Dialog,
             id: 0,
             layer_ix: 0,
             overlay_visible: false,
@@ -171,7 +173,7 @@ impl Dialog {
     }
 
     pub(crate) fn should_animate(&self, cx: &App) -> bool {
-        self.animate && !GlobalState::global(cx).reduced_motion()
+        self.animate && !crate::animation::reduced_motion(cx)
     }
 
     /// Whether closing should keep the dialog mounted for the exit window
@@ -179,7 +181,7 @@ impl Dialog {
     /// requested [`Dialog::defer_close`] for content-driven exits. Reduced
     /// motion always unmounts immediately.
     pub(crate) fn should_defer_close(&self, cx: &App) -> bool {
-        (self.animate || self.defer_close) && !GlobalState::global(cx).reduced_motion()
+        (self.animate || self.defer_close) && !crate::animation::reduced_motion(cx)
     }
 
     /// Sets the title of the dialog.
@@ -344,6 +346,11 @@ impl Dialog {
         self
     }
 
+    pub(crate) fn alert_dialog_role(mut self) -> Self {
+        self.accessibility_role = Role::AlertDialog;
+        self
+    }
+
     pub(crate) fn has_overlay(&self) -> bool {
         self.overlay
     }
@@ -375,7 +382,7 @@ impl RenderOnce for Dialog {
         let on_ok = self.on_ok.clone();
         let on_cancel = self.on_cancel.clone();
         let has_title = self.title.is_some();
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let should_animate = self.should_animate(cx);
         // The presence runs whenever the close is deferred — including
         // content-driven exits with a non-animating chrome — so the Exiting
@@ -384,6 +391,7 @@ impl RenderOnce for Dialog {
         let closing = self.closing;
         let target_open = !self.closing;
         let appearance = self.appearance;
+        let accessibility_role = self.accessibility_role;
 
         let render_ok: RenderButtonFn = Box::new({
             let on_ok = on_ok.clone();
@@ -549,8 +557,10 @@ impl RenderOnce for Dialog {
                                     }
 
                                     cx.stop_propagation();
-                                    if self.overlay_closable && event.button == MouseButton::Left {
-                                        on_cancel(&ClickEvent::default(), window, cx);
+                                    if self.overlay_closable
+                                        && event.button == MouseButton::Left
+                                        && on_cancel(&ClickEvent::default(), window, cx)
+                                    {
                                         on_close(&ClickEvent::default(), window, cx);
                                         window.close_dialog(cx);
                                     }
@@ -562,6 +572,7 @@ impl RenderOnce for Dialog {
                             .id(layer_ix)
                             .track_focus(&self.focus_handle)
                             .focus_trap(format!("dialog-{}", layer_ix), &self.focus_handle)
+                            .role(accessibility_role)
                             .when(appearance, |this| {
                                 this.bg(cx.theme().popover)
                                     .border_1()
@@ -580,13 +591,10 @@ impl RenderOnce for Dialog {
                                     let on_cancel = on_cancel.clone();
                                     let on_close = on_close.clone();
                                     move |_: &Cancel, window, cx| {
-                                        window.close_dialog(cx);
-                                        // FIXME:
-                                        //
-                                        // Here some Dialog have no focus_handle, so it will not work will Escape key.
-                                        // But by now, we `cx.close_dialog()` going to close the last active model, so the Escape is unexpected to work.
-                                        on_cancel(&ClickEvent::default(), window, cx);
-                                        on_close(&ClickEvent::default(), window, cx);
+                                        if on_cancel(&ClickEvent::default(), window, cx) {
+                                            window.close_dialog(cx);
+                                            on_close(&ClickEvent::default(), window, cx);
+                                        }
                                     }
                                 })
                                 .on_action({
@@ -639,9 +647,10 @@ impl RenderOnce for Dialog {
                                         let on_cancel = self.on_cancel.clone();
                                         let on_close = self.on_close.clone();
                                         move |_, window, cx| {
-                                            window.close_dialog(cx);
-                                            on_cancel(&ClickEvent::default(), window, cx);
-                                            on_close(&ClickEvent::default(), window, cx);
+                                            if on_cancel(&ClickEvent::default(), window, cx) {
+                                                window.close_dialog(cx);
+                                                on_close(&ClickEvent::default(), window, cx);
+                                            }
                                         }
                                     })
                             }))
@@ -792,15 +801,251 @@ impl RenderOnce for Dialog {
     }
 }
 
+/// A modal dialog for important content that requires a response.
+///
+/// Alert dialogs do not close from the overlay or a close button by default.
+/// Their default action buttons are centered.
+pub struct AlertDialog {
+    base: Dialog,
+    icon: Option<AnyElement>,
+    title: Option<AnyElement>,
+    description: Option<AnyElement>,
+    children: Vec<AnyElement>,
+    footer: Option<FooterFn>,
+    button_props: DialogButtonProps,
+    show_cancel: bool,
+}
+
+impl AlertDialog {
+    /// Create a new alert dialog.
+    pub fn new(window: &mut Window, cx: &mut App) -> Self {
+        Self {
+            base: Dialog::new(window, cx)
+                .overlay_closable(false)
+                .close_button(false)
+                .alert_dialog_role(),
+            icon: None,
+            title: None,
+            description: None,
+            children: Vec::new(),
+            footer: None,
+            button_props: DialogButtonProps::default(),
+            show_cancel: false,
+        }
+    }
+
+    /// Show the default Cancel button beside the OK button.
+    pub fn confirm(mut self) -> Self {
+        self.show_cancel = true;
+        self
+    }
+
+    /// Set the icon above the alert title.
+    pub fn icon(mut self, icon: impl IntoElement) -> Self {
+        self.icon = Some(icon.into_any_element());
+        self
+    }
+
+    /// Set the alert title.
+    pub fn title(mut self, title: impl IntoElement) -> Self {
+        self.title = Some(title.into_any_element());
+        self
+    }
+
+    /// Set the alert description.
+    pub fn description(mut self, description: impl IntoElement) -> Self {
+        self.description = Some(description.into_any_element());
+        self
+    }
+
+    /// Set whether the default Cancel button is visible.
+    pub fn show_cancel(mut self, show_cancel: bool) -> Self {
+        self.show_cancel = show_cancel;
+        self
+    }
+
+    /// Replace the default footer.
+    pub fn footer<E, F>(mut self, footer: F) -> Self
+    where
+        E: IntoElement,
+        F: Fn(RenderButtonFn, RenderButtonFn, &mut Window, &mut App) -> Vec<E> + 'static,
+    {
+        self.footer = Some(Box::new(move |ok, cancel, window, cx| {
+            footer(ok, cancel, window, cx)
+                .into_iter()
+                .map(|element| element.into_any_element())
+                .collect()
+        }));
+        self
+    }
+
+    /// Set the default action button labels and variants.
+    pub fn button_props(mut self, button_props: DialogButtonProps) -> Self {
+        self.button_props = button_props;
+        self
+    }
+
+    /// Set the callback for the OK action.
+    pub fn on_ok(
+        mut self,
+        on_ok: impl Fn(&ClickEvent, &mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.base = self.base.on_ok(on_ok);
+        self
+    }
+
+    /// Set the callback for cancellation.
+    pub fn on_cancel(
+        mut self,
+        on_cancel: impl Fn(&ClickEvent, &mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.base = self.base.on_cancel(on_cancel);
+        self
+    }
+
+    /// Set the callback invoked after a successful close.
+    pub fn on_close(
+        mut self,
+        on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.base = self.base.on_close(on_close);
+        self
+    }
+
+    /// Set the alert width.
+    pub fn width(mut self, width: impl Into<Pixels>) -> Self {
+        self.base = self.base.width(width);
+        self
+    }
+
+    /// Set the alert width.
+    pub fn w(self, width: impl Into<Pixels>) -> Self {
+        self.width(width)
+    }
+
+    /// Set the alert maximum width.
+    pub fn max_w(mut self, width: impl Into<Pixels>) -> Self {
+        self.base = self.base.max_w(width);
+        self
+    }
+
+    /// Set whether the overlay renders.
+    pub fn overlay(mut self, overlay: bool) -> Self {
+        self.base = self.base.overlay(overlay);
+        self
+    }
+
+    /// Alert dialogs never close from an overlay click.
+    #[deprecated(note = "alert dialogs never close from an overlay click")]
+    pub fn overlay_closable(self, _: bool) -> Self {
+        self
+    }
+
+    /// Set whether the close button renders.
+    pub fn close_button(mut self, close_button: bool) -> Self {
+        self.base = self.base.close_button(close_button);
+        self
+    }
+
+    /// Set whether Escape can cancel the alert.
+    pub fn keyboard(mut self, keyboard: bool) -> Self {
+        self.base = self.base.keyboard(keyboard);
+        self
+    }
+
+    /// Set whether the dialog chrome animates.
+    pub fn animate(mut self, animate: bool) -> Self {
+        self.base = self.base.animate(animate);
+        self
+    }
+
+    /// Keep the alert mounted through its content exit window.
+    pub fn defer_close(mut self, defer_close: bool) -> Self {
+        self.base = self.base.defer_close(defer_close);
+        self
+    }
+
+    /// Set whether the alert renders dialog chrome.
+    pub fn appearance(mut self, appearance: bool) -> Self {
+        self.base = self.base.appearance(appearance);
+        self
+    }
+
+    pub(crate) fn into_dialog(self, _: &mut Window, cx: &mut App) -> Dialog {
+        let Self {
+            base,
+            icon,
+            title,
+            description,
+            children,
+            footer,
+            button_props,
+            show_cancel,
+        } = self;
+
+        let body = v_flex()
+            .gap_3()
+            .items_center()
+            .text_center()
+            .children(icon)
+            .when_some(title, |this, title| this.font_semibold().child(title))
+            .when_some(description, |this, description| {
+                this.text_color(cx.theme().muted_foreground)
+                    .child(description)
+            })
+            .children(children);
+
+        let footer = footer.unwrap_or_else(|| {
+            Box::new(move |ok, cancel, window, cx| {
+                let mut buttons = Vec::with_capacity(2);
+                if show_cancel {
+                    buttons.push(cancel(window, cx));
+                }
+                buttons.push(ok(window, cx));
+                vec![
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .justify_center()
+                        .children(buttons)
+                        .into_any_element(),
+                ]
+            })
+        });
+
+        base.button_props(button_props).child(body).footer(footer)
+    }
+}
+
+impl ParentElement for AlertDialog {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{AppContext as _, Context, Render, TestAppContext, div};
+    use crate::global_state::GlobalState;
+    use gpui::{
+        AppContext as _, Context, Modifiers, Render, TestAppContext, VisualTestContext, div, point,
+        px,
+    };
 
     struct TestRoot;
     impl Render for TestRoot {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             div()
+        }
+    }
+
+    struct DialogLayerHost;
+
+    impl Render for DialogLayerHost {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .children(Root::render_dialog_layer(window, cx))
         }
     }
 
@@ -832,6 +1077,68 @@ mod tests {
             assert!(!configured.animate);
             assert!(configured.defer_close);
         });
+    }
+
+    #[gpui::test]
+    fn test_alert_dialog_defaults_and_confirm(cx: &mut TestAppContext) {
+        in_window(cx, false, |window, cx| {
+            let alert = AlertDialog::new(window, cx);
+            assert!(!alert.show_cancel);
+            assert!(!alert.base.overlay_closable);
+            assert!(!alert.base.close_button);
+
+            let dialog = alert.confirm().into_dialog(window, cx);
+            assert_eq!(dialog.accessibility_role, Role::AlertDialog);
+            assert!(dialog.footer.is_some());
+        });
+    }
+
+    #[gpui::test]
+    #[allow(deprecated)]
+    fn test_alert_dialog_overlay_is_never_closable(cx: &mut TestAppContext) {
+        in_window(cx, false, |window, cx| {
+            let dialog = AlertDialog::new(window, cx)
+                .overlay_closable(true)
+                .into_dialog(window, cx);
+
+            assert!(!dialog.overlay_closable);
+        });
+    }
+
+    #[gpui::test]
+    #[allow(deprecated)]
+    fn test_alert_dialog_overlay_click_does_not_cancel(cx: &mut TestAppContext) {
+        let cancel_count = Rc::new(std::cell::Cell::new(0));
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let host = cx.new(|_| DialogLayerHost);
+                cx.new(|cx| Root::new(host, window, cx))
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+
+        cx.update(|window, cx| {
+            let cancel_count = cancel_count.clone();
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                let cancel_count = cancel_count.clone();
+                alert
+                    .overlay_closable(true)
+                    .animate(false)
+                    .on_cancel(move |_, _, _| {
+                        cancel_count.set(cancel_count.get() + 1);
+                        true
+                    })
+            });
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
+
+        cx.simulate_click(point(px(8.0), px(64.0)), Modifiers::none());
+
+        assert_eq!(cancel_count.get(), 0);
+        assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
     }
 
     /// An animating dialog already stays mounted for its exit; `defer_close` is

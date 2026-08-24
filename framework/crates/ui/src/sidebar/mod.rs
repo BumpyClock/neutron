@@ -2,7 +2,6 @@ use crate::{
     ActiveTheme, Collapsible, Icon, IconName, Side, Sizable, StyledExt,
     animation::{PresenceOptions, PresencePhase, keyed_presence, theme_animation},
     button::{Button, ButtonVariants},
-    global_state::GlobalState,
     h_flex,
     scroll::ScrollableElement,
     v_flex,
@@ -243,7 +242,7 @@ impl<E: SidebarItem> RenderOnce for Sidebar<E> {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         self.style.padding = EdgesRefinement::default();
 
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let animate_width = self.animate_width && !reduced_motion;
         let motion = cx.theme().motion.clone();
         let target_collapsed = self.collapsed;

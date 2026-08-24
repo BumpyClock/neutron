@@ -4,10 +4,7 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 
-use crate::{
-    ActiveTheme, StyledExt, animation::fade_animation, global_state::GlobalState, h_flex, kbd::Kbd,
-    text::Text,
-};
+use crate::{ActiveTheme, StyledExt, animation::fade_animation, h_flex, kbd::Kbd, text::Text};
 
 enum TooltipContext {
     Text(Text),
@@ -91,7 +88,7 @@ impl Render for Tooltip {
         };
 
         let motion = &cx.theme().motion;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let anim = fade_animation(motion, reduced_motion);
 
         div()

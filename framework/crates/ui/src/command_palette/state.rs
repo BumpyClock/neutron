@@ -6,7 +6,6 @@ use super::reveal_query_delay;
 use super::types::{
     CommandMatcher, CommandMatcherKind, CommandPaletteConfig, CommandPaletteItem, MatchedItem,
 };
-use crate::global_state::GlobalState;
 use gpui::{Context, EventEmitter, Task, Window};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -76,7 +75,7 @@ impl CommandPaletteState {
         // Get static items
         let static_items = provider.items(cx);
 
-        let reveal_deadline = if GlobalState::global(cx).reduced_motion() {
+        let reveal_deadline = if crate::animation::reduced_motion(cx) {
             None
         } else {
             Some(Instant::now() + reveal_query_delay(cx))

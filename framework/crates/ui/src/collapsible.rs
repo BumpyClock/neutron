@@ -3,9 +3,7 @@ use gpui::{
     Styled, Window, prelude::FluentBuilder as _,
 };
 
-use crate::{
-    ActiveTheme, StyledExt, animation::enter_animation, global_state::GlobalState, v_flex,
-};
+use crate::{ActiveTheme, StyledExt, animation::enter_animation, v_flex};
 
 /// Generous max for animated height reveal. Content fully visible
 /// well before delta=1 due to decelerating easing.
@@ -66,7 +64,7 @@ impl ParentElement for Collapsible {
 impl RenderOnce for Collapsible {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let motion = &cx.theme().motion;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let anim = enter_animation(motion, reduced_motion);
 
         let mut non_content = Vec::new();

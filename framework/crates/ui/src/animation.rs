@@ -1,6 +1,6 @@
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Axis, IntoElement, ParentElement as _,
-    SharedString, Styled as _, Window, div, px, spring,
+    SharedString, SpringConfig, Styled as _, Window, div, px, spring,
 };
 use std::time::Duration;
 
@@ -8,7 +8,42 @@ use crate::{ActiveTheme as _, ThemeMotion, global_state::GlobalState};
 
 /// Returns whether motion should be reduced for the current component context.
 pub fn reduced_motion(cx: &App) -> bool {
-    GlobalState::global(cx).reduced_motion()
+    cx.reduce_motion() || GlobalState::global(cx).reduced_motion()
+}
+
+/// Convert the theme's normalized spring tokens to a physical spring.
+///
+/// Theme frequency counts oscillations in the enter-duration window. The
+/// physical spring uses radians per second, so the duration supplies the time
+/// scale. Invalid custom tokens fall back to the default motion tokens.
+pub fn theme_spring_config(motion: &ThemeMotion) -> SpringConfig {
+    fn canonical_tokens(motion: &ThemeMotion) -> Option<(f32, f32)> {
+        let duration = f32::from(motion.enter_duration_ms) / 1_000.0;
+        let damping_ratio = motion.spring_damping_ratio;
+        let frequency = motion.spring_frequency;
+        if duration <= 0.0
+            || !duration.is_finite()
+            || !damping_ratio.is_finite()
+            || !frequency.is_finite()
+        {
+            return None;
+        }
+
+        let natural_frequency = 2.0 * std::f32::consts::PI * frequency.max(0.01) / duration;
+        natural_frequency
+            .is_finite()
+            .then_some((natural_frequency, damping_ratio.clamp(0.0, 1.0)))
+    }
+
+    let (natural_frequency, damping_ratio) = canonical_tokens(motion)
+        .or_else(|| canonical_tokens(&ThemeMotion::default()))
+        .expect("default theme spring tokens must be valid");
+    let mass = 1.0;
+    SpringConfig::new(
+        natural_frequency * natural_frequency * mass,
+        2.0 * damping_ratio * natural_frequency * mass,
+        mass,
+    )
 }
 
 /// A cubic bezier function like CSS `cubic-bezier`.
@@ -123,8 +158,8 @@ pub fn exit_animation(motion: &ThemeMotion, reduced_motion: bool) -> Option<Anim
     )
 }
 
-/// Point-to-point animation: `enter` duration on the standard curve. For moves
-/// between two on-screen states (switch knobs, progress, widths).
+/// Point-to-point animation: `enter` duration on the standard curve. Use it for
+/// fixed-duration moves such as progress and width changes.
 pub fn standard_animation(motion: &ThemeMotion, reduced_motion: bool) -> Option<Animation> {
     theme_animation(
         motion.enter_duration_ms,
@@ -169,8 +204,9 @@ pub fn exit_duration(motion: &ThemeMotion) -> Duration {
     Duration::from_millis(u64::from(motion.exit_duration_ms) + u64::from(EXIT_UNMOUNT_GRACE_MS))
 }
 
-/// The one spring, for transform-only reveal motion. Settles within the `enter`
-/// window. Unbounded easing: pair it with transforms, not opacity.
+/// The duration-based spring for transform-only presence motion. It samples
+/// the theme spring over the `enter` window. Pair it with transforms, not
+/// opacity. Use [`theme_spring_config`] for retargetable geometry.
 pub fn spring_animation(motion: &ThemeMotion, reduced_motion: bool) -> Option<Animation> {
     if reduced_motion {
         return None;
@@ -395,7 +431,7 @@ pub fn flyout_presence(
     cx: &mut App,
 ) -> PresenceTransition {
     let motion = cx.theme().motion.clone();
-    let reduced_motion = GlobalState::global(cx).reduced_motion();
+    let reduced_motion = reduced_motion(cx);
     keyed_presence(
         key,
         open,
@@ -484,9 +520,11 @@ pub fn flyout_motion(
 #[cfg(test)]
 mod tests {
     use super::{
-        cubic_bezier, cubic_bezier_unbounded, parse_cubic_bezier_easing, spring_animation,
+        cubic_bezier, cubic_bezier_unbounded, parse_cubic_bezier_easing, reduced_motion,
+        spring_animation, theme_spring_config,
     };
     use crate::ThemeMotion;
+    use gpui::TestAppContext;
 
     #[test]
     fn strong_invoke_curve_is_bounded() {
@@ -541,5 +579,43 @@ mod tests {
         let motion = ThemeMotion::default();
         assert!(spring_animation(&motion, true).is_none());
         assert!(spring_animation(&motion, false).is_some());
+    }
+
+    #[test]
+    fn theme_spring_preserves_normalized_tokens() {
+        let motion = ThemeMotion::default();
+        let config = theme_spring_config(&motion);
+        let (natural_frequency, damping_ratio) = config.canonical();
+        let expected_frequency = 2.0 * std::f32::consts::PI * motion.spring_frequency
+            / (f32::from(motion.enter_duration_ms) / 1_000.0);
+
+        assert!((natural_frequency - expected_frequency).abs() < 0.001);
+        assert!((damping_ratio - motion.spring_damping_ratio).abs() < 0.001);
+    }
+
+    #[test]
+    fn theme_spring_rejects_invalid_custom_tokens() {
+        let mut motion = ThemeMotion::default();
+        motion.enter_duration_ms = 0;
+        motion.spring_damping_ratio = f32::NAN;
+        motion.spring_frequency = f32::INFINITY;
+
+        let config = theme_spring_config(&motion);
+        assert!(config.stiffness.is_finite() && config.stiffness > 0.0);
+        assert!(config.damping.is_finite() && config.damping >= 0.0);
+        assert_eq!(config.mass, 1.0);
+    }
+
+    #[gpui::test]
+    fn framework_and_engine_reduced_motion_are_combined(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        cx.update(|cx| {
+            assert!(!reduced_motion(cx));
+            cx.set_reduce_motion(true);
+            assert!(reduced_motion(cx));
+            cx.set_reduce_motion(false);
+            crate::global_state::GlobalState::global_mut(cx).set_reduced_motion(true);
+            assert!(reduced_motion(cx));
+        });
     }
 }

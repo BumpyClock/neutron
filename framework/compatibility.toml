@@ -6,14 +6,14 @@ version = "0.7.0"
 repository = "https://github.com/BumpyClock/neutron"
 rust_msrv = "1.90"
 pinned_toolchain = "1.95.0"
-audit_toolchain = "1.97.1"
+audit_toolchain = "1.95.0"
 previous_release = "0.6.0"
 previous_release_gpui_rev = "2a03ae6e789b77e98f9d9bd5489758a082313c75"
 
 [gpui]
 engine_path = "engine"
 zed_repository = "https://github.com/zed-industries/zed"
-zed_upstream_base = "2c4e44704c37ee87e59ac84e3e17388178b28545"
+zed_upstream_base = "d9ad6aff67e47de43abb270d22de75dd950f1b48"
 
 [[gpui.packages]]
 dependency = "gpui"
@@ -76,7 +76,7 @@ native_runtime = "not-verified"
 renderer = "not-verified"
 package = "not-verified"
 maturity = "preview"
-notes = "Locked workspace build, unit suite, and AppShell headless harness passed locally. All six Stage 1 macos-metal scenarios passed local source-blind validation, including exact AppKit display/window groups, Metal backend-accepted evidence, and the external pbpaste clipboard handshake. No immutable retained CI evidence references that local run, so published native-runtime and renderer status remain not-verified."
+notes = "Locked workspace build, unit suite, and AppShell headless harness passed locally. On 2026-08-23, the current target worktree built and launched the GPUI Component story app. macOS window inventory reported its 1324 by 856 AppKit window on screen. All six native conformance scenarios passed source-blind validation with backend-accepted presentation on the Apple M5 Max Metal hardware adapter. The interaction-contracts scenario produced 20 valid JSONL records. The external pbpaste clipboard handshake passed. Published native-runtime and renderer status remain not-verified because no immutable retained CI evidence identifies this dirty worktree."
 
 [[platforms]]
 name = "Windows"

@@ -2,7 +2,6 @@ use crate::{
     ActiveTheme, Anchor, ElementExt, Placement, StyledExt,
     dialog::Dialog,
     focus_trap::FocusTrapManager,
-    global_state::GlobalState,
     input::InputState,
     notification::{Notification, NotificationList},
     sheet::Sheet,
@@ -241,7 +240,12 @@ impl Root {
     where
         F: Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static,
     {
-        let previous_focused_handle = window.focused(cx).map(|h| h.downgrade());
+        let previous_focused_handle = self
+            .active_dialogs
+            .last()
+            .filter(|dialog| dialog.closing)
+            .map(|dialog| dialog.previous_focused_handle.clone())
+            .unwrap_or_else(|| window.focused(cx).map(|handle| handle.downgrade()));
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         let dialog_id = self.next_dialog_id;
@@ -343,7 +347,11 @@ impl Root {
     ) where
         F: Fn(Sheet, &mut Window, &mut App) -> Sheet + 'static,
     {
-        let previous_focused_handle = window.focused(cx).map(|h| h.downgrade());
+        let previous_focused_handle = self
+            .active_sheet
+            .take()
+            .and_then(|sheet| sheet.previous_focused_handle)
+            .or_else(|| window.focused(cx).map(|handle| handle.downgrade()));
 
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
@@ -379,7 +387,7 @@ impl Root {
             return;
         }
 
-        if GlobalState::global(cx).reduced_motion() {
+        if crate::animation::reduced_motion(cx) {
             self.finalize_sheet_close(window, cx);
             return;
         }
@@ -532,5 +540,85 @@ impl Render for Root {
                 .refine_style(&self.style)
                 .child(self.view.clone()),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::{Empty, TestAppContext, VisualTestContext};
+
+    use super::*;
+
+    fn root_window(
+        cx: &mut TestAppContext,
+    ) -> (gpui::WindowHandle<Root>, VisualTestContext, FocusHandle) {
+        let original_focus = Rc::new(RefCell::new(None));
+        let original_focus_for_window = original_focus.clone();
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                original_focus_for_window.replace(Some(cx.focus_handle()));
+                let content = cx.new(|_| Empty);
+                cx.new(|cx| Root::new(content, window, cx))
+            })
+            .unwrap()
+        });
+        let visual_cx = VisualTestContext::from_window(window.into(), cx);
+        let original_focus = original_focus.borrow_mut().take().unwrap();
+        (window, visual_cx, original_focus)
+    }
+
+    #[gpui::test]
+    fn replacing_sheet_preserves_original_focus(cx: &mut TestAppContext) {
+        let (window, mut cx, original_focus) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        cx.update(|window, cx| original_focus.focus(window, cx));
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_sheet_at(Placement::Right, |sheet, _, _| sheet, window, cx);
+            root.open_sheet_at(Placement::Left, |sheet, _, _| sheet, window, cx);
+
+            let previous_focus = root
+                .active_sheet
+                .as_ref()
+                .and_then(|sheet| sheet.previous_focused_handle.as_ref())
+                .and_then(WeakFocusHandle::upgrade)
+                .expect("replacement sheet should retain original focus");
+            assert_eq!(previous_focus, original_focus);
+
+            root.finalize_sheet_close(window, cx);
+            assert!(original_focus.is_focused(window));
+        });
+    }
+
+    #[gpui::test]
+    fn opening_dialog_during_exit_preserves_original_focus(cx: &mut TestAppContext) {
+        let (window, mut cx, original_focus) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        cx.update(|window, cx| original_focus.focus(window, cx));
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_dialog(|dialog, _, _| dialog, window, cx);
+            let first_id = root.active_dialogs[0].id;
+            root.active_dialogs[0].closing = true;
+
+            root.open_dialog(|dialog, _, _| dialog, window, cx);
+            let second = root.active_dialogs.last().unwrap().clone();
+            let previous_focus = second
+                .previous_focused_handle
+                .as_ref()
+                .and_then(WeakFocusHandle::upgrade)
+                .expect("replacement dialog should retain original focus");
+            assert_eq!(previous_focus, original_focus);
+            assert!(second.focus_handle.is_focused(window));
+
+            root.finalize_dialog_close(first_id, Some(original_focus.clone()), window, cx);
+            assert!(second.focus_handle.is_focused(window));
+
+            root.finalize_dialog_close(second.id, Some(original_focus.clone()), window, cx);
+            assert!(original_focus.is_focused(window));
+        });
     }
 }

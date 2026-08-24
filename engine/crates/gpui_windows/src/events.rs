@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::atomic::Ordering};
+use std::{cell::Cell, rc::Rc, sync::atomic::Ordering};
 
 use anyhow::Context as _;
 use gpui_util::ResultExt;
@@ -30,6 +30,37 @@ pub(crate) const WM_GPUI_GPU_DEVICE_LOST: u32 = WM_USER + 7;
 pub(crate) const WM_GPUI_KEYDOWN: u32 = WM_USER + 8;
 
 const SIZE_MOVE_LOOP_TIMER_ID: usize = 1;
+
+pub(crate) struct DrawCoordinator {
+    drawing: Cell<bool>,
+}
+
+impl DrawCoordinator {
+    pub(crate) fn new() -> Self {
+        Self {
+            drawing: Cell::new(false),
+        }
+    }
+
+    fn try_begin_draw(&self) -> Option<DrawWindowGuard<'_>> {
+        if self.drawing.get() {
+            None
+        } else {
+            self.drawing.set(true);
+            Some(DrawWindowGuard { coordinator: self })
+        }
+    }
+}
+
+struct DrawWindowGuard<'a> {
+    coordinator: &'a DrawCoordinator,
+}
+
+impl Drop for DrawWindowGuard<'_> {
+    fn drop(&mut self) {
+        self.coordinator.drawing.set(false);
+    }
+}
 
 impl WindowsWindowInner {
     pub(crate) fn handle_msg(
@@ -1228,7 +1259,7 @@ impl WindowsWindowInner {
         {
             panic!("Device lost: {err}");
         }
-        self.state.force_render_after_recovery.set(true);
+        self.state.force_render_pending.set(true);
         Some(0)
     }
 
@@ -1239,6 +1270,14 @@ impl WindowsWindowInner {
 
     #[inline]
     fn draw_window(&self, handle: HWND, force_render: bool) -> Option<isize> {
+        let Some(_guard) = self.state.draw_coordinator.try_begin_draw() else {
+            log::debug!("deferring re-entrant draw of window {handle:?}");
+            if force_render {
+                self.state.force_render_pending.set(true);
+            }
+            unsafe { ValidateRect(Some(handle), None).ok().log_err() };
+            return Some(0);
+        };
         let mut request_frame = self.state.callbacks.request_frame.take()?;
 
         self.state.direct_manipulation.update();
@@ -1253,7 +1292,7 @@ impl WindowsWindowInner {
             self.state.callbacks.input.set(Some(func));
         }
 
-        let force_render = force_render || self.state.force_render_after_recovery.take();
+        let force_render = force_render || self.state.force_render_pending.take();
         if force_render {
             // A forced render rebuilds the scene with fresh atlas textures and resumes drawing
             // after device-loss recovery.

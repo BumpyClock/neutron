@@ -2,7 +2,7 @@
 //!
 //! This element pushes a `reduced_motion` value onto the global context stack before
 //! rendering children, then pops it after. Child components can read this value via
-//! `GlobalState::global(cx).reduced_motion()` or the `ReducedMotionContext` trait.
+//! `crate::animation::reduced_motion(cx)`.
 //!
 //! # Example
 //!

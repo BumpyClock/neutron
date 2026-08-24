@@ -8,16 +8,19 @@ use gpui::{
 
 use crate::{
     Disableable as _,
-    button::{Button, Toggle},
+    button::{Button, ButtonVariants as _, Toggle},
     checkbox::Checkbox,
     input::{Input, InputState},
     list::ListItem,
+    searchable_list::SearchableListItemElement,
+    switch::Switch,
     v_flex,
 };
 
 struct AccessibilityFixture {
     input: Entity<InputState>,
     disabled_input: Entity<InputState>,
+    masked_input: Entity<InputState>,
 }
 
 impl AccessibilityFixture {
@@ -32,6 +35,11 @@ impl AccessibilityFixture {
                 InputState::new(window, cx)
                     .multi_line(false)
                     .default_value("locked")
+            }),
+            masked_input: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .default_value("secret")
             }),
         }
     }
@@ -51,6 +59,8 @@ impl Render for AccessibilityFixture {
                     .disabled(true)
                     .on_click(|_, _, _| {}),
             )
+            .child(Button::new("a11y-pin").label("Pin").toggled(true))
+            .child(Button::new("a11y-docs").label("Documentation").link())
             .child(
                 Checkbox::new("a11y-sync")
                     .label("Enable sync")
@@ -75,12 +85,25 @@ impl Render for AccessibilityFixture {
                     .disabled(true)
                     .on_click(|_, _, _| {}),
             )
+            .child(
+                Switch::new("a11y-wifi")
+                    .label("Wi-Fi")
+                    .checked(true)
+                    .on_click(|_, _, _| {}),
+            )
+            .child(
+                Switch::new("a11y-locked-wifi")
+                    .label("Locked Wi-Fi")
+                    .disabled(true)
+                    .on_click(|_, _, _| {}),
+            )
             .child(Input::new(&self.input).aria_label("Search"))
             .child(
                 Input::new(&self.disabled_input)
                     .aria_label("Locked search")
                     .disabled(true),
             )
+            .child(Input::new(&self.masked_input).aria_label("Password"))
             .child(
                 ListItem::new("a11y-selected-row")
                     .selected(true)
@@ -90,6 +113,12 @@ impl Render for AccessibilityFixture {
                 ListItem::new("a11y-disabled-row")
                     .disabled(true)
                     .child("Locked row"),
+            )
+            .child(
+                SearchableListItemElement::new(0)
+                    .checked(true)
+                    .disabled(true)
+                    .child("Locked option"),
             )
     }
 }
@@ -165,7 +194,7 @@ fn stage1_contract_focus_traversal_reaches_text_target_before_insertion(cx: &mut
     let mut visual_cx = VisualTestContext::from_window(window.into(), cx);
 
     visual_cx.update(|window, cx| {
-        window.draw(cx).clear();
+        window.draw(cx).clear(cx);
         first.update(cx, |input, cx| input.focus(window, cx));
         assert!(first.focus_handle(cx).is_focused(window));
 
@@ -184,19 +213,19 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
         crate::init(cx);
         cx.open_window(Default::default(), |window, cx| {
             let fixture = AccessibilityFixture::new(window, cx);
-            input_for_root.replace(Some(fixture.input.clone()));
+            input_for_root.replace(Some((fixture.input.clone(), fixture.masked_input.clone())));
             let fixture = cx.new(|_| fixture);
             cx.new(|cx| crate::Root::new(fixture, window, cx))
         })
         .unwrap()
     });
-    let input = input_slot.borrow_mut().take().unwrap();
+    let (input, masked_input) = input_slot.borrow_mut().take().unwrap();
     let mut visual_cx = VisualTestContext::from_window(window.into(), cx);
 
     let update = visual_cx.update(|window, cx| {
         input.update(cx, |input, cx| input.focus(window, cx));
         window.set_a11y_active_for_test(true);
-        window.draw(cx).clear();
+        window.draw(cx).clear(cx);
         let update = window
             .last_a11y_tree_for_test()
             .cloned()
@@ -213,6 +242,12 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
     assert!(delete.is_disabled());
     assert!(!delete.supports_action(AccessibleAction::Click));
     assert!(!delete.supports_action(AccessibleAction::Focus));
+
+    let (_, pin) = node_with_label(&update, Role::Button, "Pin");
+    assert_eq!(pin.toggled(), Some(Toggled::True));
+
+    let (_, docs) = node_with_label(&update, Role::Link, "Documentation");
+    assert_eq!(docs.toggled(), None);
 
     let (_, sync) = node_with_label(&update, Role::CheckBox, "Enable sync");
     assert_eq!(sync.toggled(), Some(Toggled::True));
@@ -234,14 +269,69 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
     assert!(!locked_notifications.supports_action(AccessibleAction::Click));
     assert!(!locked_notifications.supports_action(AccessibleAction::Focus));
 
+    let (_, wifi) = node_with_label(&update, Role::Switch, "Wi-Fi");
+    assert_eq!(wifi.toggled(), Some(Toggled::True));
+    assert!(wifi.supports_action(AccessibleAction::Click));
+    assert!(wifi.supports_action(AccessibleAction::Focus));
+
+    let (_, locked_wifi) = node_with_label(&update, Role::Switch, "Locked Wi-Fi");
+    assert_eq!(locked_wifi.toggled(), Some(Toggled::False));
+    assert!(locked_wifi.is_disabled());
+    assert!(!locked_wifi.supports_action(AccessibleAction::Click));
+    assert!(!locked_wifi.supports_action(AccessibleAction::Focus));
+
     let (search_id, search) = node_with_label(&update, Role::TextInput, "Search");
     assert_eq!(search.value(), Some("query"));
     assert!(search.supports_action(AccessibleAction::Focus));
+    assert!(search.supports_action(AccessibleAction::SetValue));
     assert_eq!(update.focus, search_id);
 
     let (_, locked_search) = node_with_label(&update, Role::TextInput, "Locked search");
     assert!(locked_search.is_disabled());
     assert!(!locked_search.supports_action(AccessibleAction::Focus));
+    assert!(!locked_search.supports_action(AccessibleAction::SetValue));
+
+    let (password_id, password) = node_with_label(&update, Role::TextInput, "Password");
+    assert_eq!(password.value(), None);
+    assert!(password.supports_action(AccessibleAction::SetValue));
+
+    visual_cx.update(|window, cx| {
+        window.handle_a11y_action_for_test(
+            accesskit::ActionRequest {
+                action: AccessibleAction::SetValue,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: search_id,
+                data: Some(accesskit::ActionData::Value("updated".into())),
+            },
+            cx,
+        );
+        window.handle_a11y_action_for_test(
+            accesskit::ActionRequest {
+                action: AccessibleAction::SetValue,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: password_id,
+                data: Some(accesskit::ActionData::Value("new secret".into())),
+            },
+            cx,
+        );
+        window.handle_a11y_action_for_test(
+            accesskit::ActionRequest {
+                action: AccessibleAction::SetValue,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: search_id,
+                data: Some(accesskit::ActionData::NumericValue(42.)),
+            },
+            cx,
+        );
+    });
+    assert_eq!(
+        input.read_with(&visual_cx, |input, _| input.value()),
+        "updated"
+    );
+    assert_eq!(
+        masked_input.read_with(&visual_cx, |input, _| input.value()),
+        "new secret"
+    );
 
     let list_items = update
         .nodes
@@ -254,6 +344,12 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
             .any(|node| node.is_selected() == Some(true))
     );
     assert!(list_items.iter().any(|node| node.is_disabled()));
+
+    assert!(
+        list_items
+            .iter()
+            .any(|node| node.is_selected() == Some(true) && node.is_disabled())
+    );
 }
 
 #[gpui::test]
@@ -273,7 +369,7 @@ fn stage1_contract_component_bounds_round_to_device_pixels_at_common_scales(
     visual_cx.simulate_scale_factor(1.0);
     let update = visual_cx.update(|window, cx| {
         window.set_a11y_active_for_test(true);
-        window.draw(cx).clear();
+        window.draw(cx).clear(cx);
         let update = window
             .last_a11y_tree_for_test()
             .cloned()
@@ -294,7 +390,7 @@ fn stage1_contract_component_bounds_round_to_device_pixels_at_common_scales(
         visual_cx.simulate_scale_factor(scale_factor);
         let update = visual_cx.update(|window, cx| {
             window.set_a11y_active_for_test(true);
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
             let update = window
                 .last_a11y_tree_for_test()
                 .cloned()

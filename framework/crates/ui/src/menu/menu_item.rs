@@ -1,7 +1,4 @@
-use crate::{
-    ActiveTheme, Disableable, StyledExt, animation::spring_animation, global_state::GlobalState,
-    h_flex,
-};
+use crate::{ActiveTheme, Disableable, StyledExt, animation::spring_animation, h_flex};
 use gpui::{
     AnimationExt as _, AnyElement, App, ClickEvent, ElementId, InteractiveElement, IntoElement,
     MouseButton, ParentElement, RenderOnce, Role, SharedString, StatefulInteractiveElement as _,
@@ -120,7 +117,7 @@ impl RenderOnce for MenuItemElement {
             }
             !self.disabled && self.selected && !was_selected
         };
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let selection_animation = became_selected
             .then(|| spring_animation(&cx.theme().motion, reduced_motion))
             .flatten();

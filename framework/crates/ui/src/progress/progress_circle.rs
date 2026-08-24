@@ -1,7 +1,6 @@
 use crate::{
     ActiveTheme, Sizable, Size, StyledExt,
     animation::{enter_duration, standard_animation},
-    global_state::GlobalState,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -165,7 +164,7 @@ impl RenderOnce for ProgressCircle {
 
         let color = self.color.unwrap_or(cx.theme().progress_bar);
         let has_changed = prev_value != value;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
 
         div()
             .id(self.id.clone())

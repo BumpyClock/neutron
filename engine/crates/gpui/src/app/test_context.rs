@@ -5,7 +5,7 @@ use crate::{
     Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     Pixels, Platform, Point, Render, Result, Size, Task, TestDispatcher, TestPlatform,
     TestScreenCaptureSource, TestWindow, TextSystem, VisualContext, Window, WindowBounds,
-    WindowHandle, WindowOptions, app::GpuiMode,
+    WindowHandle, WindowOptions, app::GpuiMode, window::ElementArenaScope,
 };
 use anyhow::{anyhow, bail};
 use futures::{Stream, StreamExt, channel::oneshot};
@@ -880,6 +880,8 @@ impl VisualTestContext {
         E: Element,
     {
         self.update(|window, cx| {
+            let arena_scope = ElementArenaScope::enter(&cx.element_arena);
+
             window.invalidator.set_phase(DrawPhase::Prepaint);
             let mut element = Drawable::new(f(window, cx));
             element.layout_as_root(space.into(), window, cx);
@@ -890,6 +892,9 @@ impl VisualTestContext {
 
             window.invalidator.set_phase(DrawPhase::None);
             window.refresh();
+
+            drop(element);
+            arena_scope.exit(&cx.element_arena).clear(cx);
 
             (request_layout_state, prepaint_state)
         })

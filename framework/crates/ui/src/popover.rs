@@ -12,9 +12,7 @@ use crate::{
     actions::Cancel,
     anchored,
     animation::{FlyoutSlide, PresenceOptions, flyout_motion, flyout_presence},
-    flyout_primary_foreground,
-    global_state::GlobalState,
-    v_flex,
+    flyout_primary_foreground, v_flex,
 };
 
 const CONTEXT: &str = "Popover";
@@ -207,8 +205,10 @@ impl Styled for Popover {
 pub struct PopoverState {
     focus_handle: FocusHandle,
     pub(crate) tracked_focus_handle: Option<FocusHandle>,
+    previous_focus_handle: Option<FocusHandle>,
     trigger_bounds: Bounds<Pixels>,
     open: bool,
+    needs_initial_transition: bool,
     on_open_change: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
 
     _dismiss_subscription: Option<Subscription>,
@@ -219,8 +219,10 @@ impl PopoverState {
         Self {
             focus_handle: cx.focus_handle(),
             tracked_focus_handle: None,
+            previous_focus_handle: None,
             trigger_bounds: Bounds::default(),
             open: default_open,
+            needs_initial_transition: default_open,
             on_open_change: None,
             _dismiss_subscription: None,
         }
@@ -245,9 +247,20 @@ impl PopoverState {
         }
     }
 
-    fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open = !self.open;
-        if self.open {
+    fn set_open(
+        &mut self,
+        open: bool,
+        emit_change: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.open == open {
+            return;
+        }
+
+        self.open = open;
+        if open {
+            self.previous_focus_handle = window.focused(cx);
             let state = cx.entity();
             let focus_handle = if let Some(tracked_focus_handle) = self.tracked_focus_handle.clone()
             {
@@ -268,12 +281,26 @@ impl PopoverState {
                 );
         } else {
             self._dismiss_subscription = None;
+            let popover_owns_focus = self.focus_handle.contains_focused(window, cx)
+                || self
+                    .tracked_focus_handle
+                    .as_ref()
+                    .is_some_and(|handle| handle.contains_focused(window, cx));
+            if popover_owns_focus
+                && let Some(previous_focus_handle) = self.previous_focus_handle.take()
+            {
+                previous_focus_handle.focus(window, cx);
+            }
         }
 
-        if let Some(callback) = self.on_open_change.as_ref() {
-            callback(&self.open, window, cx);
+        if emit_change && let Some(callback) = self.on_open_change.as_ref() {
+            callback(&open, window, cx);
         }
         cx.notify();
+    }
+
+    fn toggle_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_open(!self.open, true, window, cx);
     }
 
     fn on_action_cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
@@ -351,13 +378,21 @@ impl RenderOnce for Popover {
             PopoverState::new(default_open, cx)
         });
 
-        state.update(cx, |state, _| {
+        state.update(cx, |state, cx| {
             if let Some(tracked_focus_handle) = tracked_focus_handle {
                 state.tracked_focus_handle = Some(tracked_focus_handle);
             }
             state.on_open_change = self.on_open_change.clone();
-            if let Some(force_open) = force_open {
-                state.open = force_open;
+
+            let mut requested_open = force_open;
+            if state.needs_initial_transition {
+                state.needs_initial_transition = false;
+                let initial_open = state.open;
+                state.open = false;
+                requested_open = Some(force_open.unwrap_or(initial_open));
+            }
+            if let Some(force_open) = requested_open {
+                state.set_open(force_open, false, window, cx);
             }
         });
 
@@ -398,7 +433,7 @@ impl RenderOnce for Popover {
             });
 
         let motion = cx.theme().motion.clone();
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let presence = flyout_presence(
             SharedString::from(format!("popover-presence-{}", popover_id)),
             open,
@@ -459,8 +494,35 @@ impl RenderOnce for Popover {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
     use super::*;
-    use gpui::MouseButton;
+    use gpui::{Entity, MouseButton, TestAppContext};
+
+    fn focus_harness(
+        cx: &mut TestAppContext,
+    ) -> (
+        Entity<PopoverState>,
+        &mut gpui::VisualTestContext,
+        FocusHandle,
+        FocusHandle,
+        FocusHandle,
+    ) {
+        cx.update(crate::init);
+        let handles = Rc::new(RefCell::new(None));
+        let handles_for_view = handles.clone();
+        let (state, cx) = cx.add_window_view(move |_, cx| {
+            let original = cx.focus_handle();
+            let tracked = cx.focus_handle();
+            let unrelated = cx.focus_handle();
+            handles_for_view.replace(Some((original, tracked.clone(), unrelated)));
+            let mut state = PopoverState::new(false, cx);
+            state.tracked_focus_handle = Some(tracked);
+            state
+        });
+        let (original, tracked, unrelated) = handles.borrow_mut().take().unwrap();
+        (state, cx, original, tracked, unrelated)
+    }
 
     #[test]
     fn test_popover_builder_chaining() {
@@ -516,5 +578,30 @@ mod tests {
         let pos = Popover::resolved_corner(Anchor::BottomRight, bounds);
         assert_eq!(pos.x, px(300.));
         assert_eq!(pos.y, px(50.));
+    }
+
+    #[gpui::test]
+    fn dismiss_restores_previous_focus(cx: &mut TestAppContext) {
+        let (state, cx, original, tracked, _) = focus_harness(cx);
+
+        cx.update(|window, cx| original.focus(window, cx));
+        state.update_in(cx, |state, window, cx| state.show(window, cx));
+        cx.update(|window, _| assert!(tracked.is_focused(window)));
+
+        state.update_in(cx, |state, window, cx| state.dismiss(window, cx));
+        cx.update(|window, _| assert!(original.is_focused(window)));
+    }
+
+    #[gpui::test]
+    fn dismiss_preserves_focus_that_moved_elsewhere(cx: &mut TestAppContext) {
+        let (state, cx, original, tracked, unrelated) = focus_harness(cx);
+
+        cx.update(|window, cx| original.focus(window, cx));
+        state.update_in(cx, |state, window, cx| state.show(window, cx));
+        cx.update(|window, _| assert!(tracked.is_focused(window)));
+        cx.update(|window, cx| unrelated.focus(window, cx));
+
+        state.update_in(cx, |state, window, cx| state.dismiss(window, cx));
+        cx.update(|window, _| assert!(unrelated.is_focused(window)));
     }
 }

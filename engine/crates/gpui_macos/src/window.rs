@@ -1,6 +1,6 @@
 use crate::{
-    BoolExt, DisplayLink, MacDisplay, NSRange, NSStringExt, TISCopyCurrentKeyboardInputSource,
-    TISGetInputSourceProperty, events::platform_input_from_native,
+    BoolExt, MacDisplay, NSRange, NSStringExt, TISCopyCurrentKeyboardInputSource,
+    TISGetInputSourceProperty, WindowFrameSource, events::platform_input_from_native,
     kTISPropertyInputSourceIsASCIICapable, kTISPropertyInputSourceType, kTISTypeKeyboardInputMode,
     ns_string, renderer,
 };
@@ -488,7 +488,7 @@ struct MacWindowState {
     blurred_view_corner_radius: Option<Pixels>,
     background_appearance: WindowBackgroundAppearance,
     cursor_style: CursorStyle,
-    display_link: Option<DisplayLink>,
+    frame_source: Option<WindowFrameSource>,
     renderer: renderer::Renderer,
     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
     event_callback: Option<Box<dyn FnMut(PlatformInput) -> gpui::DispatchEventResult>>,
@@ -657,16 +657,17 @@ impl MacWindowState {
             // AppKit can temporarily report no screen while displays are being reconfigured.
             return;
         };
-        if let Some(mut display_link) =
-            DisplayLink::new(display_id, self.native_view.as_ptr() as *mut c_void, step).log_err()
-        {
-            display_link.start().log_err();
-            self.display_link = Some(display_link);
-        }
+        let data = self.native_view.as_ptr() as *mut c_void;
+        self.frame_source
+            .get_or_insert_with(|| WindowFrameSource::new(data, step))
+            .start(display_id)
+            .log_err();
     }
 
     fn stop_display_link(&mut self) {
-        self.display_link = None;
+        if let Some(frame_source) = self.frame_source.as_mut() {
+            frame_source.stop();
+        }
     }
 
     fn is_maximized(&self) -> bool {
@@ -887,7 +888,7 @@ impl MacWindow {
                 blurred_view_corner_radius: None,
                 background_appearance: WindowBackgroundAppearance::Opaque,
                 cursor_style: CursorStyle::Arrow,
-                display_link: None,
+                frame_source: None,
                 renderer,
                 request_frame_callback: None,
                 event_callback: None,
@@ -1160,7 +1161,7 @@ impl Drop for MacWindow {
         this.renderer.destroy();
         let window = this.native_window;
         let sheet_parent = this.sheet_parent.take();
-        this.display_link.take();
+        this.frame_source.take();
         remove_a11y_adapter(window);
         unsafe {
             this.native_window.setDelegate_(nil);
@@ -2987,8 +2988,7 @@ extern "C" fn view_did_change_effective_appearance(this: &Object, _: Sel) {
         }
 
         // AppKit can relayout the standard traffic light buttons as part of
-        // applying a new appearance. Reapply GPUI's custom position after
-        // notifying appearance observers.
+        // applying a new appearance, so reapply GPUI's custom position.
         state.lock().move_traffic_light();
     }
 }

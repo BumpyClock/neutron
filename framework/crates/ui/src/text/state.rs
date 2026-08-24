@@ -7,8 +7,8 @@ use std::{
 
 use gpui::{
     App, AppContext as _, Bounds, ClipboardItem, Context, FocusHandle, IntoElement, KeyBinding,
-    ListState, ParentElement as _, Pixels, Point, Render, SharedString, Size, Styled as _, Task,
-    Window, prelude::FluentBuilder as _, px,
+    ListState, ParentElement as _, Pixels, Point, Render, SharedString, Styled as _, Task, Window,
+    prelude::FluentBuilder as _, px,
 };
 use smol::{Timer, stream::StreamExt as _};
 
@@ -228,9 +228,9 @@ impl TextViewState {
         }
     }
 
-    /// Return the bounds of the selection in window coordinates.
-    pub(crate) fn selection_bounds(&self) -> Bounds<Pixels> {
-        selection_bounds(
+    /// Return the selection endpoints in window coordinates.
+    pub(crate) fn selection_points(&self) -> Option<(Point<Pixels>, Point<Pixels>)> {
+        selection_points(
             self.selection_positions.0,
             self.selection_positions.1,
             self.bounds,
@@ -416,48 +416,35 @@ fn parse_content(format: TextViewFormat, options: &UpdateOptions) -> Result<(), 
     Ok(())
 }
 
-fn selection_bounds(
+fn selection_points(
     start: Option<Point<Pixels>>,
     end: Option<Point<Pixels>>,
     bounds: Bounds<Pixels>,
-) -> Bounds<Pixels> {
+) -> Option<(Point<Pixels>, Point<Pixels>)> {
     if let (Some(start), Some(end)) = (start, end) {
         let start = start + bounds.origin;
         let end = end + bounds.origin;
-
-        let origin = Point {
-            x: start.x.min(end.x),
-            y: start.y.min(end.y),
-        };
-        let size = Size {
-            width: (start.x - end.x).abs(),
-            height: (start.y - end.y).abs(),
-        };
-
-        return Bounds { origin, size };
+        return Some((start, end));
     }
 
-    Bounds::default()
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{Bounds, point, px, size};
+    use gpui::{point, px};
 
     #[test]
-    fn test_text_view_state_selection_bounds() {
+    fn test_text_view_state_selection_points() {
+        assert_eq!(selection_points(None, None, Default::default()), None);
         assert_eq!(
-            selection_bounds(None, None, Default::default()),
-            Bounds::default()
+            selection_points(None, Some(point(px(10.), px(20.))), Default::default()),
+            None
         );
         assert_eq!(
-            selection_bounds(None, Some(point(px(10.), px(20.))), Default::default()),
-            Bounds::default()
-        );
-        assert_eq!(
-            selection_bounds(Some(point(px(10.), px(20.))), None, Default::default()),
-            Bounds::default()
+            selection_points(Some(point(px(10.), px(20.))), None, Default::default()),
+            None
         );
 
         // 10,10 start
@@ -466,15 +453,12 @@ mod tests {
         //   |------|
         //         50,50
         assert_eq!(
-            selection_bounds(
+            selection_points(
                 Some(point(px(10.), px(10.))),
                 Some(point(px(50.), px(50.))),
                 Default::default()
             ),
-            Bounds {
-                origin: point(px(10.), px(10.)),
-                size: size(px(40.), px(40.))
-            }
+            Some((point(px(10.), px(10.)), point(px(50.), px(50.))))
         );
         // 10,10
         //   |------|
@@ -482,15 +466,12 @@ mod tests {
         //   |------|
         //         50,50 start
         assert_eq!(
-            selection_bounds(
+            selection_points(
                 Some(point(px(50.), px(50.))),
                 Some(point(px(10.), px(10.))),
                 Default::default()
             ),
-            Bounds {
-                origin: point(px(10.), px(10.)),
-                size: size(px(40.), px(40.))
-            }
+            Some((point(px(50.), px(50.)), point(px(10.), px(10.))))
         );
         //        50,10 start
         //   |------|
@@ -498,15 +479,12 @@ mod tests {
         //   |------|
         // 10,50
         assert_eq!(
-            selection_bounds(
+            selection_points(
                 Some(point(px(50.), px(10.))),
                 Some(point(px(10.), px(50.))),
                 Default::default()
             ),
-            Bounds {
-                origin: point(px(10.), px(10.)),
-                size: size(px(40.), px(40.))
-            }
+            Some((point(px(50.), px(10.)), point(px(10.), px(50.))))
         );
         //        50,10
         //   |------|
@@ -514,15 +492,12 @@ mod tests {
         //   |------|
         // 10,50 start
         assert_eq!(
-            selection_bounds(
+            selection_points(
                 Some(point(px(10.), px(50.))),
                 Some(point(px(50.), px(10.))),
                 Default::default()
             ),
-            Bounds {
-                origin: point(px(10.), px(10.)),
-                size: size(px(40.), px(40.))
-            }
+            Some((point(px(10.), px(50.)), point(px(50.), px(10.))))
         );
     }
 }

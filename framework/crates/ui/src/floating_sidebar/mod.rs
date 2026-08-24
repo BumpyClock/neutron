@@ -12,7 +12,6 @@ use gpui::{
 use crate::{
     ActiveTheme, ElevationToken, Side, StyledExt,
     animation::{PresenceOptions, keyed_presence, theme_animation},
-    global_state::GlobalState,
     sidebar::{COLLAPSED_WIDTH, DEFAULT_WIDTH, Sidebar, SidebarItem},
     sidebar_shell::SidebarShell,
 };
@@ -329,7 +328,7 @@ impl<E: SidebarItem> RenderOnce for FloatingSidebar<E> {
             clamped_width
         };
 
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = cx.theme().motion.clone();
         let width_spring_duration_ms = motion.enter_duration_ms;
         let target_width = if collapsed {

@@ -1,98 +1,91 @@
 ---
-title: "Spring Preset API"
-summary: "Notes on tokenized spring preset helpers and when spring motion is safe for transform-only animation."
-read_when: "changing animation helpers, spring presets, or theme motion token usage"
+title: "Spring animation policy"
+summary: "Notes on tokenized spring helpers and when to use stateful or duration-based motion."
+read_when: "changing animation helpers, spring animation, or theme motion token usage"
 ---
-# Spring Preset API
+# Spring animation policy
 
-Date: 2026-02-11
+Date: 2026-08-23
 
-## Overview
+The motion layer has two spring forms. Use GPUI's stateful
+`SpringAnimation` for continuously mounted geometry that can change target.
+Use the framework's duration-based helpers for presence transforms and other
+animations with a fixed lifetime.
 
-The spring preset API provides tokenized, theme-aware animation helpers for
-consistent motion across all UI components. Every component should use the
-shared helpers in `crates/ui/src/animation.rs` instead of constructing
-`Animation::new(Duration::...)` with inline easing.
+## Stateful spring
 
-## Spring Presets
+GPUI provides `SpringConfig`, `SpringAnimation`, `SpringTarget`, and
+`SpringPlayback`. `with_spring` renders an element from the current spring
+state. Its element ID stores position and velocity, so a target change does not
+restart the motion.
 
-Two spring presets are available via `SpringPreset`:
+`Switch` is the current framework consumer. Its thumb is continuously mounted
+and can retarget when the controlled value changes. Do not use this form for a
+surface that unmounts at the end of its exit transition.
 
-| Preset   | Damping | Frequency | Duration | Use case                            |
-|----------|---------|-----------|----------|-------------------------------------|
-| **Mild** | 0.78    | 2.0 Hz    | 187 ms   | Subtle transform overshoot (menus)  |
-| **Medium** | 0.70  | 1.6 Hz    | 240 ms   | Noticeable bounce (dialogs, popovers) |
-
-Spring parameters are stored in `ThemeMotion` and can be overridden per-theme.
-
-### Usage
+## Theme conversion
 
 ```rust
-use crate::animation::{spring_preset_animation, SpringPreset};
+use crate::animation::theme_spring_config;
 
-// Returns Option<Animation> — None when reduced_motion is true
-let anim = spring_preset_animation(&motion, reduced_motion, SpringPreset::Medium);
+let config = theme_spring_config(&cx.theme().motion);
 ```
 
-## Transform-Only Spring Rule
+`ThemeMotion` stores frequency in cycles per enter-duration window. The
+framework converts it to GPUI's physical parameters with unit mass:
 
-**Springs overshoot — they produce values > 1.0.**  
-This is correct for transform properties (translate, rotate, scale) where
-overshoot creates a natural bounce feel. It is **incorrect** for:
+```text
+ω = 2πf / d
+k = ω²
+c = 2ζω
+m = 1
+```
 
-- **Opacity** — values > 1.0 are clamped or undefined
-- **Size / max-height** — overshoot causes layout jumps
-- **Layout properties** — content may flash or overflow
+Here `d` is `enter_duration_ms / 1000`, `f` is `spring_frequency`, and `ζ` is
+`spring_damping_ratio`. Non-finite or non-positive duration and non-finite
+spring values use default theme tokens. Frequency is clamped to a small
+positive value before conversion; damping ratio is clamped to `0..=1`.
 
-### Rule
+## Duration-based spring
 
-| Property type        | Allowed easing                                    |
-|----------------------|---------------------------------------------------|
-| Transform (translate, scale, rotate) | Spring presets, `strong_invoke_animation` |
-| Opacity              | `fade_animation` (linear), `point_to_point_animation` |
-| Size / layout        | `fast_invoke_animation`, `point_to_point_animation`, `soft_dismiss_animation` |
-| Reveal (open/close)  | Monotonic curves only — never spring or bounce    |
+`animation::spring_animation` uses the same theme values to sample a spring
+into a duration-based `Animation` over the enter window. It is used for fixed
+presence transforms such as flyouts, dialogs, accordions, and command palette
+reveals. Retargeting this form restarts the sample. `gpui::sampled_easing` has
+the same restart behavior.
 
-### Never use `bounce()` for reveal animations
+`enter_animation`, `exit_animation`, `standard_animation`, and `fade_animation`
+remain duration-based. Exit presence uses `exit_duration` so an element stays
+mounted until its close animation completes.
 
-The `bounce()` easing is forward-then-reverse: at `delta=1.0` it returns ~0,
-which collapses the element on the final frame. Only use `bounce()` for
-repeating cosmetic effects (e.g. skeleton shimmer).
+## Overshoot rule
 
-## Monotonic Animation Helpers
+Springs can produce values outside `0..=1`. Use them for transform or bounded
+point-to-point geometry. Do not use spring output for:
 
-These helpers return `Option<Animation>` (None when `reduced_motion` is true):
+- Opacity. Values above `1.0` are not a stable opacity contract.
+- Size or max-height. Overshoot can cause layout jumps.
+- Layout properties. Content can flash or overflow.
 
-| Helper                        | Duration | Easing                          | Use case                  |
-|-------------------------------|----------|---------------------------------|---------------------------|
-| `fast_invoke_animation`       | 187 ms   | `cubic-bezier(0, 0, 0, 1)`     | Quick open/invoke         |
-| `soft_dismiss_animation`      | 167 ms   | `cubic-bezier(1, 0, 1, 1)`     | Close/dismiss             |
-| `point_to_point_animation`    | 187 ms   | `cubic-bezier(0.55, 0.55, 0, 1)` | Position + opacity move |
-| `fade_animation`              | 83 ms    | linear                          | Opacity-only fade         |
-| `strong_invoke_animation`     | 667 ms   | overshoot cubic-bezier          | Transform-only emphasis   |
+Keep opacity, size, and visibility on monotonic duration-based curves.
 
-## Component Animation Map
+## Component map
 
-| Component        | Open / Enter                          | Close / Exit                    |
-|------------------|---------------------------------------|---------------------------------|
-| Accordion        | `spring_preset` (transform) + `point_to_point` (layout) | same        |
-| Dialog           | `spring_preset(Medium)` (transform) + `point_to_point` (layout) + `fade` | `soft_dismiss` + `fade` |
-| Popover          | `spring_preset(Medium)` (transform) + `point_to_point` (opacity) | `point_to_point` |
-| Popup Menu       | `spring_preset(Medium)` (transform) + `point_to_point` (opacity) | `point_to_point` |
-| Sidebar Menu     | `spring_preset(Mild)` (transform) + `point_to_point` (layout) | same    |
-| Command Palette  | `spring_invoke` (Mild)                | —                               |
-| Sheet            | `fast_invoke`                         | —                               |
-| Notification     | `fast_invoke`                         | `soft_dismiss`                  |
-| Collapsible      | `fast_invoke`                         | `fast_invoke`                   |
-| Select           | `fast_invoke`                         | —                               |
-| Context Menu     | `fast_invoke`                         | —                               |
-| Tooltip          | `fade`                                | —                               |
-| Tab              | `fade` (on select)                    | —                               |
-| Badge            | `strong_invoke` (transform bounce)    | —                               |
+| Component | Open / enter | Close / exit |
+| --- | --- | --- |
+| Accordion | Duration spring for transform plus enter animation | Exit animation |
+| Dialog | Duration spring for transform plus enter animation | Exit animation |
+| Flyout / popover | Duration spring plus standard fade | Exit animation |
+| Popup menu | Duration spring plus standard fade | Exit animation |
+| Command palette | Duration spring plus standard fade | Exit animation |
+| Switch | Stateful spring for thumb geometry | Stateful spring |
+| Sheet | Enter animation | Exit animation |
+| Notification | Enter animation | Exit animation |
+| Tooltip | Fade animation | — |
 
-## Presence State Machine
+## Presence state machine
 
-For open/close animations, use `keyed_presence()` from `animation.rs`:
+For open and close animations, use `keyed_presence()` from `animation.rs`:
 
 ```rust
 let presence = keyed_presence(
@@ -107,12 +100,17 @@ let presence = keyed_presence(
 );
 
 if presence.should_render() {
-    // render with presence.progress(delta) for opacity/layout
+    // Render with presence.progress(delta) for opacity or layout.
 }
 ```
 
 The state machine tracks `PresencePhase`:
-- `Entering` → apply open animation
-- `Entered` → static open state
-- `Exiting` → apply close animation (keep mounted)
-- `Exited` → unmount
+
+- `Entering`: apply open animation.
+- `Entered`: render the static open state.
+- `Exiting`: apply close animation while the element stays mounted.
+- `Exited`: unmount the element.
+
+Reduced motion combines the GPUI engine signal with the framework signal. Use
+`animation::reduced_motion(cx)` and skip both stateful and duration-based motion
+when it returns `true`.

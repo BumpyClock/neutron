@@ -12,7 +12,6 @@ use crate::{
         PresenceOptions, PresencePhase, exit_animation, keyed_presence, spring_animation,
         standard_animation,
     },
-    global_state::GlobalState,
     h_flex, v_flex,
 };
 
@@ -249,7 +248,7 @@ impl Sizable for AccordionItem {
 
 impl RenderOnce for AccordionItem {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = cx.theme().motion.clone();
         let open_layout_anim = standard_animation(&motion, reduced_motion);
         // Closing runs on the exit token, not the enter one. The presence below

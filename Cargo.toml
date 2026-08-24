@@ -263,6 +263,9 @@ tokio = { version = "1" }
 tracing = "0.1.44"
 unicase = "2.6"
 unicode-general-category = "1.1.0"
+unicode-bidi = { version = "0.3.18", default-features = false, features = [
+    "hardcoded-data",
+] }
 unicode-segmentation = "1.10"
 url = "2.2"
 usvg = { version = "0.46.0", default-features = false }

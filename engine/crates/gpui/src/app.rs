@@ -837,6 +837,7 @@ pub struct App {
     pub(crate) window_update_stack: Vec<WindowId>,
     pub(crate) mode: GpuiMode,
     pub(crate) cursor_hide_mode: CursorHideMode,
+    pub(crate) reduce_motion: bool,
     /// Whether the app was created by [`Application::new_inaccessible`].
     pub(crate) accessibility_force_disabled: bool,
     flushing_effects: bool,
@@ -935,6 +936,7 @@ impl App {
                 shutdown_observers_started: false,
                 quitting: false,
                 cursor_hide_mode: CursorHideMode::default(),
+                reduce_motion: false,
                 accessibility_force_disabled: false,
 
                 #[cfg(any(test, feature = "test-support", debug_assertions))]
@@ -1125,6 +1127,19 @@ impl App {
     /// to keyboard input.
     pub fn set_cursor_hide_mode(&mut self, mode: CursorHideMode) {
         self.cursor_hide_mode = mode;
+    }
+
+    /// Returns whether non-essential animations should render in a static state.
+    pub fn reduce_motion(&self) -> bool {
+        self.reduce_motion
+    }
+
+    /// Sets whether non-essential animations should render in a static state.
+    pub fn set_reduce_motion(&mut self, reduce_motion: bool) {
+        if self.reduce_motion != reduce_motion {
+            self.reduce_motion = reduce_motion;
+            self.refresh_windows();
+        }
     }
 
     /// Returns whether the cursor is currently visible according to the
@@ -1355,7 +1370,7 @@ impl App {
                     // on windows we quite frequently lose the race and return a window that has never rendered, which leads to a crash
                     // where DispatchTree::root_node_id asserts on empty nodes
                     let clear = window.draw(cx);
-                    clear.clear();
+                    clear.clear(cx);
 
                     cx.window_handles.insert(id, window.handle);
                     cx.windows.get_mut(id).unwrap().replace(Box::new(window));
@@ -1720,7 +1735,7 @@ impl App {
                     })
                     .collect::<Vec<_>>()
                 {
-                    self.update_window(window, |_, window, cx| window.draw(cx).clear())
+                    self.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
                         .unwrap();
                 }
 

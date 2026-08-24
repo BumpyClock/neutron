@@ -190,14 +190,13 @@ let state = cx.new(|cx| {
     SelectState::new(Vec::<SharedString>::new(), None, window, cx)
 });
 
-Select::new(&state)
-    .empty(
-        h_flex()
-            .h_24()
-            .justify_center()
-            .text_color(cx.theme().muted_foreground)
-            .child("No options available")
-    )
+Select::new(&state).empty_with(|_, cx| {
+    h_flex()
+        .h_24()
+        .justify_center()
+        .text_color(cx.theme().muted_foreground)
+        .child("No options available")
+})
 ```
 
 ### Events

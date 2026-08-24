@@ -276,6 +276,12 @@ pub struct ThemeColor {
     /// TitleBar border color.
     #[serde(rename = "title_bar.border")]
     pub title_bar_border: Hsla,
+    /// StatusBar background color, use for the bottom status bar.
+    #[serde(rename = "status_bar.background")]
+    pub status_bar: Hsla,
+    /// StatusBar border color.
+    #[serde(rename = "status_bar.border")]
+    pub status_bar_border: Hsla,
     /// Background color for Tiles.
     #[serde(rename = "tiles.background")]
     pub tiles: Hsla,

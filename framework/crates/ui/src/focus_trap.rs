@@ -308,7 +308,7 @@ mod tests {
 
         cx.update_window(window, |_, window, cx| {
             window.focus(&focused, cx);
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
         })
         .unwrap();
 
@@ -339,7 +339,7 @@ mod tests {
 
         cx.update_window(any_window, |_, window, cx| {
             window.focus(&focused, cx);
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
         })
         .unwrap();
 
@@ -351,7 +351,7 @@ mod tests {
             .unwrap();
         cx.update_window(any_window, |_, window, cx| {
             window.focus(&focused, cx);
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
         })
         .unwrap();
 

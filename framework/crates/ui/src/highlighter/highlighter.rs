@@ -1,4 +1,5 @@
 use crate::highlighter::{HighlightTheme, LanguageRegistry};
+use crate::input::RopeExt as _;
 
 use anyhow::{Context, Result, anyhow};
 use gpui::{HighlightStyle, SharedString};
@@ -9,6 +10,7 @@ use std::{
     ops::Range,
     usize,
 };
+use sum_tree::Bias;
 use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, StreamingIterator, Tree};
 
 /// A syntax highlighter that supports incremental parsing, multiline text,
@@ -632,6 +634,11 @@ impl SyntaxHighlighter {
             let mut node_range = node_range.start.max(range.start)..node_range.end.min(range.end);
             if node_range.start > node_range.end {
                 node_range.end = node_range.start;
+            }
+            node_range = self.text.clip_offset(node_range.start, Bias::Left)
+                ..self.text.clip_offset(node_range.end, Bias::Right);
+            if node_range.is_empty() {
+                continue;
             }
 
             styles.push((node_range, theme.style(name.as_ref()).unwrap_or_default()));

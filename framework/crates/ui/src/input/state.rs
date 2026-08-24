@@ -14,8 +14,8 @@ use gpui::{
 use gpui::{Half, TextAlign};
 use ropey::{Rope, RopeSlice};
 use serde::Deserialize;
-use std::ops::Range;
 use std::rc::Rc;
+use std::{borrow::Cow, ops::Range};
 use sum_tree::Bias;
 use unicode_segmentation::*;
 
@@ -354,6 +354,8 @@ pub struct InputState {
     _pending_update: bool,
     /// A flag to indicate if we should ignore the next completion event.
     pub(super) silent_replace_text: bool,
+    /// Whether programmatic edits emit input events.
+    pub(super) emit_events: bool,
 
     /// To remember the horizontal column (x-coordinate) of the cursor position for keep column for move up/down.
     ///
@@ -440,6 +442,7 @@ impl InputState {
             hover_popover: None,
             hover_definition: HoverDefinition::default(),
             silent_replace_text: false,
+            emit_events: true,
             size: Size::default(),
             _subscriptions,
             _context_menu_task: Task::ready(Ok(())),
@@ -636,8 +639,10 @@ impl InputState {
         cx: &mut Context<Self>,
     ) {
         self.history.ignore = true;
+        self.emit_events = false;
         self.replace_text(value, window, cx);
         self.history.ignore = false;
+        self.emit_events = true;
 
         // Ensure cursor to start when set text
         if self.mode.is_single_line() {
@@ -654,6 +659,7 @@ impl InputState {
         // Move scroll to top
         self.scroll_handle.set_offset(point(px(0.), px(0.)));
 
+        self.history.clear();
         cx.notify();
     }
 
@@ -825,7 +831,7 @@ impl InputState {
     /// Set the default value of the input field.
     pub fn default_value(mut self, value: impl Into<SharedString>) -> Self {
         let text: SharedString = value.into();
-        self.text = Rope::from(text.as_str());
+        self.text = Rope::from(self.normalize_input(&text).as_ref());
         if let Some(diagnostics) = self.mode.diagnostics_mut() {
             diagnostics.reset(&self.text)
         }
@@ -1521,11 +1527,7 @@ impl InputState {
 
     pub(super) fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(clipboard) = cx.read_from_clipboard() {
-            let mut new_text = clipboard.text().unwrap_or_default();
-            if !self.mode.is_multi_line() {
-                new_text = new_text.replace('\n', "");
-            }
-
+            let new_text = clipboard.text().unwrap_or_default();
             self.replace_text_in_range_silent(None, &new_text, window, cx);
             self.scroll_to(self.cursor(), None, cx);
         }
@@ -1857,6 +1859,14 @@ impl InputState {
         pattern.is_match(new_text)
     }
 
+    fn normalize_input<'a>(&self, new_text: &'a str) -> Cow<'a, str> {
+        if self.mode.is_single_line() && new_text.contains(['\n', '\r']) {
+            Cow::Owned(new_text.replace(['\n', '\r'], ""))
+        } else {
+            Cow::Borrowed(new_text)
+        }
+    }
+
     /// Set the mask pattern for formatting the input text.
     ///
     /// The pattern can contain:
@@ -2036,7 +2046,11 @@ impl EntityInputHandler for InputState {
             return;
         }
 
-        self.pause_blink_cursor(cx);
+        if self.blink_cursor.read(cx).visible() {
+            self.pause_blink_cursor(cx);
+        }
+        let new_text = self.normalize_input(new_text);
+        let new_text: &str = &new_text;
         let commits_marked_text = self.ime_marked_range.is_some();
 
         let range = range_utf16
@@ -2052,6 +2066,7 @@ impl EntityInputHandler for InputState {
         let clipped_range = self.text.clip_offset(range.start, Bias::Left)
             ..self.text.clip_offset(range.end, Bias::Right);
         let old_slice = self.text.slice(clipped_range.clone()).to_string();
+        let old_text = self.text.clone();
         self.text.replace(range.clone(), new_text);
 
         let mut new_offset = (range.start + new_text.len()).min(self.text.len());
@@ -2085,7 +2100,7 @@ impl EntityInputHandler for InputState {
         self.text_wrapper
             .update(&self.text, &range, &Rope::from(new_text), cx);
         self.mode
-            .update_highlighter(&range, &self.text, &new_text, true, cx);
+            .update_highlighter(&range, &old_text, &self.text, new_text, true, cx);
         self.lsp.update(&self.text, window, cx);
         self.selected_range = (new_offset..new_offset).into();
         self.selection_reversed = false;
@@ -2096,7 +2111,9 @@ impl EntityInputHandler for InputState {
         if !self.silent_replace_text {
             self.handle_completion_trigger(&range, &new_text, window, cx);
         }
-        cx.emit(InputEvent::Change);
+        if self.emit_events {
+            cx.emit(InputEvent::Change);
+        }
         cx.notify();
     }
 
@@ -2115,6 +2132,8 @@ impl EntityInputHandler for InputState {
 
         self.lsp.reset();
         let had_marked_text = self.ime_marked_range.is_some();
+        let new_text = self.normalize_input(new_text);
+        let new_text: &str = &new_text;
 
         let range = range_utf16
             .as_ref()
@@ -2129,6 +2148,7 @@ impl EntityInputHandler for InputState {
         let clipped_range = self.text.clip_offset(range.start, Bias::Left)
             ..self.text.clip_offset(range.end, Bias::Right);
         let old_slice = self.text.slice(clipped_range.clone()).to_string();
+        let old_text = self.text.clone();
         self.text.replace(range.clone(), new_text);
 
         if self.mode.is_single_line() {
@@ -2146,7 +2166,7 @@ impl EntityInputHandler for InputState {
         self.text_wrapper
             .update(&self.text, &range, &Rope::from(new_text), cx);
         self.mode
-            .update_highlighter(&range, &self.text, &new_text, true, cx);
+            .update_highlighter(&range, &old_text, &self.text, new_text, true, cx);
         self.lsp.update(&self.text, window, cx);
         if new_text.is_empty() {
             self.selected_range = (clipped_range.start..clipped_range.start).into();
@@ -2263,7 +2283,7 @@ impl Render for InputState {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self._pending_update {
             self.mode
-                .update_highlighter(&(0..0), &self.text, "", false, cx);
+                .update_highlighter(&(0..0), &self.text, &self.text, "", false, cx);
             self.lsp.update(&self.text, window, cx);
             self._pending_update = false;
         }
@@ -2309,6 +2329,21 @@ mod tests {
         (window, visual_cx)
     }
 
+    fn new_single_line_input_state(
+        cx: &mut TestAppContext,
+        value: &'static str,
+    ) -> (gpui::WindowHandle<InputState>, gpui::VisualTestContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                cx.new(|cx| InputState::new(window, cx).default_value(value))
+            })
+            .unwrap()
+        });
+        let visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        (window, visual_cx)
+    }
+
     fn new_input_state_in_root(
         cx: &mut TestAppContext,
         value: &'static str,
@@ -2346,6 +2381,62 @@ mod tests {
             assert_eq!(input.a11y_value().as_deref(), Some("secret"));
             input.masked = true;
             assert_eq!(input.a11y_value(), None);
+        });
+    }
+
+    #[gpui::test]
+    fn single_line_input_removes_all_line_breaks(cx: &mut TestAppContext) {
+        let (window, cx) = &mut new_single_line_input_state(cx, "default\nvalue");
+        let input = window.root(cx).unwrap();
+
+        input.update_in(cx, |input, window, cx| {
+            assert_eq!(input.value(), "defaultvalue");
+
+            input.set_value("first\nsecond\r\nthird\rfourth", window, cx);
+            assert_eq!(input.value(), "firstsecondthirdfourth");
+
+            input.set_value("", window, cx);
+            input.insert("a\nb", window, cx);
+            assert_eq!(input.value(), "ab");
+
+            input.replace_and_mark_text_in_range(None, "c\r\nd", None, window, cx);
+            assert_eq!(input.value(), "abcd");
+            input.unmark_text(window, cx);
+        });
+
+        cx.update(|window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("e\r\nf\ng\rh".to_string()));
+            input.update(cx, |input, cx| input.paste(&Paste, window, cx));
+        });
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "abcdefgh");
+    }
+
+    #[gpui::test]
+    fn set_value_emits_no_change_and_clears_undo_history(cx: &mut TestAppContext) {
+        let (window, cx) = &mut new_single_line_input_state(cx, "old");
+        let input = window.root(cx).unwrap();
+        let change_count = Rc::new(Cell::new(0));
+        let _subscription = cx.update(|_, cx| {
+            cx.subscribe(&input, {
+                let change_count = change_count.clone();
+                move |_, event: &InputEvent, _| {
+                    if matches!(event, InputEvent::Change) {
+                        change_count.set(change_count.get() + 1);
+                    }
+                }
+            })
+        });
+
+        input.update_in(cx, |input, window, cx| {
+            input.insert("x", window, cx);
+            input.set_value("replacement", window, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(change_count.get(), 1);
+
+        input.update_in(cx, |input, window, cx| {
+            input.undo(&Undo, window, cx);
+            assert_eq!(input.value(), "replacement");
         });
     }
 

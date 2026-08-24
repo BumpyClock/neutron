@@ -10,11 +10,11 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 - Framework: `gpui-component` `0.7.0`
 - Framework repository: `https://github.com/BumpyClock/neutron`
 - Declared Rust MSRV: `1.90` (not exercised by this audit)
-- Repository-pinned toolchain: `1.95.0` (not installed in this environment)
-- Audit host toolchain: `1.97.1`
+- Repository-pinned toolchain: `1.95.0`
+- Audit host toolchain: `1.95.0`
 - Engine path: `engine`
 - Zed upstream: `https://github.com/zed-industries/zed`
-- Zed upstream base: `2c4e44704c37ee87e59ac84e3e17388178b28545`
+- Zed upstream base: `d9ad6aff67e47de43abb270d22de75dd950f1b48`
 
 ## Engine packages
 
@@ -40,7 +40,7 @@ read_when: "updating GPUI pins, packaging crates, or preparing a release"
 | Linux X11 | `x86_64-unknown-linux-gnu` | not-verified | not-verified | not-verified | not-verified | not-verified | not-verified | experimental |
 | Linux Wayland | `x86_64-unknown-linux-gnu` | not-verified | not-verified | not-verified | not-verified | not-verified | not-verified | experimental |
 
-- **macOS:** Locked workspace build, unit suite, and AppShell headless harness passed locally. All six Stage 1 macos-metal scenarios passed local source-blind validation, including exact AppKit display/window groups, Metal backend-accepted evidence, and the external pbpaste clipboard handshake. No immutable retained CI evidence references that local run, so published native-runtime and renderer status remain not-verified.
+- **macOS:** Locked workspace build, unit suite, and AppShell headless harness passed locally. On 2026-08-23, the current target worktree built and launched the GPUI Component story app. macOS window inventory reported its 1324 by 856 AppKit window on screen. All six native conformance scenarios passed source-blind validation with backend-accepted presentation on the Apple M5 Max Metal hardware adapter. The interaction-contracts scenario produced 20 valid JSONL records. The external pbpaste clipboard handshake passed. Published native-runtime and renderer status remain not-verified because no immutable retained CI evidence identifies this dirty worktree.
 - **Windows:** The Stage 1 WARP job is configured but has not run. Native Windows lifecycle/window/presentation runtime remains unrun for this compatibility line, and WM_QUERYENDSESSION/WM_ENDSESSION are unsupported.
 - **Linux X11:** The Stage 1 Xvfb/lavapipe job is configured but has not run. Source and compile evidence exist; live Linux X11 lifecycle/window/presentation runtime remains unrun.
 - **Linux Wayland:** The Stage 1 normal-Weston and private clipboard-fixture topology is configured but has not run in GitHub Actions. A pinned Weston 16 build, normal compositor readiness probe, and fixture TAP probe passed in Ubuntu 24.04 Docker; live GPUI Wayland lifecycle/window/presentation runtime remains unrun.

@@ -37,6 +37,7 @@ collapsed: false
 ### Form Components
 
 - [Input](input) - An input field or a component that looks like an input field.
+- [Combobox](combobox) - A searchable single-select or multi-select control.
 - [Select](select) - A list of options for the user to pick.
 - [NumberInput](number-input) - Numeric input with increment/decrement
 - [DatePicker](date-picker) - Date selection with calendar
@@ -49,6 +50,7 @@ collapsed: false
 
 - [DescriptionList](description-list) - Key-value pair display
 - [GroupBox](group-box) - Grouped content with borders
+- [AlertDialog](alert-dialog) - Modal prompt that requires a user response
 - [Dialog](dialog) - Dialog and modal windows
 - [Notification](notification) - Toast notifications
 - [Popover](popover) - Floating content display
@@ -56,6 +58,7 @@ collapsed: false
 - [Scrollable](scrollable) - Scrollable containers
 - [Sheet](sheet) - Slide-in panel from edges
 - [Sidebar](sidebar) - Navigation sidebar
+- [StatusBar](status-bar) - Bottom application status and command regions
 
 ### Advanced Components
 

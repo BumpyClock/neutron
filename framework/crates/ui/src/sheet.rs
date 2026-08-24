@@ -16,7 +16,6 @@ use crate::{
     animation::{enter_animation, exit_animation},
     button::{Button, ButtonVariants as _},
     dialog::overlay_color,
-    global_state::GlobalState,
     h_flex,
     scroll::ScrollableElement as _,
     title_bar::TITLE_BAR_HEIGHT,
@@ -147,7 +146,7 @@ impl RenderOnce for Sheet {
                 window_paddings.top + window_paddings.bottom,
             );
         let top = cx.theme().sheet.margin_top;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = &cx.theme().motion;
         let closing = self.closing;
         // While closing, the Root keeps the sheet mounted for the exit window

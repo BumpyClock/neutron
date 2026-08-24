@@ -6,16 +6,16 @@ use cocoa::{
     base::{id, nil},
     foundation::NSData,
 };
-use objc::{msg_send, runtime::Object, sel, sel_impl};
+use objc::{msg_send, rc::StrongPtr, runtime::Object, sel, sel_impl};
 use strum::IntoEnumIterator as _;
 
 use crate::ns_string;
 use gpui::{ClipboardEntry, ClipboardItem, ClipboardString, Image, ImageFormat, hash};
 
 pub struct Pasteboard {
-    inner: id,
-    text_hash_type: id,
-    metadata_type: id,
+    inner: StrongPtr,
+    text_hash_type: StrongPtr,
+    metadata_type: StrongPtr,
 }
 
 impl Pasteboard {
@@ -33,10 +33,12 @@ impl Pasteboard {
     }
 
     unsafe fn new(inner: id) -> Self {
+        // These constructors return autoreleased objects, but a Pasteboard can
+        // outlive the autorelease pool in which it was created.
         Self {
-            inner,
-            text_hash_type: unsafe { ns_string("zed-text-hash") },
-            metadata_type: unsafe { ns_string("zed-metadata") },
+            inner: unsafe { StrongPtr::retain(inner) },
+            text_hash_type: unsafe { StrongPtr::retain(ns_string("zed-text-hash")) },
+            metadata_type: unsafe { StrongPtr::retain(ns_string("zed-metadata")) },
         }
     }
 
@@ -81,7 +83,6 @@ impl Pasteboard {
             let types: id = self.inner.types();
             if msg_send![types, containsObject: ut_type.inner()] {
                 self.data_for_type(ut_type.inner_mut()).map(|bytes| {
-                    let bytes = bytes.to_vec();
                     let id = hash(&bytes);
 
                     ClipboardItem {
@@ -98,14 +99,14 @@ impl Pasteboard {
         unsafe {
             let text = String::from_utf8_lossy(text_bytes).to_string();
             let metadata = self
-                .data_for_type(self.text_hash_type)
+                .data_for_type(*self.text_hash_type)
                 .and_then(|hash_bytes| {
-                    let hash_bytes = hash_bytes.try_into().ok()?;
+                    let hash_bytes = hash_bytes.as_slice().try_into().ok()?;
                     let hash = u64::from_be_bytes(hash_bytes);
-                    let metadata = self.data_for_type(self.metadata_type)?;
+                    let metadata = self.data_for_type(*self.metadata_type)?;
 
                     if hash == ClipboardString::text_hash(&text) {
-                        String::from_utf8(metadata.to_vec()).ok()
+                        String::from_utf8(metadata).ok()
                     } else {
                         None
                     }
@@ -117,16 +118,17 @@ impl Pasteboard {
         }
     }
 
-    unsafe fn data_for_type(&self, kind: id) -> Option<&[u8]> {
+    unsafe fn data_for_type(&self, kind: id) -> Option<Vec<u8>> {
         unsafe {
             let data = self.inner.dataForType(kind);
             if data == nil {
                 None
+            } else if data.bytes().is_null() {
+                Some(Vec::new())
             } else {
-                Some(slice::from_raw_parts(
-                    data.bytes() as *mut u8,
-                    data.length() as usize,
-                ))
+                Some(
+                    slice::from_raw_parts(data.bytes() as *mut u8, data.length() as usize).to_vec(),
+                )
             }
         }
     }
@@ -195,7 +197,7 @@ impl Pasteboard {
                     hash_bytes.as_ptr() as *const c_void,
                     hash_bytes.len() as u64,
                 );
-                self.inner.setData_forType(hash_bytes, self.text_hash_type);
+                self.inner.setData_forType(hash_bytes, *self.text_hash_type);
 
                 let metadata_bytes = NSData::dataWithBytes_length_(
                     nil,
@@ -203,7 +205,7 @@ impl Pasteboard {
                     metadata.len() as u64,
                 );
                 self.inner
-                    .setData_forType(metadata_bytes, self.metadata_type);
+                    .setData_forType(metadata_bytes, *self.metadata_type);
             }
         }
     }
@@ -300,11 +302,29 @@ impl UTType {
 
 #[cfg(test)]
 mod tests {
-    use cocoa::{appkit::NSPasteboardTypeString, foundation::NSData};
+    use std::ffi::CStr;
+
+    use cocoa::{
+        appkit::NSPasteboardTypeString,
+        foundation::{NSData, NSString},
+    };
 
     use gpui::{ClipboardEntry, ClipboardItem, ClipboardString};
+    use objc::rc::autoreleasepool;
 
     use super::*;
+
+    #[test]
+    fn test_custom_types_survive_creation_autorelease_pool() {
+        let pasteboard = autoreleasepool(|| unsafe { Pasteboard::new(nil) });
+
+        unsafe {
+            let text_hash_type = CStr::from_ptr(NSString::UTF8String(*pasteboard.text_hash_type));
+            let metadata_type = CStr::from_ptr(NSString::UTF8String(*pasteboard.metadata_type));
+            assert_eq!(text_hash_type.to_bytes(), b"zed-text-hash");
+            assert_eq!(metadata_type.to_bytes(), b"zed-metadata");
+        }
+    }
 
     #[test]
     fn test_string() {

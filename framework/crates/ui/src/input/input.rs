@@ -1,8 +1,9 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, DefiniteLength, Edges, EdgesRefinement, Entity, InteractiveElement as _,
-    IntoElement, IsZero, MouseButton, ParentElement as _, Rems, RenderOnce, Role, SharedString,
-    StatefulInteractiveElement as _, StyleRefinement, Styled, TextAlign, Window, div, px, relative,
+    AccessibleAction, AnyElement, App, DefiniteLength, Edges, EdgesRefinement, Entity,
+    InteractiveElement as _, IntoElement, IsZero, MouseButton, ParentElement as _, Rems,
+    RenderOnce, Role, SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled,
+    TextAlign, Window, div, px, relative,
 };
 
 use crate::button::{Button, ButtonVariants as _};
@@ -170,6 +171,20 @@ impl Input {
             })
     }
 
+    fn handle_accessibility_set_value(
+        state: &Entity<InputState>,
+        data: Option<&gpui::accesskit::ActionData>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Some(gpui::accesskit::ActionData::Value(value)) = data else {
+            return;
+        };
+        state.update(cx, |state, cx| {
+            state.set_value(value.to_string(), window, cx);
+        });
+    }
+
     /// This method must after the refine_style.
     fn render_editor(
         paddings: EdgesRefinement<DefiniteLength>,
@@ -303,6 +318,12 @@ impl RenderOnce for Input {
                 this.aria_placeholder(input_placeholder)
             })
             .aria_disabled(state.disabled)
+            .when(!state.disabled, |this| {
+                let state = self.state.clone();
+                this.on_a11y_action(AccessibleAction::SetValue, move |data, window, cx| {
+                    Self::handle_accessibility_set_value(&state, data, window, cx);
+                })
+            })
             .flex()
             .key_context(crate::input::CONTEXT)
             .when(!state.disabled, |this| {

@@ -15,7 +15,6 @@ use crate::{
     actions::{Cancel, Confirm},
     animation::enter_animation,
     button::{Button, ButtonVariants as _},
-    global_state::GlobalState,
     h_flex,
     input::{Delete, clear_button},
     v_flex,
@@ -442,7 +441,7 @@ impl RenderOnce for DatePicker {
             )
             .when(state.open, |this| {
                 let motion = &cx.theme().motion;
-                let reduced_motion = GlobalState::global(cx).reduced_motion();
+                let reduced_motion = crate::animation::reduced_motion(cx);
                 let anim = enter_animation(motion, reduced_motion);
 
                 this.child(

@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::{
     ActiveTheme, Icon, IconName, Selectable, Sizable, Size, StyledExt, animation::fade_animation,
-    global_state::GlobalState, h_flex,
+    h_flex,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -614,7 +614,7 @@ impl RenderOnce for Tab {
 
         let selected = self.selected;
         let disabled = self.disabled;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
 
         // Track selected state transitions for animation
         let tab_select_state = window.use_keyed_state(

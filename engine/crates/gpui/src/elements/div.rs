@@ -260,6 +260,7 @@ impl Interactivity {
         self.mouse_down_listeners
             .push(Box::new(move |event, phase, hitbox, window, cx| {
                 if phase == DispatchPhase::Capture
+                    && !window.has_active_prompt()
                     && !hitbox.contains_window_point(window.mouse_position())
                 {
                     (listener)(event, window, cx)
@@ -581,6 +582,7 @@ impl Interactivity {
 
     /// Bind the given callback on the hover start and end events of this element. Note that the boolean
     /// passed to the callback is true when the hover starts and false when it ends.
+    /// Transitions caused by layout changes under a stationary mouse also invoke the callback.
     /// The imperative API equivalent to [`StatefulInteractiveElement::on_hover`].
     ///
     /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
@@ -1431,6 +1433,7 @@ pub trait StatefulInteractiveElement: InteractiveElement {
 
     /// Bind the given callback on the hover start and end events of this element. Note that the boolean
     /// passed to the callback is true when the hover starts and false when it ends.
+    /// Transitions caused by layout changes under a stationary mouse also invoke the callback.
     /// The fluent API equivalent to [`Interactivity::on_hover`].
     ///
     /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
@@ -2892,14 +2895,25 @@ impl Interactivity {
                     .get_or_insert_with(Default::default)
                     .clone();
                 let hover_listener = Rc::new(hover_listener);
+                let hover_listener_state = was_hovered.clone();
                 let update_hover = move |is_hovered: bool, window: &mut Window, cx: &mut App| {
-                    let mut was_hovered = was_hovered.borrow_mut();
+                    let mut was_hovered = hover_listener_state.borrow_mut();
                     if is_hovered != *was_hovered {
                         *was_hovered = is_hovered;
                         drop(was_hovered);
                         hover_listener(&is_hovered, window, cx);
                     }
                 };
+
+                if has_mouse_down.borrow().is_none() {
+                    let is_hovered = !cx.has_active_drag() && hitbox.is_hovered(window);
+                    if is_hovered != *was_hovered.borrow() {
+                        let update_hover = update_hover.clone();
+                        window.defer(cx, move |window, cx| {
+                            update_hover(is_hovered, window, cx);
+                        });
+                    }
+                }
 
                 window.on_mouse_event({
                     let update_hover = update_hover.clone();
@@ -4223,7 +4237,7 @@ mod tests {
 
         test_app
             .update_window(any_window, |_, window, cx| {
-                window.draw(cx).clear();
+                window.draw(cx).clear(cx);
             })
             .unwrap();
 
@@ -4243,7 +4257,7 @@ mod tests {
 
         test_app
             .update_window(any_window, |_, window, cx| {
-                window.draw(cx).clear();
+                window.draw(cx).clear(cx);
             })
             .unwrap();
 
@@ -4366,6 +4380,204 @@ mod tests {
             .unwrap();
 
         assert!(active_tooltip.borrow().is_none());
+    }
+
+    struct HoverListenerLayoutTestView {
+        target_left: Pixels,
+        hover_transitions: Rc<RefCell<Vec<bool>>>,
+    }
+
+    impl Render for HoverListenerLayoutTestView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let hover_transitions = self.hover_transitions.clone();
+            div().relative().size_full().child(
+                div()
+                    .id("hover-target")
+                    .absolute()
+                    .left(self.target_left)
+                    .top_0()
+                    .size(px(20.))
+                    .on_click(|_, _, _| {})
+                    .on_hover(move |is_hovered, _, _| {
+                        hover_transitions.borrow_mut().push(*is_hovered);
+                    }),
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn hover_listeners_update_when_layout_changes_under_stationary_mouse(cx: &mut TestAppContext) {
+        let hover_transitions = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window({
+            let hover_transitions = hover_transitions.clone();
+            move |_, _| HoverListenerLayoutTestView {
+                target_left: px(40.),
+                hover_transitions,
+            }
+        });
+        let any_window = AnyWindowHandle::from(window);
+
+        cx.update_window(any_window, |_, window, cx| {
+            window.draw(cx).clear(cx);
+            window.simulate_mouse_move(point(px(10.), px(10.)), cx);
+        })
+        .unwrap();
+        assert!(hover_transitions.borrow().is_empty());
+
+        window
+            .update(cx, |view, _, cx| {
+                view.target_left = px(0.);
+                cx.notify();
+            })
+            .unwrap();
+        cx.update_window(any_window, |_, window, cx| window.draw(cx).clear(cx))
+            .unwrap();
+        assert_eq!(*hover_transitions.borrow(), [true]);
+
+        window
+            .update(cx, |view, _, cx| {
+                view.target_left = px(40.);
+                cx.notify();
+            })
+            .unwrap();
+        cx.update_window(any_window, |_, window, cx| window.draw(cx).clear(cx))
+            .unwrap();
+        assert_eq!(*hover_transitions.borrow(), [true, false]);
+    }
+
+    #[gpui::test]
+    fn hover_listeners_remain_hovered_during_stationary_mouse_press(cx: &mut TestAppContext) {
+        let hover_transitions = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.add_window({
+            let hover_transitions = hover_transitions.clone();
+            move |_, _| HoverListenerLayoutTestView {
+                target_left: px(0.),
+                hover_transitions,
+            }
+        });
+        let any_window = AnyWindowHandle::from(window);
+        let mouse_position = point(px(10.), px(10.));
+
+        cx.update_window(any_window, |_, window, cx| {
+            window.draw(cx).clear(cx);
+            window.simulate_mouse_move(mouse_position, cx);
+        })
+        .unwrap();
+        assert_eq!(*hover_transitions.borrow(), [true]);
+
+        cx.update_window(any_window, |_, window, cx| {
+            window.dispatch_event(
+                MouseDownEvent {
+                    position: mouse_position,
+                    button: MouseButton::Left,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }
+                .to_platform_input(),
+                cx,
+            );
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        assert_eq!(*hover_transitions.borrow(), [true]);
+
+        cx.update_window(any_window, |_, window, cx| {
+            window.dispatch_event(
+                MouseUpEvent {
+                    position: mouse_position,
+                    button: MouseButton::Left,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                }
+                .to_platform_input(),
+                cx,
+            );
+            window.draw(cx).clear(cx);
+        })
+        .unwrap();
+        assert_eq!(*hover_transitions.borrow(), [true]);
+    }
+
+    struct MouseDownOutOwner {
+        mouse_down_out_count: Rc<RefCell<usize>>,
+    }
+
+    impl Render for MouseDownOutOwner {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let mouse_down_out_count = self.mouse_down_out_count.clone();
+            div()
+                .size_full()
+                .child(div().id("target").w(px(50.)).h(px(50.)).on_mouse_down_out(
+                    move |_, _, _| {
+                        *mouse_down_out_count.borrow_mut() += 1;
+                    },
+                ))
+        }
+    }
+
+    #[test]
+    fn mouse_down_out_is_suppressed_while_window_prompt_is_active() {
+        let mut test_app = TestAppContext::single();
+        let mouse_down_out_count = Rc::new(RefCell::new(0));
+        let window = test_app.add_window({
+            let mouse_down_out_count = mouse_down_out_count.clone();
+            move |_, _| MouseDownOutOwner {
+                mouse_down_out_count,
+            }
+        });
+        let any_window: AnyWindowHandle = window.into();
+
+        fn dispatch_mouse_down_outside_target(
+            test_app: &mut TestAppContext,
+            any_window: AnyWindowHandle,
+        ) {
+            test_app
+                .update_window(any_window, |_, window, cx| {
+                    window.dispatch_event(
+                        MouseDownEvent {
+                            position: point(px(75.), px(75.)),
+                            button: MouseButton::Left,
+                            modifiers: Default::default(),
+                            click_count: 1,
+                            first_mouse: false,
+                        }
+                        .to_platform_input(),
+                        cx,
+                    );
+                })
+                .unwrap();
+        }
+
+        test_app
+            .update_window(any_window, |_, window, cx| {
+                window.draw(cx).clear(cx);
+            })
+            .unwrap();
+
+        dispatch_mouse_down_outside_target(&mut test_app, any_window);
+        assert_eq!(
+            *mouse_down_out_count.borrow(),
+            1,
+            "mouse down outside the element should fire mouse-down-out listeners"
+        );
+
+        test_app
+            .update_window(any_window, |_, window, cx| {
+                cx.set_prompt_builder(crate::fallback_prompt_renderer);
+                let _receiver =
+                    window.prompt(crate::PromptLevel::Warning, "message", None, &["Ok"], cx);
+                assert!(window.has_active_prompt());
+                window.draw(cx).clear(cx);
+            })
+            .unwrap();
+
+        dispatch_mouse_down_outside_target(&mut test_app, any_window);
+        assert_eq!(
+            *mouse_down_out_count.borrow(),
+            1,
+            "mouse down over an active prompt should not fire mouse-down-out listeners"
+        );
     }
 
     fn draw_accessible<E>(
@@ -5067,7 +5279,7 @@ mod tests {
         cx.update_window(window, |_, window, cx| window.focus(handle, cx))
             .unwrap();
         cx.run_until_parked();
-        cx.update_window(window, |_, window, cx| window.draw(cx).clear())
+        cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
             .unwrap();
     }
 

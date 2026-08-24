@@ -1,7 +1,6 @@
 use crate::actions::{Cancel, Confirm, SelectDown, SelectUp};
 use crate::actions::{SelectLeft, SelectRight};
 use crate::animation::{FlyoutSlide, PresenceOptions, flyout_motion, flyout_presence};
-use crate::global_state::GlobalState;
 use crate::menu::menu_item::MenuItemElement;
 use crate::scroll::ScrollableElement;
 use crate::{
@@ -329,6 +328,7 @@ pub struct PopupMenu {
     scroll_handle: ScrollHandle,
     // This will update on render
     submenu_anchor: (Corner, Pixels),
+    priority: usize,
 
     _subscriptions: Vec<Subscription>,
 }
@@ -352,6 +352,7 @@ impl PopupMenu {
             external_link_icon: true,
             size: Size::default(),
             submenu_anchor: (Corner::TopLeft, Pixels::ZERO),
+            priority: 1,
             _subscriptions: vec![],
         }
     }
@@ -362,6 +363,34 @@ impl PopupMenu {
         f: impl FnOnce(Self, &mut Window, &mut Context<PopupMenu>) -> Self,
     ) -> Entity<Self> {
         cx.new(|cx| f(Self::new(cx), window, cx))
+    }
+
+    pub(crate) fn set_action_context(
+        &mut self,
+        action_context: Option<FocusHandle>,
+        cx: &mut Context<Self>,
+    ) {
+        self.action_context = action_context.clone();
+
+        for item in &self.menu_items {
+            if let PopupMenuItem::Submenu { menu, .. } = item {
+                menu.update(cx, |menu, cx| {
+                    menu.set_action_context(action_context.clone(), cx);
+                });
+            }
+        }
+    }
+
+    fn set_priority(&mut self, priority: usize, cx: &mut Context<Self>) {
+        self.priority = priority;
+
+        for item in &self.menu_items {
+            if let PopupMenuItem::Submenu { menu, .. } = item {
+                menu.update(cx, |menu, cx| {
+                    menu.set_priority(priority + 1, cx);
+                });
+            }
+        }
     }
 
     fn push_item(&mut self, item: PopupMenuItem, checkable: bool) {
@@ -691,8 +720,10 @@ impl PopupMenu {
     ) -> Self {
         let submenu = PopupMenu::build(window, cx, f);
         let parent_menu = cx.entity().downgrade();
-        submenu.update(cx, |view, _| {
+        let parent_priority = self.priority;
+        submenu.update(cx, |view, cx| {
             view.parent_menu = Some(parent_menu);
+            view.set_priority(parent_priority + 1, cx);
         });
 
         self.push_item(
@@ -1012,14 +1043,12 @@ impl PopupMenu {
     }
 
     fn dismiss(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active_submenu().is_some() {
-            return;
-        }
-
+        self.selected_index = None;
         cx.emit(DismissEvent);
 
-        // Focus back to the previous focused handle.
-        if let Some(action_context) = self.action_context.as_ref() {
+        let focus_moved_away =
+            window.focused(cx).is_some() && !self.focus_handle.contains_focused(window, cx);
+        if !focus_moved_away && let Some(action_context) = self.action_context.as_ref() {
             window.focus(action_context, cx);
         }
 
@@ -1029,7 +1058,6 @@ impl PopupMenu {
 
         // Dismiss parent menu, when this menu is dismissed
         _ = parent_menu.update(cx, |view, cx| {
-            view.selected_index = None;
             view.dismiss(&Cancel, window, cx);
         });
     }
@@ -1047,6 +1075,10 @@ impl PopupMenu {
                     return;
                 }
             }
+        }
+
+        if self.active_submenu().is_some() {
+            return;
         }
 
         self.dismiss(&Cancel, window, cx);
@@ -1350,7 +1382,7 @@ impl PopupMenu {
                 menu,
                 disabled,
             } => {
-                let reduced_motion = GlobalState::global(cx).reduced_motion();
+                let reduced_motion = crate::animation::reduced_motion(cx);
                 let motion = cx.theme().motion.clone();
                 let submenu_presence = flyout_presence(
                     SharedString::from(format!(
@@ -1437,7 +1469,7 @@ impl PopupMenu {
                                     .child(animated_inner)
                                     .snap_to_window_with_margin(Edges::all(EDGE_PADDING)),
                             )
-                            .with_priority(2)
+                            .with_priority(self.priority + 1)
                             .into_any_element()
                         })
                     })
@@ -1624,6 +1656,48 @@ mod tests {
     }
 
     #[gpui::test]
+    fn test_nested_popup_menus_increment_priority_and_share_action_context(
+        cx: &mut TestAppContext,
+    ) {
+        let (_window, mut cx, _) = new_popup_menu(cx);
+        let menu = cx.update(|window, cx| {
+            PopupMenu::build(window, cx, |menu, window, cx| {
+                menu.submenu("Level 2", window, cx, |submenu, window, cx| {
+                    submenu.submenu("Level 3", window, cx, |submenu, _, _| {
+                        submenu.item(PopupMenuItem::new("Leaf"))
+                    })
+                })
+            })
+        });
+        let submenu = menu.read_with(&cx, |menu, _| match &menu.menu_items[0] {
+            PopupMenuItem::Submenu { menu, .. } => menu.clone(),
+            _ => panic!("expected level-two submenu"),
+        });
+        let nested = submenu.read_with(&cx, |menu, _| match &menu.menu_items[0] {
+            PopupMenuItem::Submenu { menu, .. } => menu.clone(),
+            _ => panic!("expected level-three submenu"),
+        });
+        let action_context = cx.update(|_, cx| cx.focus_handle());
+
+        menu.update_in(&mut cx, |menu, _, cx| {
+            menu.set_action_context(Some(action_context), cx);
+        });
+
+        menu.read_with(&cx, |menu, _| {
+            assert_eq!(menu.priority, 1);
+            assert!(menu.action_context.is_some());
+        });
+        submenu.read_with(&cx, |menu, _| {
+            assert_eq!(menu.priority, 2);
+            assert!(menu.action_context.is_some());
+        });
+        nested.read_with(&cx, |menu, _| {
+            assert_eq!(menu.priority, 3);
+            assert!(menu.action_context.is_some());
+        });
+    }
+
+    #[gpui::test]
     fn test_popup_menu_projects_owned_action_disabled_state(cx: &mut TestAppContext) {
         let (_window, mut cx, _) = new_popup_menu(cx);
         let menu = cx.update(|window, cx| {
@@ -1706,7 +1780,7 @@ mod tests {
         let update = visual_cx.update(|window, cx| {
             menu.update(cx, |menu, cx| menu.focus_handle.focus(window, cx));
             window.set_a11y_active_for_test(true);
-            window.draw(cx).clear();
+            window.draw(cx).clear(cx);
             let update = window
                 .last_a11y_tree_for_test()
                 .cloned()

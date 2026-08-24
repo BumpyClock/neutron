@@ -17,6 +17,7 @@ use crate::{
 use super::{InputState, LastLayout, WhitespaceIndicators, mode::InputMode};
 
 const BOTTOM_MARGIN_ROWS: usize = 3;
+const MASK_CHAR: &str = "*";
 pub(super) const RIGHT_MARGIN: Pixels = px(10.);
 pub(super) const LINE_NUMBER_RIGHT_MARGIN: Pixels = px(10.);
 
@@ -743,12 +744,12 @@ impl TextElement {
         let visible_range_offset = &last_layout.visible_range_offset;
 
         if is_single_line {
-            let shaped_line = window.text_system().shape_line(
-                display_text.to_string().into(),
-                font_size,
-                &runs,
-                None,
-            );
+            let text: SharedString = display_text.to_string().into();
+            let aligned_runs = align_runs_to_char_boundaries(&text, runs);
+            let line_runs = aligned_runs.as_deref().unwrap_or(runs);
+            let shaped_line = window
+                .text_system()
+                .shape_line(text, font_size, line_runs, None);
 
             let line_layout = LineLayout::new()
                 .lines(smallvec::smallvec![shaped_line])
@@ -804,9 +805,11 @@ impl TextElement {
                 };
 
                 let sub_line: SharedString = line[range.clone()].to_string().into();
+                let aligned_runs = align_runs_to_char_boundaries(&sub_line, &line_runs);
+                let line_runs = aligned_runs.as_deref().unwrap_or(&line_runs);
                 let shaped_line = window
                     .text_system()
-                    .shape_line(sub_line, font_size, &line_runs, None);
+                    .shape_line(sub_line, font_size, line_runs, None);
 
                 wrapped_lines.push(shaped_line);
             }
@@ -1020,8 +1023,42 @@ impl Element for TextElement {
         });
 
         let state = self.state.read(cx);
-        let line_height = window.line_height();
+        let multi_line = state.mode.is_multi_line();
+        let text = state.text.clone();
+        let is_empty = text.len() == 0;
+        let placeholder = self.placeholder.clone();
+        let mut bounds = bounds;
+        let (display_text, text_color) = if is_empty {
+            (
+                Rope::from(placeholder.as_str()),
+                cx.theme().muted_foreground,
+            )
+        } else if state.masked {
+            (
+                Rope::from(MASK_CHAR.repeat(text.chars().count())),
+                cx.theme().foreground,
+            )
+        } else {
+            (text.clone(), cx.theme().foreground)
+        };
+        let text_style = window.text_style();
 
+        // Calculate the width of the line numbers
+        let (line_number_width, line_number_len) =
+            Self::layout_line_numbers(&state, &text, text_size, &text_style, window);
+
+        let wrap_width = if multi_line && state.soft_wrap {
+            Some(bounds.size.width - line_number_width - RIGHT_MARGIN)
+        } else {
+            None
+        };
+        self.state.update(cx, |state, cx| {
+            state.text_wrapper.set_wrap_width(wrap_width, cx);
+            state.mode.update_auto_grow(&state.text_wrapper);
+        });
+
+        let state = self.state.read(cx);
+        let line_height = window.line_height();
         let (visible_range, visible_top) =
             self.calculate_visible_range(&state, line_height, bounds.size.height);
         let visible_start_offset = state.text.line_start_offset(visible_range.start);
@@ -1037,38 +1074,6 @@ impl Element for TextElement {
         );
 
         let state = self.state.read(cx);
-        let multi_line = state.mode.is_multi_line();
-        let text = state.text.clone();
-        let is_empty = text.len() == 0;
-        let placeholder = self.placeholder.clone();
-
-        let mut bounds = bounds;
-
-        let (display_text, text_color) = if is_empty {
-            (
-                &Rope::from(placeholder.as_str()),
-                cx.theme().muted_foreground,
-            )
-        } else if state.masked {
-            (
-                &Rope::from("*".repeat(text.chars().count())),
-                cx.theme().foreground,
-            )
-        } else {
-            (&text, cx.theme().foreground)
-        };
-
-        let text_style = window.text_style();
-
-        // Calculate the width of the line numbers
-        let (line_number_width, line_number_len) =
-            Self::layout_line_numbers(&state, &text, text_size, &text_style, window);
-
-        let wrap_width = if multi_line && state.soft_wrap {
-            Some(bounds.size.width - line_number_width - RIGHT_MARGIN)
-        } else {
-            None
-        };
 
         let mut last_layout = LastLayout {
             visible_range,
@@ -1104,51 +1109,34 @@ impl Element for TextElement {
             strikethrough: None,
         };
 
-        let runs = if !is_empty {
-            if let Some(highlight_styles) = highlight_styles {
-                let mut runs = vec![];
-
-                runs.extend(highlight_styles.iter().map(|(range, style)| {
-                    let mut run = text_style.clone().highlight(*style).to_run(range.len());
-                    if let Some(ime_marked_range) = &state.ime_marked_range {
-                        if range.start >= ime_marked_range.start
-                            && range.end <= ime_marked_range.end
-                        {
-                            run.color = marked_run.color;
-                            run.strikethrough = marked_run.strikethrough;
-                            run.underline = marked_run.underline;
-                        }
-                    }
-
-                    run
-                }));
-
-                runs.into_iter().filter(|run| run.len > 0).collect()
-            } else {
-                vec![run]
+        let ime_marked_range = ime_marked_display_range(
+            &text,
+            state
+                .ime_marked_range
+                .as_ref()
+                .map(|range| range.start..range.end),
+            state.masked,
+        );
+        let runs = if let (false, Some(highlight_styles)) = (is_empty, highlight_styles) {
+            let mut runs = Vec::with_capacity(highlight_styles.len() + 2);
+            for (range, style) in &highlight_styles {
+                let run = text_style.clone().highlight(*style).to_run(range.len());
+                runs.extend(split_run_for_ime_underline(
+                    run,
+                    range.clone(),
+                    ime_marked_range.clone(),
+                    marked_run.underline,
+                ));
             }
-        } else if let Some(ime_marked_range) = &state.ime_marked_range {
-            // IME marked text
-            vec![
-                TextRun {
-                    len: ime_marked_range.start,
-                    ..run.clone()
-                },
-                TextRun {
-                    len: ime_marked_range.end - ime_marked_range.start,
-                    underline: marked_run.underline,
-                    ..run.clone()
-                },
-                TextRun {
-                    len: display_text.len() - ime_marked_range.end,
-                    ..run
-                },
-            ]
-            .into_iter()
-            .filter(|run| run.len > 0)
-            .collect()
+            runs
         } else {
-            vec![run]
+            split_run_for_ime_underline(
+                run,
+                0..display_text.len(),
+                ime_marked_range,
+                marked_run.underline,
+            )
+            .into_vec()
         };
 
         let document_colors = state
@@ -1670,6 +1658,96 @@ pub(super) fn runs_for_range(
     result
 }
 
+fn masked_display_offset(text: &Rope, original_offset: usize) -> usize {
+    text.offset_to_char_index(original_offset) * MASK_CHAR.len()
+}
+
+fn ime_marked_display_range(
+    text: &Rope,
+    marked_range: Option<Range<usize>>,
+    masked: bool,
+) -> Option<Range<usize>> {
+    let marked_range = marked_range?;
+    if masked {
+        Some(
+            masked_display_offset(text, marked_range.start)
+                ..masked_display_offset(text, marked_range.end),
+        )
+    } else {
+        Some(marked_range)
+    }
+}
+
+fn split_run_for_ime_underline(
+    run: TextRun,
+    run_range: Range<usize>,
+    marked_range: Option<Range<usize>>,
+    marked_underline: Option<UnderlineStyle>,
+) -> SmallVec<[TextRun; 3]> {
+    if run.len == 0 {
+        return SmallVec::new();
+    }
+
+    let Some(marked_range) = marked_range else {
+        return [run].into_iter().collect();
+    };
+
+    let intersection_start = run_range.start.max(marked_range.start);
+    let intersection_end = run_range.end.min(marked_range.end);
+    if intersection_start >= intersection_end {
+        return [run].into_iter().collect();
+    }
+
+    [
+        TextRun {
+            len: intersection_start - run_range.start,
+            ..run.clone()
+        },
+        TextRun {
+            len: intersection_end - intersection_start,
+            underline: marked_underline,
+            ..run.clone()
+        },
+        TextRun {
+            len: run_range.end - intersection_end,
+            ..run
+        },
+    ]
+    .into_iter()
+    .filter(|run| run.len > 0)
+    .collect()
+}
+
+fn align_runs_to_char_boundaries(text: &str, runs: &[TextRun]) -> Option<Vec<TextRun>> {
+    let mut end = 0;
+    if runs.iter().all(|run| {
+        end += run.len;
+        end <= text.len() && text.is_char_boundary(end)
+    }) {
+        return None;
+    }
+
+    let mut result = Vec::with_capacity(runs.len());
+    let mut cursor = 0;
+    let mut raw_end = 0;
+    for run in runs {
+        raw_end = (raw_end + run.len).min(text.len());
+        let mut end = raw_end;
+        while !text.is_char_boundary(end) {
+            end += 1;
+        }
+        if end > cursor {
+            result.push(TextRun {
+                len: end - cursor,
+                ..run.clone()
+            });
+            cursor = end;
+        }
+    }
+
+    Some(result)
+}
+
 fn split_runs_by_bg_segments(
     start_offset: usize,
     runs: &[TextRun],
@@ -1735,6 +1813,80 @@ fn split_runs_by_bg_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_run(len: usize) -> TextRun {
+        TextRun {
+            len,
+            font: gpui::font(".SystemUIFont"),
+            color: gpui::black(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }
+    }
+
+    #[test]
+    fn ime_underline_splits_each_highlight_run() {
+        let underline = UnderlineStyle {
+            thickness: px(1.),
+            color: Some(gpui::black()),
+            wavy: false,
+        };
+        let runs = [0..4, 4..10]
+            .into_iter()
+            .flat_map(|range| {
+                split_run_for_ime_underline(
+                    test_run(range.len()),
+                    range,
+                    Some(2..7),
+                    Some(underline),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            runs.iter()
+                .map(|run| (run.len, run.underline.is_some()))
+                .collect::<Vec<_>>(),
+            vec![(2, false), (2, true), (3, true), (3, false)]
+        );
+    }
+
+    #[test]
+    fn masked_ime_range_uses_display_offsets() {
+        let text = Rope::from("é好a");
+
+        assert_eq!(
+            ime_marked_display_range(&text, Some(2..5), false),
+            Some(2..5)
+        );
+        assert_eq!(
+            ime_marked_display_range(&text, Some(2..5), true),
+            Some(1..2)
+        );
+        assert_eq!(ime_marked_display_range(&text, None, true), None);
+    }
+
+    #[test]
+    fn shaped_runs_snap_to_utf8_boundaries() {
+        let text = "你好，世界";
+        let runs = |lengths: &[usize]| lengths.iter().map(|&len| test_run(len)).collect::<Vec<_>>();
+        let lengths = |runs: &[TextRun]| runs.iter().map(|run| run.len).collect::<Vec<_>>();
+
+        assert_eq!(align_runs_to_char_boundaries(text, &runs(&[3, 12])), None);
+        assert_eq!(
+            lengths(&align_runs_to_char_boundaries(text, &runs(&[4, 11])).unwrap()),
+            vec![6, 9]
+        );
+        assert_eq!(
+            lengths(&align_runs_to_char_boundaries(text, &runs(&[1, 1, 13])).unwrap()),
+            vec![3, 12]
+        );
+        assert_eq!(
+            lengths(&align_runs_to_char_boundaries(text, &runs(&[3, 20])).unwrap()),
+            vec![3, 12]
+        );
+    }
 
     #[test]
     fn test_runs_for_range() {

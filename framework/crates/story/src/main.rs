@@ -38,6 +38,7 @@ impl Gallery {
                 "Components",
                 vec![
                     StoryContainer::panel::<AccordionStory>(window, cx),
+                    StoryContainer::panel::<AlertDialogStory>(window, cx),
                     StoryContainer::panel::<AlertStory>(window, cx),
                     StoryContainer::panel::<AppShellStory>(window, cx),
                     StoryContainer::panel::<AvatarStory>(window, cx),
@@ -50,6 +51,7 @@ impl Gallery {
                     StoryContainer::panel::<ClipboardStory>(window, cx),
                     StoryContainer::panel::<CollapsibleStory>(window, cx),
                     StoryContainer::panel::<ColorPickerStory>(window, cx),
+                    StoryContainer::panel::<ComboboxStory>(window, cx),
                     StoryContainer::panel::<CommandPaletteStory>(window, cx),
                     StoryContainer::panel::<DatePickerStory>(window, cx),
                     StoryContainer::panel::<DescriptionListStory>(window, cx),
@@ -84,6 +86,7 @@ impl Gallery {
                     StoryContainer::panel::<SkeletonStory>(window, cx),
                     StoryContainer::panel::<SliderStory>(window, cx),
                     StoryContainer::panel::<SpinnerStory>(window, cx),
+                    StoryContainer::panel::<StatusBarStory>(window, cx),
                     StoryContainer::panel::<StepperStory>(window, cx),
                     StoryContainer::panel::<SwitchStory>(window, cx),
                     StoryContainer::panel::<TableStory>(window, cx),

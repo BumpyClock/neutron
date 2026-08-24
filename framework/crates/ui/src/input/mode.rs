@@ -191,8 +191,9 @@ impl InputMode {
     pub(super) fn update_highlighter(
         &mut self,
         selected_range: &Range<usize>,
-        text: &Rope,
-        new_text: &str,
+        old_text: &Rope,
+        new_text: &Rope,
+        change_text: &str,
         force: bool,
         cx: &mut App,
     ) {
@@ -216,31 +217,9 @@ impl InputMode {
                     return;
                 };
 
-                // When full text changed, the selected_range may be out of bound (The before version).
-                let mut selected_range = selected_range.clone();
-                selected_range.end = selected_range.end.min(text.len());
+                let edit = replacement_input_edit(old_text, new_text, selected_range, change_text);
 
-                // If insert a chart, this is 1.
-                // If backspace or delete, this is -1.
-                // If selected to delete, this is the length of the selected text.
-                // let changed_len = new_text.len() as isize - selected_range.len() as isize;
-                let changed_len = new_text.len() as isize - selected_range.len() as isize;
-                let new_end = (selected_range.end as isize + changed_len) as usize;
-
-                let start_pos = text.offset_to_point(selected_range.start);
-                let old_end_pos = text.offset_to_point(selected_range.end);
-                let new_end_pos = text.offset_to_point(new_end);
-
-                let edit = InputEdit {
-                    start_byte: selected_range.start,
-                    old_end_byte: selected_range.end,
-                    new_end_byte: new_end,
-                    start_position: start_pos,
-                    old_end_position: old_end_pos,
-                    new_end_position: new_end_pos,
-                };
-
-                highlighter.update(Some(edit), text);
+                highlighter.update(Some(edit), new_text);
             }
             _ => {}
         }
@@ -262,14 +241,50 @@ impl InputMode {
     }
 }
 
+fn replacement_input_edit(
+    old_text: &Rope,
+    new_text: &Rope,
+    selected_range: &Range<usize>,
+    change_text: &str,
+) -> InputEdit {
+    let start_byte = selected_range.start.min(old_text.len());
+    let old_end_byte = selected_range.end.min(old_text.len()).max(start_byte);
+    let new_end_byte = (start_byte + change_text.len()).min(new_text.len());
+
+    InputEdit {
+        start_byte,
+        old_end_byte,
+        new_end_byte,
+        start_position: old_text.offset_to_point(start_byte),
+        old_end_position: old_text.offset_to_point(old_end_byte),
+        new_end_position: new_text.offset_to_point(new_end_byte),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ropey::Rope;
+    use tree_sitter::Point;
 
+    use super::replacement_input_edit;
     use crate::{
         highlighter::DiagnosticSet,
         input::{TabSize, mode::InputMode},
     };
+
+    #[test]
+    fn replacement_input_edit_uses_old_text_for_deleted_range() {
+        let old_text = Rope::from_str("-=");
+        let new_text = Rope::from_str("-");
+        let edit = replacement_input_edit(&old_text, &new_text, &(1..2), "");
+
+        assert_eq!(edit.start_byte, 1);
+        assert_eq!(edit.old_end_byte, 2);
+        assert_eq!(edit.new_end_byte, 1);
+        assert_eq!(edit.start_position, Point::new(0, 1));
+        assert_eq!(edit.old_end_position, Point::new(0, 2));
+        assert_eq!(edit.new_end_position, Point::new(0, 1));
+    }
 
     #[test]
     fn test_code_editor() {

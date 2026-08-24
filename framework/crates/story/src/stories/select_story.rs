@@ -243,13 +243,13 @@ impl Render for SelectStory {
                     Select::new(&self.simple_select3)
                         .disabled(self.disabled)
                         .small()
-                        .empty(
+                        .empty_with(|_, cx| {
                             h_flex()
                                 .h_24()
                                 .justify_center()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("No Data"),
-                        ),
+                                .child("No Data")
+                        }),
                 ),
             )
             .child(

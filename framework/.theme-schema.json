@@ -477,6 +477,14 @@
           "description": "TitleBar border color.",
           "type": ["string", "null"]
         },
+        "status_bar.background": {
+          "description": "StatusBar background color, use for the bottom status bar.",
+          "type": ["string", "null"]
+        },
+        "status_bar.border": {
+          "description": "StatusBar border color.",
+          "type": ["string", "null"]
+        },
         "tiles.background": {
           "description": "Background color for Tiles.",
           "type": ["string", "null"]

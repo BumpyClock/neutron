@@ -7,9 +7,7 @@ use crate::{
         spring_animation,
     },
     button::{Button, ButtonVariants as _},
-    flyout_primary_foreground,
-    global_state::GlobalState,
-    h_flex,
+    flyout_primary_foreground, h_flex,
     menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     popover::Popover,
     sidebar::SidebarItem,
@@ -412,7 +410,7 @@ impl SidebarItem for SidebarMenuItem {
         let is_submenu = self.is_submenu();
         let is_open = is_submenu && !is_collapsed && *open_state.read(cx);
         let show_collapsed_submenu = is_submenu && is_collapsed;
-        let reduced_motion = GlobalState::global(cx).reduced_motion();
+        let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = cx.theme().motion.clone();
         let (open_duration, close_duration) = expand_collapse_durations(&motion);
         let submenu_presence = keyed_presence(

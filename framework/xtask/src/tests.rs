@@ -9,6 +9,37 @@ use tempfile::TempDir;
 
 const REV: &str = "1111111111111111111111111111111111111111";
 const OLD_REV: &str = "2222222222222222222222222222222222222222";
+const LONGBRIDGE_CURSOR: &str = "94fdac9b6b762cbe9f23cf91c3fbddb66b80fba3";
+const LONGBRIDGE_CURSOR_TREE: &str = "46f818bca6e108e55de110081c6c8079582a142c";
+const LONGBRIDGE_TARGET: &str = "334bbed2e8c47d606eb79ab05ddcebd60b823429";
+const LONGBRIDGE_TARGET_TREE: &str = "eef12715845645e98c7d7b2cd276e88d2aba3768";
+
+#[test]
+fn parses_longbridge_provenance_refs_without_a_checkout() {
+    let cursor = "1".repeat(40);
+    let target = "2".repeat(40);
+    let malformed = format!("{}g", "3".repeat(39));
+    let source = format!(
+        "Header\nLongbridge audit used these identities:\n- Recorded cursor: `{cursor}`\n- Audited target: `{target}`\n\n## Accepted adaptations\n- `{malformed}`\n"
+    );
+    let (start_line, section) = longbridge_provenance_section(&source).unwrap();
+    assert_eq!(start_line, 2);
+    assert_eq!(
+        documented_label_value(section, "Recorded cursor"),
+        Some(cursor.as_str())
+    );
+    assert_eq!(
+        documented_label_value(section, "Audited target"),
+        Some(target.as_str())
+    );
+    assert!(
+        documented_sha_tokens(section)
+            .iter()
+            .any(|(_, value)| *value == malformed)
+    );
+    assert!(is_full_sha(cursor.as_str()));
+    assert!(!is_full_sha(&malformed));
+}
 
 fn fixture() -> (TempDir, Compatibility) {
     let directory = TempDir::new().unwrap();
@@ -19,6 +50,13 @@ fn fixture() -> (TempDir, Compatibility) {
     fs::create_dir_all(root.join("engine/crates/gpui/src")).unwrap();
     fs::write(framework.join("example/src/lib.rs"), "").unwrap();
     fs::write(root.join("engine/crates/gpui/src/lib.rs"), "").unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{LONGBRIDGE_CURSOR}`\n- Recorded cursor tree: `{LONGBRIDGE_CURSOR_TREE}`\n- Audited target: `{LONGBRIDGE_TARGET}`\n- Audited target tree: `{LONGBRIDGE_TARGET_TREE}`\n"
+        ),
+    )
+    .unwrap();
     fs::write(
         framework.join("compatibility.toml"),
         format!(
@@ -126,6 +164,55 @@ dependencies = ["bumpyclock-gpui"]
     (directory, compatibility)
 }
 
+fn git_fixture() -> (TempDir, String, String, String, String, String, String) {
+    let directory = TempDir::new().unwrap();
+    let root = directory.path();
+    run_git(root, &["init", "--quiet"]);
+    run_git(root, &["config", "user.email", "xtask@example.invalid"]);
+    run_git(root, &["config", "user.name", "framework-xtask test"]);
+
+    fs::write(root.join("file.txt"), "cursor\n").unwrap();
+    run_git(root, &["add", "file.txt"]);
+    run_git(root, &["commit", "--quiet", "-m", "cursor"]);
+    let cursor = run_git(root, &["rev-parse", "HEAD"]);
+    let cursor_tree = run_git(root, &["rev-parse", "HEAD^{tree}"]);
+
+    fs::write(root.join("file.txt"), "target\n").unwrap();
+    run_git(root, &["commit", "--quiet", "-am", "target"]);
+    let target = run_git(root, &["rev-parse", "HEAD"]);
+    let target_tree = run_git(root, &["rev-parse", "HEAD^{tree}"]);
+
+    fs::write(root.join("file.txt"), "post-target\n").unwrap();
+    run_git(root, &["commit", "--quiet", "-am", "post-target"]);
+    let post_target = run_git(root, &["rev-parse", "HEAD"]);
+    let post_target_tree = run_git(root, &["rev-parse", "HEAD^{tree}"]);
+
+    (
+        directory,
+        cursor,
+        cursor_tree,
+        target,
+        target_tree,
+        post_target,
+        post_target_tree,
+    )
+}
+
+fn run_git(root: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 fn errors(root: &Path, compatibility: &Compatibility) -> String {
     validate(&root.join("framework"), root, compatibility, true)
         .errors
@@ -136,6 +223,186 @@ fn errors(root: &Path, compatibility: &Compatibility) -> String {
 fn accepts_coherent_fixture() {
     let (directory, compatibility) = fixture();
     assert_eq!(errors(directory.path(), &compatibility), "");
+}
+
+#[test]
+fn rejects_missing_longbridge_provenance_document() {
+    let directory = TempDir::new().unwrap();
+    let framework = directory.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance(&framework, &mut report);
+
+    assert_eq!(
+        report.errors,
+        vec!["UPSTREAM.md is missing required Longbridge provenance"]
+    );
+    assert!(report.warnings.is_empty());
+}
+
+#[test]
+fn rejects_non_hex_longbridge_identity() {
+    let directory = TempDir::new().unwrap();
+    let framework = directory.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    let malformed = format!("{}g", "1".repeat(39));
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Preamble\n\nLongbridge audit used these identities:\n- Recorded cursor: `{malformed}`\n- Recorded cursor tree: `{LONGBRIDGE_CURSOR_TREE}`\n- Audited target: `{LONGBRIDGE_TARGET}`\n- Audited target tree: `{LONGBRIDGE_TARGET_TREE}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance(&framework, &mut report);
+
+    assert_eq!(
+        report.errors,
+        vec![format!(
+            "UPSTREAM.md:4 documents `{malformed}` as a Longbridge Recorded cursor identity; expected a full 40-character SHA"
+        )]
+    );
+}
+
+#[test]
+fn rejects_missing_longbridge_marker() {
+    let directory = TempDir::new().unwrap();
+    let framework = directory.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(framework.join("UPSTREAM.md"), "# Framework upstream\n").unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance(&framework, &mut report);
+
+    assert_eq!(
+        report.errors,
+        vec!["UPSTREAM.md does not contain a Longbridge audit identity section"]
+    );
+}
+
+#[test]
+fn rejects_missing_longbridge_tree_identities() {
+    let directory = TempDir::new().unwrap();
+    let framework = directory.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{LONGBRIDGE_CURSOR}`\n- Audited target: `{LONGBRIDGE_TARGET}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance(&framework, &mut report);
+
+    assert!(
+        report
+            .errors
+            .iter()
+            .any(|error| error.contains("missing the `Recorded cursor tree`"))
+    );
+    assert!(
+        report
+            .errors
+            .iter()
+            .any(|error| error.contains("missing the `Audited target tree`"))
+    );
+}
+
+#[test]
+fn rejects_longbridge_refs_with_wrong_git_object_type() {
+    let (checkout, cursor, cursor_tree, target, target_tree, _, _) = git_fixture();
+    let framework = checkout.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{cursor_tree}`\n- Recorded cursor tree: `{cursor}`\n- Audited target: `{target}`\n- Audited target tree: `{target_tree}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance_with_checkout(&framework, checkout.path(), &mut report);
+
+    assert!(report.errors.iter().any(|error| {
+        error.contains(&format!("Recorded cursor `{cursor_tree}`"))
+            && error.contains("not a commit object")
+    }));
+    assert!(report.errors.iter().any(|error| {
+        error.contains(&format!("Recorded cursor tree `{cursor}`"))
+            && error.contains("not a tree object")
+    }));
+}
+
+#[test]
+fn rejects_mismatched_longbridge_tree_identity() {
+    let (checkout, cursor, _, target, target_tree, _, _) = git_fixture();
+    let framework = checkout.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{cursor}`\n- Recorded cursor tree: `{target_tree}`\n- Audited target: `{target}`\n- Audited target tree: `{target_tree}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance_with_checkout(&framework, checkout.path(), &mut report);
+
+    assert!(report.errors.iter().any(|error| {
+        error.contains(&format!("Recorded cursor tree `{target_tree}`"))
+            && error.contains("does not match Recorded cursor")
+    }));
+}
+
+#[test]
+fn rejects_longbridge_grandparent_as_target_parent() {
+    let (checkout, cursor, cursor_tree, _target, _target_tree, post_target, post_target_tree) =
+        git_fixture();
+    let framework = checkout.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{cursor}`\n- Recorded cursor tree: `{cursor_tree}`\n- Audited target: `{post_target}`\n- Audited target tree: `{post_target_tree}`\n- Audited target parent: `{cursor}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance_with_checkout(&framework, checkout.path(), &mut report);
+
+    assert!(report.errors.iter().any(|error| {
+        error.contains(&format!("Audited target parent `{cursor}`"))
+            && error.contains("first parent")
+    }));
+}
+
+#[test]
+fn rejects_longbridge_change_after_audited_target() {
+    let (checkout, cursor, cursor_tree, target, target_tree, post_target, _) = git_fixture();
+    let framework = checkout.path().join("framework");
+    fs::create_dir(&framework).unwrap();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{cursor}`\n- Recorded cursor tree: `{cursor_tree}`\n- Audited target: `{target}`\n- Audited target tree: `{target_tree}`\n\n## Accepted adaptations\n- `{post_target}`\n"
+        ),
+    )
+    .unwrap();
+    let mut report = Validation::default();
+
+    validate_longbridge_provenance_with_checkout(&framework, checkout.path(), &mut report);
+
+    assert!(report.errors.iter().any(|error| {
+        error.contains(&format!("accepted/excluded change `{post_target}`"))
+            && error.contains("not an ancestor of audited target")
+    }));
 }
 
 #[test]

@@ -6,9 +6,9 @@ use crate::{
     menu::PopupMenu,
 };
 use gpui::{
-    App, AppContext as _, ClickEvent, Context, DismissEvent, Entity, Focusable,
+    App, AppContext as _, ClickEvent, Context, DismissEvent, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, OwnedMenu, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, anchored,
+    Render, Role, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, anchored,
     deferred, div, prelude::FluentBuilder, px,
 };
 
@@ -25,6 +25,7 @@ pub fn init(cx: &mut App) {
 pub struct AppMenuBar {
     menus: Vec<Entity<AppMenu>>,
     selected_index: Option<usize>,
+    action_context: Option<FocusHandle>,
 }
 
 impl AppMenuBar {
@@ -33,6 +34,7 @@ impl AppMenuBar {
         cx.new(|cx| {
             let mut this = Self {
                 selected_index: None,
+                action_context: None,
                 menus: Vec::new(),
             };
             this.reload(cx);
@@ -51,6 +53,7 @@ impl AppMenuBar {
             .map(|(ix, menu)| AppMenu::new(ix, menu, menu_bar.clone(), cx))
             .collect();
         self.selected_index = None;
+        self.action_context = None;
         cx.notify();
     }
 
@@ -84,7 +87,18 @@ impl AppMenuBar {
         self.set_selected_index(None, window, cx);
     }
 
-    fn set_selected_index(&mut self, ix: Option<usize>, _: &mut Window, cx: &mut Context<Self>) {
+    fn set_selected_index(
+        &mut self,
+        ix: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_index.is_none() && ix.is_some() {
+            self.action_context = window.focused(cx);
+        } else if ix.is_none() {
+            self.action_context = None;
+        }
+
         self.selected_index = ix;
         cx.notify();
     }
@@ -99,6 +113,7 @@ impl Render for AppMenuBar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .id("app-menu-bar")
+            .role(Role::MenuBar)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::on_move_left))
             .on_action(cx.listener(Self::on_move_right))
@@ -144,23 +159,28 @@ impl AppMenu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<PopupMenu> {
+        let action_context = self.menu_bar.read(cx).action_context.clone();
         let popup_menu = match self.popup_menu.as_ref() {
             None => {
                 let items = self.menu.items.clone();
                 let popup_menu = PopupMenu::build(window, cx, |menu, window, cx| {
-                    menu.when_some(window.focused(cx), |this, handle| {
-                        this.action_context(handle)
-                    })
-                    .with_menu_items(items, window, cx)
+                    menu.with_menu_items(items, window, cx)
                 });
-                popup_menu.read(cx).focus_handle(cx).focus(window, cx);
+                popup_menu.update(cx, |menu, cx| {
+                    menu.set_action_context(action_context.clone(), cx);
+                });
                 self._subscription =
                     Some(cx.subscribe_in(&popup_menu, window, Self::handle_dismiss));
                 self.popup_menu = Some(popup_menu.clone());
 
                 popup_menu
             }
-            Some(menu) => menu.clone(),
+            Some(menu) => {
+                menu.update(cx, |menu, cx| {
+                    menu.set_action_context(action_context.clone(), cx);
+                });
+                menu.clone()
+            }
         };
 
         let focus_handle = popup_menu.read(cx).focus_handle(cx);
@@ -253,5 +273,102 @@ impl Render for AppMenu {
                         ),
                 ))
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use gpui::TestAppContext;
+
+    struct TestRoot {
+        menu_bar: Entity<AppMenuBar>,
+        first_focus: FocusHandle,
+        second_focus: FocusHandle,
+    }
+
+    impl Render for TestRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .child(div().id("first").track_focus(&self.first_focus))
+                .child(div().id("second").track_focus(&self.second_focus))
+                .child(self.menu_bar.clone())
+        }
+    }
+
+    #[gpui::test]
+    fn preserves_action_context_while_switching_menus(cx: &mut TestAppContext) {
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let first_focus = cx.focus_handle();
+            let second_focus = cx.focus_handle();
+            first_focus.focus(window, cx);
+
+            TestRoot {
+                menu_bar: cx.new(|_| AppMenuBar {
+                    menus: Vec::new(),
+                    selected_index: None,
+                    action_context: None,
+                }),
+                first_focus,
+                second_focus,
+            }
+        });
+
+        let (menu_bar, first_focus, second_focus) = root.read_with(cx, |root, _| {
+            (
+                root.menu_bar.clone(),
+                root.first_focus.clone(),
+                root.second_focus.clone(),
+            )
+        });
+
+        menu_bar.update_in(cx, |menu_bar, window, cx| {
+            menu_bar.set_selected_index(Some(0), window, cx);
+            assert_eq!(menu_bar.action_context.as_ref(), Some(&first_focus));
+
+            second_focus.focus(window, cx);
+            menu_bar.set_selected_index(Some(1), window, cx);
+            assert_eq!(menu_bar.action_context.as_ref(), Some(&first_focus));
+
+            menu_bar.set_selected_index(None, window, cx);
+            assert!(menu_bar.action_context.is_none());
+            assert_eq!(window.focused(cx).as_ref(), Some(&second_focus));
+
+            second_focus.focus(window, cx);
+            menu_bar.set_selected_index(Some(0), window, cx);
+            assert_eq!(menu_bar.action_context.as_ref(), Some(&second_focus));
+        });
+    }
+
+    #[gpui::test]
+    fn preserves_focus_after_action_moves_focus(cx: &mut TestAppContext) {
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let action_focus = cx.focus_handle();
+            let dialog_focus = cx.focus_handle();
+            action_focus.focus(window, cx);
+
+            TestRoot {
+                menu_bar: cx.new(|_| AppMenuBar {
+                    menus: Vec::new(),
+                    selected_index: None,
+                    action_context: None,
+                }),
+                first_focus: action_focus,
+                second_focus: dialog_focus,
+            }
+        });
+
+        let (menu_bar, dialog_focus) = root.read_with(cx, |root, _| {
+            (root.menu_bar.clone(), root.second_focus.clone())
+        });
+
+        menu_bar.update_in(cx, |menu_bar, window, cx| {
+            menu_bar.set_selected_index(Some(0), window, cx);
+            dialog_focus.focus(window, cx);
+            menu_bar.on_cancel(&Cancel, window, cx);
+
+            assert_eq!(window.focused(cx).as_ref(), Some(&dialog_focus));
+        });
     }
 }

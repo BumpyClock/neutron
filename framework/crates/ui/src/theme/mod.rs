@@ -47,13 +47,13 @@ pub enum ThemeShadowToken {
 /// - `fade` (83ms) — micro state changes: tooltips, carets, tab strips.
 /// - `exit` (167ms) — every dismiss. Presence close windows and close animations
 ///   share this token, so an exit can never outlive its element.
-/// - `enter` (187ms) — every reveal. Also the settle window for the spring, so a
-///   fade and its transform partner end together.
+/// - `enter` (187ms) — every reveal and the time scale for the spring.
 /// - `emphasis` (667ms, overshoot) — attention accents (badges), used sparingly.
 ///
-/// One spring (`spring_damping_ratio`/`spring_frequency`) drives all transform
-/// reveals; a mild/medium split existed before but measured within a few frames
-/// of each other at 60Hz and collapsed into this single token.
+/// One spring (`spring_damping_ratio`/`spring_frequency`) drives transform
+/// motion. Presence transforms use sampled easing. Retargetable geometry uses
+/// GPUI's stateful spring. A prior mild/medium split produced no useful visual
+/// difference at 60 Hz, so the theme has one spring.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ThemeMotion {
     pub fade_duration_ms: u16,
@@ -64,7 +64,7 @@ pub struct ThemeMotion {
     pub spring_frequency: f32,
     /// Fast-out curve for enters: most of the travel happens immediately.
     pub decelerate_easing: SharedString,
-    /// Symmetric curve for point-to-point moves (switches, progress, widths).
+    /// Symmetric curve for fixed-duration point-to-point moves.
     pub standard_easing: SharedString,
     /// Overshoot curve for emphasis accents.
     pub emphasis_easing: SharedString,

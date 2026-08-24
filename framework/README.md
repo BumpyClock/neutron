@@ -1,12 +1,10 @@
-This is a BumpyClock fork of the original gpui-component by longbridge. Goal is to maintain compatibility with gpui while adding custom components as needed.
+This is a BumpyClock fork of GPUI Component by Longbridge. Neutron preserves local components and
+contracts while it selectively adapts compatible upstream behavior.
 
 ## Upstream sync status
 
-- Manual snippet sync source: `BumpyClock/gpui-component@94fdac9b` (`upstream/main` as of 2026-02-22).
-- Imported upstream fixes/features in this sync batch:
-  - Editor syntax/perf: `d2f0960d`, `c045f74f`, `d60c6d5f`, `b4310a66`, `3724b071`
-  - Table selection/docs: `662e291a`, `24b552d8`, `545c3488`, `9fb44739`
-  - Targeted bugfixes: `94fdac9b`, `dc3850b8`, `3c10503b`, `c5fe81f1`
+See [UPSTREAM.md](UPSTREAM.md) for exact Longbridge source identities, accepted adaptations,
+Neutron conflicts, exclusions, and validation limits.
 
 # GPUI Component
 

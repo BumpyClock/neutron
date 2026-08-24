@@ -29,6 +29,8 @@ const VALID_MATURITY: &[&str] = &["supported", "preview", "experimental"];
 const REGISTRY_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 const ENGINE_DOMAIN: &str = "BumpyClock/neutron/engine";
 const FRAMEWORK_DOMAIN: &str = "BumpyClock/neutron/framework";
+const LONGBRIDGE_CHECKOUT: &str = "/tmp/longbridge-gpui-component";
+const LONGBRIDGE_AUDIT_MARKER: &str = "Longbridge audit used these identities:";
 
 #[derive(Debug, Deserialize)]
 struct Compatibility {
@@ -213,6 +215,36 @@ struct Validation {
     warnings: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+enum LongbridgeObjectKind {
+    Commit,
+    Tree,
+}
+
+impl LongbridgeObjectKind {
+    fn git_type(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Tree => "tree",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Tree => "tree",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DocumentedLongbridgeRef<'a> {
+    line: usize,
+    label: &'static str,
+    value: &'a str,
+    kind: LongbridgeObjectKind,
+}
+
 fn validation_error(errors: Vec<String>) -> anyhow::Error {
     anyhow!(
         "compatibility validation failed:\n{}",
@@ -258,6 +290,7 @@ fn validate(
     validate_lockfile(repository_root, compatibility, &mut report.errors);
     validate_toolchain(repository_root, compatibility, &mut report.errors);
     validate_publishable_dependencies(repository_root, framework_root, &mut report.errors);
+    validate_longbridge_provenance(framework_root, &mut report);
     validate_engine_checkout(repository_root, compatibility, &mut report);
 
     if check_generated && !framework_root.join(GENERATED_FILE).is_file() {
@@ -818,6 +851,324 @@ fn validate_engine_checkout(
     validate_root_patches(repository_root, report);
 }
 
+fn validate_longbridge_provenance(framework_root: &Path, report: &mut Validation) {
+    validate_longbridge_provenance_with_checkout(
+        framework_root,
+        Path::new(LONGBRIDGE_CHECKOUT),
+        report,
+    );
+}
+
+fn validate_longbridge_provenance_with_checkout(
+    framework_root: &Path,
+    checkout: &Path,
+    report: &mut Validation,
+) {
+    let path = framework_root.join("UPSTREAM.md");
+    let source = match fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            report.errors.push(format!(
+                "{} is missing required Longbridge provenance",
+                relative(framework_root, &path)
+            ));
+            return;
+        }
+        Err(error) => {
+            report
+                .errors
+                .push(format!("failed to read {}: {error}", path.display()));
+            return;
+        }
+    };
+    let Some((section_start_line, section)) = longbridge_provenance_section(&source) else {
+        report.errors.push(format!(
+            "{} does not contain a Longbridge audit identity section",
+            relative(framework_root, &path)
+        ));
+        return;
+    };
+
+    let refs = documented_longbridge_refs(section);
+    for reference in &refs {
+        if !is_full_sha(reference.value) {
+            report.errors.push(format!(
+                "{}:{} documents `{}` as a Longbridge {} identity; expected a full 40-character SHA",
+                relative(framework_root, &path),
+                section_start_line + reference.line - 1,
+                reference.value,
+                reference.label
+            ));
+        }
+    }
+
+    for label in [
+        "Recorded cursor",
+        "Recorded cursor tree",
+        "Audited target",
+        "Audited target tree",
+    ] {
+        if !refs.iter().any(|reference| reference.label == label) {
+            report.errors.push(format!(
+                "{} is missing the `{label}` Longbridge identity",
+                relative(framework_root, &path)
+            ));
+        }
+    }
+
+    if !checkout.is_dir() {
+        report.warnings.push(format!(
+            "Longbridge object validation skipped: optional checkout `{}` is absent",
+            checkout.display()
+        ));
+        return;
+    }
+
+    let mut resolved_refs = Vec::new();
+    for reference in refs.iter().filter(|reference| is_full_sha(reference.value)) {
+        match git_object_exists(checkout, reference.value, reference.kind) {
+            Ok(true) => resolved_refs.push(*reference),
+            Ok(false) => report.errors.push(format!(
+                "Longbridge {} `{}` is not a {} object in {}",
+                reference.label,
+                reference.value,
+                reference.kind.description(),
+                checkout.display(),
+            )),
+            Err(error) => report.errors.push(format!(
+                "failed to inspect Longbridge {} `{}`: {error}",
+                reference.label, reference.value
+            )),
+        }
+    }
+
+    for (commit_label, tree_label) in [
+        ("Recorded cursor", "Recorded cursor tree"),
+        ("Audited target", "Audited target tree"),
+    ] {
+        let Some(commit) = resolved_refs
+            .iter()
+            .find(|reference| reference.label == commit_label)
+        else {
+            continue;
+        };
+        let Some(tree) = resolved_refs
+            .iter()
+            .find(|reference| reference.label == tree_label)
+        else {
+            continue;
+        };
+        match git_tree_matches_commit(checkout, commit.value, tree.value) {
+            Ok(true) => {}
+            Ok(false) => report.errors.push(format!(
+                "Longbridge {} `{}` does not match {} `{}` tree",
+                tree_label, tree.value, commit_label, commit.value
+            )),
+            Err(error) => report.errors.push(format!(
+                "failed to verify Longbridge {} `{}` against {} `{}`: {error}",
+                tree_label, tree.value, commit_label, commit.value
+            )),
+        }
+    }
+
+    if let (Some(target), Some(parent)) = (
+        resolved_refs
+            .iter()
+            .find(|reference| reference.label == "Audited target"),
+        resolved_refs
+            .iter()
+            .find(|reference| reference.label == "Audited target parent"),
+    ) {
+        match git_parent_matches_commit(checkout, target.value, parent.value) {
+            Ok(true) => {}
+            Ok(false) => report.errors.push(format!(
+                "Longbridge Audited target parent `{}` does not match Audited target `{}` first parent",
+                parent.value, target.value
+            )),
+            Err(error) => report.errors.push(format!(
+                "failed to verify Longbridge Audited target parent `{}` against Audited target `{}`: {error}",
+                parent.value, target.value
+            )),
+        }
+    }
+
+    let Some(target) = resolved_refs
+        .iter()
+        .find(|reference| {
+            reference.label == "Audited target"
+                && matches!(reference.kind, LongbridgeObjectKind::Commit)
+        })
+        .copied()
+    else {
+        return;
+    };
+    for reference in resolved_refs
+        .iter()
+        .filter(|reference| matches!(reference.kind, LongbridgeObjectKind::Commit))
+    {
+        match git_is_ancestor(checkout, reference.value, target.value) {
+            Ok(true) => {}
+            Ok(false) => report.errors.push(format!(
+                "Longbridge {} `{}` is not an ancestor of audited target `{}`",
+                reference.label, reference.value, target.value
+            )),
+            Err(error) => report.errors.push(format!(
+                "failed to verify Longbridge {} ancestry: {error}",
+                reference.label
+            )),
+        }
+    }
+}
+
+fn longbridge_provenance_section(source: &str) -> Option<(usize, &str)> {
+    source
+        .find(LONGBRIDGE_AUDIT_MARKER)
+        .map(|index| (source[..index].lines().count() + 1, &source[index..]))
+}
+
+fn documented_longbridge_refs(source: &str) -> Vec<DocumentedLongbridgeRef<'_>> {
+    let mut refs = Vec::new();
+    for (label, kind) in [
+        ("Recorded cursor", LongbridgeObjectKind::Commit),
+        ("Recorded cursor tree", LongbridgeObjectKind::Tree),
+        ("Audited target", LongbridgeObjectKind::Commit),
+        ("Audited target tree", LongbridgeObjectKind::Tree),
+        ("Audited target parent", LongbridgeObjectKind::Commit),
+    ] {
+        if let Some((line, value)) = documented_label_ref(source, label) {
+            refs.push(DocumentedLongbridgeRef {
+                line,
+                label,
+                value,
+                kind,
+            });
+        }
+    }
+
+    let mut change_section = false;
+    for (index, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "## Accepted adaptations" || trimmed == "## Excluded changes" {
+            change_section = true;
+            continue;
+        }
+        if trimmed.starts_with("## ") {
+            change_section = false;
+            continue;
+        }
+        if change_section && trimmed.starts_with("- ") {
+            for value in leading_change_code_values(trimmed) {
+                refs.push(DocumentedLongbridgeRef {
+                    line: index + 1,
+                    label: "accepted/excluded change",
+                    value,
+                    kind: LongbridgeObjectKind::Commit,
+                });
+            }
+        }
+    }
+    refs
+}
+
+fn leading_change_code_values(line: &str) -> Vec<&str> {
+    let Some(bullet) = line.strip_prefix("- ") else {
+        return Vec::new();
+    };
+    let prefix = bullet.split_once(':').map_or(bullet, |(prefix, _)| prefix);
+    if !prefix.starts_with('`') {
+        return Vec::new();
+    }
+    inline_code_values(prefix)
+}
+
+#[cfg(test)]
+fn documented_sha_tokens(source: &str) -> Vec<(usize, &str)> {
+    documented_longbridge_refs(source)
+        .into_iter()
+        .map(|reference| (reference.line, reference.value))
+        .collect()
+}
+
+fn documented_label_ref<'a>(source: &'a str, label: &str) -> Option<(usize, &'a str)> {
+    let prefix = format!("- {label}: `");
+    source.lines().enumerate().find_map(|(index, line)| {
+        line.strip_prefix(&prefix)
+            .and_then(|value| value.split('`').next())
+            .map(|value| (index + 1, value))
+    })
+}
+
+fn inline_code_values(source: &str) -> Vec<&str> {
+    source
+        .split('`')
+        .enumerate()
+        .filter_map(|(part, value)| (part % 2 == 1).then_some(value))
+        .collect()
+}
+
+#[cfg(test)]
+fn documented_label_value<'a>(source: &'a str, label: &str) -> Option<&'a str> {
+    documented_label_ref(source, label).map(|(_, value)| value)
+}
+
+fn git_object_exists(
+    checkout: &Path,
+    revision: &str,
+    object_kind: LongbridgeObjectKind,
+) -> Result<bool> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            checkout.to_str().context("checkout path is not UTF-8")?,
+        ])
+        .args(["cat-file", "-t"])
+        .arg(revision)
+        .output()
+        .context("failed to run git cat-file")?;
+    Ok(output.status.success()
+        && String::from_utf8_lossy(&output.stdout).trim() == object_kind.git_type())
+}
+
+fn git_tree_matches_commit(checkout: &Path, commit: &str, tree: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            checkout.to_str().context("checkout path is not UTF-8")?,
+        ])
+        .args(["rev-parse", "--verify"])
+        .arg(format!("{commit}^{{tree}}"))
+        .output()
+        .context("failed to run git rev-parse")?;
+    Ok(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == tree)
+}
+
+fn git_parent_matches_commit(checkout: &Path, commit: &str, parent: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            checkout.to_str().context("checkout path is not UTF-8")?,
+        ])
+        .args(["rev-parse", "--verify"])
+        .arg(format!("{commit}^1"))
+        .output()
+        .context("failed to run git rev-parse")?;
+    Ok(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == parent)
+}
+
+fn git_is_ancestor(checkout: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
+    let status = Command::new("git")
+        .args([
+            "-C",
+            checkout.to_str().context("checkout path is not UTF-8")?,
+        ])
+        .args(["merge-base", "--is-ancestor", ancestor, descendant])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context("failed to run git merge-base")?;
+    Ok(status.success())
+}
+
 fn validate_root_patches(repository_root: &Path, report: &mut Validation) {
     let manifest = match read_toml(&repository_root.join("Cargo.toml")) {
         Ok(manifest) => manifest,
@@ -850,7 +1201,7 @@ fn render(compatibility: &Compatibility) -> String {
     );
     output.push_str("# Compatibility\n\n");
     output.push_str(&format!(
-        "- Framework: `{}` `{}`\n- Framework repository: `{}`\n- Declared Rust MSRV: `{}` (not exercised by this audit)\n- Repository-pinned toolchain: `{}` (not installed in this environment)\n- Audit host toolchain: `{}`\n- Engine path: `{}`\n- Zed upstream: `{}`\n- Zed upstream base: `{}`\n\n",
+        "- Framework: `{}` `{}`\n- Framework repository: `{}`\n- Declared Rust MSRV: `{}` (not exercised by this audit)\n- Repository-pinned toolchain: `{}`\n- Audit host toolchain: `{}`\n- Engine path: `{}`\n- Zed upstream: `{}`\n- Zed upstream base: `{}`\n\n",
         compatibility.framework.name,
         compatibility.framework.version,
         compatibility.framework.repository,

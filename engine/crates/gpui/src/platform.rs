@@ -1416,10 +1416,17 @@ impl PlatformInputHandler {
             .unwrap_or(true)
     }
 
-    #[allow(dead_code)]
+    /// See [`InputHandler::prefers_ime_for_printable_keys`].
+    ///
+    /// This method also checks window state. It returns `false` while a multi-stroke binding is
+    /// pending. The next printable key can complete a binding that already bypassed the IME.
     pub fn query_prefers_ime_for_printable_keys(&mut self) -> bool {
         self.cx
-            .update(|window, cx| self.handler.prefers_ime_for_printable_keys(window, cx))
+            .update(|window, cx| {
+                // The next printable key may complete a chord whose prefix bypassed the IME.
+                !window.has_pending_keystrokes()
+                    && self.handler.prefers_ime_for_printable_keys(window, cx)
+            })
             .unwrap_or(false)
     }
 }

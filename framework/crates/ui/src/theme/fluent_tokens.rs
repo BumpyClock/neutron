@@ -9,7 +9,7 @@ pub(crate) fn theme_motion_defaults() -> ThemeMotion {
         exit_duration_ms: 167,
         enter_duration_ms: 187,
         emphasis_duration_ms: 667,
-        // One spring for transform reveals; settles within the enter window.
+        // One spring for sampled presence transforms and stateful geometry.
         spring_damping_ratio: 0.78,
         spring_frequency: 2.0,
         decelerate_easing: "cubic-bezier(0, 0, 0, 1)".into(),

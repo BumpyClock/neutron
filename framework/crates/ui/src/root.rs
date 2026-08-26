@@ -1,5 +1,5 @@
 use crate::{
-    ActiveTheme, Anchor, ElementExt, Placement, StyledExt,
+    ActiveTheme, Anchor, ElementExt, Placement, StyledExt, Theme, ThemeModePreference,
     dialog::Dialog,
     focus_trap::FocusTrapManager,
     input::InputState,
@@ -11,8 +11,8 @@ use crate::{
 };
 use gpui::{
     AnyView, App, AppContext, Context, DefiniteLength, Entity, FocusHandle, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement as _, Render, StyleRefinement, Styled, WeakFocusHandle,
-    Window, actions, div, prelude::FluentBuilder as _,
+    IntoElement, KeyBinding, ParentElement as _, Render, StyleRefinement, Styled, Subscription,
+    WeakFocusHandle, Window, actions, div, prelude::FluentBuilder as _,
 };
 use std::{any::TypeId, rc::Rc};
 
@@ -35,6 +35,7 @@ pub struct Root {
     next_dialog_id: u64,
     pub(super) focused_input: Option<Entity<InputState>>,
     pub notification: Entity<NotificationList>,
+    _appearance_subscription: Subscription,
     sheet_size: Option<DefiniteLength>,
     app_menu_bar: Option<Entity<AppMenuBar>>,
     view: AnyView,
@@ -81,17 +82,34 @@ impl ActiveDialog {
 impl Root {
     /// Create a new Root view.
     pub fn new(view: impl Into<AnyView>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let appearance_subscription = cx.observe_window_appearance(window, |root, window, cx| {
+            root.on_window_appearance_changed(window, cx)
+        });
+
         Self {
             active_sheet: None,
             active_dialogs: Vec::new(),
             next_dialog_id: 1,
             focused_input: None,
             notification: cx.new(|cx| NotificationList::new(window, cx)),
+            _appearance_subscription: appearance_subscription,
             sheet_size: None,
             app_menu_bar: None,
             view: view.into(),
             style: StyleRefinement::default(),
         }
+    }
+
+    fn on_window_appearance_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(
+            Theme::global(cx).mode_preference,
+            ThemeModePreference::System
+        ) {
+            return;
+        }
+
+        Theme::sync_system_appearance(Some(window), cx);
+        cx.refresh_windows();
     }
 
     /// Add an in-window application menu bar above the root content.
@@ -582,10 +600,14 @@ impl Render for Root {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     use gpui::{Empty, Role, TestAppContext, VisualTestContext, div, px, size};
 
+    use crate::ThemeMode;
     use crate::menu::AppMenuBar;
 
     use super::*;
@@ -597,6 +619,15 @@ mod tests {
             div()
                 .debug_selector(|| "root-content".to_string())
                 .size_full()
+        }
+    }
+
+    struct RenderProbe(Rc<Cell<usize>>);
+
+    impl Render for RenderProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.0.set(self.0.get() + 1);
+            div().size_full()
         }
     }
 
@@ -672,6 +703,64 @@ mod tests {
                 .iter()
                 .any(|(_, node)| node.role() == Role::MenuBar)
         );
+    }
+
+    #[gpui::test]
+    fn root_resyncs_system_theme_only_for_system_preference(cx: &mut TestAppContext) {
+        let (window, mut visual_cx, _) = root_window(cx);
+        let root = window.root(&mut visual_cx).unwrap();
+
+        root.update_in(&mut visual_cx, |_, _, cx| {
+            Theme::change(ThemeMode::Dark, None, cx);
+            Theme::global_mut(cx).mode_preference = ThemeModePreference::System;
+        });
+
+        visual_cx.simulate_window_appearance(window.into(), gpui::WindowAppearance::Light);
+        visual_cx.run_until_parked();
+        assert_eq!(cx.read(|cx| Theme::global(cx).mode), ThemeMode::Light);
+
+        root.update_in(&mut visual_cx, |_, _, cx| {
+            Theme::change(ThemeMode::Light, None, cx);
+            Theme::global_mut(cx).mode_preference = ThemeModePreference::Light;
+        });
+
+        visual_cx.simulate_window_appearance(window.into(), gpui::WindowAppearance::Dark);
+        visual_cx.run_until_parked();
+        assert_eq!(cx.read(|cx| Theme::global(cx).mode), ThemeMode::Light);
+    }
+
+    #[gpui::test]
+    fn system_theme_change_refreshes_all_root_windows(cx: &mut TestAppContext) {
+        let second_renders = Rc::new(Cell::new(0));
+        let first = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let content = cx.new(|_| RenderProbe(Rc::new(Cell::new(0))));
+                cx.new(|cx| Root::new(content, window, cx))
+            })
+            .unwrap()
+        });
+        let second_renders_for_window = second_renders.clone();
+        let second = cx.update(|cx| {
+            cx.open_window(Default::default(), |window, cx| {
+                let content = cx.new(|_| RenderProbe(second_renders_for_window));
+                cx.new(|cx| Root::new(content, window, cx))
+            })
+            .unwrap()
+        });
+        let mut visual_cx = VisualTestContext::from_window(first.into(), cx);
+        let renders_before_change = second_renders.get();
+
+        let first_root = first.root(&mut visual_cx).unwrap();
+        first_root.update_in(&mut visual_cx, |_, _, cx| {
+            Theme::change(ThemeMode::Dark, None, cx);
+            Theme::global_mut(cx).mode_preference = ThemeModePreference::System;
+        });
+        visual_cx.simulate_window_appearance(first.into(), gpui::WindowAppearance::Dark);
+        visual_cx.run_until_parked();
+
+        assert!(second_renders.get() > renders_before_change);
+        let _ = second;
     }
 
     #[gpui::test]

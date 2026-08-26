@@ -13,9 +13,11 @@ collapsed: false
 - [Alert](alert) - Alert messages with different variants
 - [Avatar](avatar) - User avatars with fallback text
 - [Badge](badge) - Count badges and indicators
+- [Breadcrumb](breadcrumb) - Navigation path through a hierarchy
 - [Button](button) - Interactive buttons with multiple variants
 - [Checkbox](checkbox) - Binary selection control
 - [Collapsible](collapsible) - Expandable/collapsible content
+- [Command Palette](command-palette) - Searchable commands and actions
 - [DropdownButton](dropdown_button) - Button with dropdown menu
 - [Icon](icon) - Icon display component
 - [Image](image) - Image display with fallbacks
@@ -52,6 +54,7 @@ collapsed: false
 - [GroupBox](group-box) - Grouped content with borders
 - [AlertDialog](alert-dialog) - Modal prompt that requires a user response
 - [Dialog](dialog) - Dialog and modal windows
+- [Divider](divider) - Horizontal or vertical content separator
 - [Notification](notification) - Toast notifications
 - [Popover](popover) - Floating content display
 - [Resizable](resizable) - Resizable panels and containers

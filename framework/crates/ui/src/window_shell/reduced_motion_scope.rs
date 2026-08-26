@@ -63,6 +63,13 @@ impl ReducedMotionScope {
             child: Some(child.into_any_element()),
         }
     }
+
+    fn scoped<R>(&self, cx: &mut App, f: impl FnOnce(&mut App) -> R) -> R {
+        GlobalState::global_mut(cx).push_reduced_motion(self.reduced_motion);
+        let result = f(cx);
+        GlobalState::global_mut(cx).pop_reduced_motion();
+        result
+    }
 }
 
 impl IntoElement for ReducedMotionScope {
@@ -101,7 +108,7 @@ impl Element for ReducedMotionScope {
             .child
             .take()
             .expect("ReducedMotionScope child already taken");
-        let layout_id = child.request_layout(window, cx);
+        let layout_id = self.scoped(cx, |cx| child.request_layout(window, cx));
         (layout_id, ReducedMotionScopeLayoutState { child })
     }
 
@@ -114,7 +121,7 @@ impl Element for ReducedMotionScope {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        request_layout.child.prepaint(window, cx);
+        self.scoped(cx, |cx| request_layout.child.prepaint(window, cx));
     }
 
     fn paint(
@@ -127,8 +134,129 @@ impl Element for ReducedMotionScope {
         window: &mut Window,
         cx: &mut App,
     ) {
-        GlobalState::global_mut(cx).push_reduced_motion(self.reduced_motion);
-        request_layout.child.paint(window, cx);
-        GlobalState::global_mut(cx).pop_reduced_motion();
+        self.scoped(cx, |cx| request_layout.child.paint(window, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use gpui::{App, AppContext as _, Context, Render, TestAppContext, canvas, point, px, size};
+
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct MotionSample {
+        phase: &'static str,
+        framework: bool,
+        engine: bool,
+        combined: bool,
+    }
+
+    fn sample(phase: &'static str, cx: &App) -> MotionSample {
+        MotionSample {
+            phase,
+            framework: GlobalState::global(cx).reduced_motion(),
+            engine: cx.reduce_motion(),
+            combined: crate::animation::reduced_motion(cx),
+        }
+    }
+
+    struct MotionProbe {
+        samples: Rc<RefCell<Vec<MotionSample>>>,
+    }
+
+    impl Render for MotionProbe {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.samples.borrow_mut().push(sample("render", cx));
+
+            let prepaint_samples = self.samples.clone();
+            let paint_samples = self.samples.clone();
+            canvas(
+                move |_, _, cx| {
+                    prepaint_samples.borrow_mut().push(sample("prepaint", cx));
+                },
+                move |_, _, _, cx| {
+                    paint_samples.borrow_mut().push(sample("paint", cx));
+                },
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn reduced_motion_scope_surrounds_every_child_phase(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        cx.update(|cx| cx.set_reduce_motion(false));
+        let cx = cx.add_empty_window();
+
+        let samples = Rc::new(RefCell::new(Vec::new()));
+        let probe = cx.new({
+            let samples = samples.clone();
+            move |_| MotionProbe { samples }
+        });
+
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            ReducedMotionScope::new(true, probe)
+        });
+
+        assert_eq!(
+            *samples.borrow(),
+            vec![
+                MotionSample {
+                    phase: "render",
+                    framework: true,
+                    engine: false,
+                    combined: true,
+                },
+                MotionSample {
+                    phase: "prepaint",
+                    framework: true,
+                    engine: false,
+                    combined: true,
+                },
+                MotionSample {
+                    phase: "paint",
+                    framework: true,
+                    engine: false,
+                    combined: true,
+                },
+            ]
+        );
+
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        let engine_samples = Rc::new(RefCell::new(Vec::new()));
+        let engine_probe = cx.new({
+            let samples = engine_samples.clone();
+            move |_| MotionProbe { samples }
+        });
+
+        cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, _| {
+            ReducedMotionScope::new(false, engine_probe)
+        });
+
+        assert_eq!(
+            *engine_samples.borrow(),
+            vec![
+                MotionSample {
+                    phase: "render",
+                    framework: false,
+                    engine: true,
+                    combined: true,
+                },
+                MotionSample {
+                    phase: "prepaint",
+                    framework: false,
+                    engine: true,
+                    combined: true,
+                },
+                MotionSample {
+                    phase: "paint",
+                    framework: false,
+                    engine: true,
+                    combined: true,
+                },
+            ]
+        );
     }
 }

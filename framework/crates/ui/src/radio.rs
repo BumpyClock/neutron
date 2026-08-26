@@ -6,8 +6,8 @@ use crate::{
 };
 use gpui::{
     AnyElement, App, Axis, Div, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
-    prelude::FluentBuilder, px, relative, rems,
+    RenderOnce, Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Toggled,
+    Window, div, prelude::FluentBuilder, px, relative, rems,
 };
 
 /// A Radio element.
@@ -127,6 +127,7 @@ impl ParentElement for Radio {
 impl RenderOnce for Radio {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let checked = self.checked;
+        let aria_label = self.label.as_ref().map(|label| label.get_text(cx));
         let focus_handle = window
             .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
             .read(cx)
@@ -149,6 +150,14 @@ impl RenderOnce for Radio {
         div().child(
             self.base
                 .id(self.id.clone())
+                .role(Role::RadioButton)
+                .when_some(aria_label, |this, label| this.aria_label(label))
+                .aria_toggled(if checked {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
+                .aria_disabled(disabled)
                 .when(!self.disabled, |this| {
                     this.track_focus(
                         &focus_handle
@@ -341,16 +350,16 @@ impl RenderOnce for RadioGroup {
             h_flex().w_full().flex_wrap()
         };
 
-        let mut container = div().id(self.id);
+        let mut container = div().id(self.id).role(Role::RadioGroup);
         *container.style() = self.style;
 
         container.child(
             base.gap_3()
-                .children(self.radios.into_iter().enumerate().map(|(ix, mut radio)| {
+                .children(self.radios.into_iter().enumerate().map(|(ix, radio)| {
                     let checked = selected_ix == Some(ix);
+                    let radio_disabled = disabled || radio.disabled;
 
-                    radio.id = ix.into();
-                    radio.disabled(disabled).checked(checked).when_some(
+                    radio.disabled(radio_disabled).checked(checked).when_some(
                         on_click.clone(),
                         |this, on_click| {
                             this.on_click(move |_, window, cx| {
@@ -360,5 +369,94 @@ impl RenderOnce for RadioGroup {
                     )
                 })),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{
+        Context, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, Render, TestAppContext,
+        VisualTestContext, point,
+    };
+
+    use super::*;
+
+    struct RadioHarness {
+        disabled: bool,
+        activations: Rc<Cell<usize>>,
+    }
+
+    impl Render for RadioHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let activations = self.activations.clone();
+            div().size(px(100.)).child(
+                Radio::new("test-radio")
+                    .label("Channel")
+                    .disabled(self.disabled)
+                    .on_click(move |checked, _, _| {
+                        assert!(*checked);
+                        activations.set(activations.get() + 1);
+                    }),
+            )
+        }
+    }
+
+    fn harness(
+        cx: &mut TestAppContext,
+        disabled: bool,
+    ) -> (&mut VisualTestContext, Rc<Cell<usize>>) {
+        cx.update(crate::init);
+        let activations = Rc::new(Cell::new(0));
+        let (_, cx) = cx.add_window_view({
+            let activations = activations.clone();
+            move |_, _| RadioHarness {
+                disabled,
+                activations,
+            }
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        (cx, activations)
+    }
+
+    fn activate_key(cx: &mut VisualTestContext, key: &str) {
+        let keystroke = Keystroke::parse(key).unwrap();
+        cx.simulate_event(KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(KeyUpEvent { keystroke });
+    }
+
+    #[gpui::test]
+    fn pointer_activation_fires_once(cx: &mut TestAppContext) {
+        let (cx, activations) = harness(cx, false);
+        cx.simulate_click(point(px(10.), px(10.)), Modifiers::none());
+
+        assert_eq!(activations.get(), 1);
+    }
+
+    #[gpui::test]
+    fn radio_supports_tab_enter_and_space(cx: &mut TestAppContext) {
+        let (cx, activations) = harness(cx, false);
+        cx.update(|window, cx| window.focus_next(cx));
+        cx.update(|window, cx| assert!(window.focused(cx).is_some()));
+
+        activate_key(cx, "enter");
+        activate_key(cx, "space");
+
+        assert_eq!(activations.get(), 2);
+    }
+
+    #[gpui::test]
+    fn disabled_radio_is_inert(cx: &mut TestAppContext) {
+        let (cx, activations) = harness(cx, true);
+        cx.simulate_click(point(px(10.), px(10.)), Modifiers::none());
+        cx.update(|window, cx| window.focus_next(cx));
+
+        assert_eq!(activations.get(), 0);
+        cx.update(|window, cx| assert!(window.focused(cx).is_none()));
     }
 }

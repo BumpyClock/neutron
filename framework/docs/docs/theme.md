@@ -94,11 +94,28 @@ and unit mass, it uses `ω = 2πf/d`, `k = ω²`, `c = 2ζω`, and `m = 1`. Non-
 or non-positive duration and non-finite spring values use default theme tokens.
 Frequency and damping ratio are bounded before conversion.
 
-Reduced motion is enabled when either the GPUI engine signal
-(`App::reduce_motion()`) or the framework signal (`GlobalState::reduced_motion()`)
-is enabled. Components must use `animation::reduced_motion(cx)` so both signals
-take effect. Reduced motion snaps stateful geometry and skips duration-based
-animations.
+Reduced motion is enabled when the GPUI engine signal
+(`App::reduce_motion()`) is enabled or when a parent `ReducedMotionScope`
+provides a reduced-motion value. Components must use
+`animation::reduced_motion(cx)` so both signals take effect. Reduced motion
+snaps stateful geometry and skips duration-based animations.
+
+`WindowShell` wraps its content in `ReducedMotionScope`. The scope provides its
+value before child render, layout, prepaint, and paint, then removes it after
+each phase. Use the scope directly when only one subtree must avoid motion:
+
+```rs
+use gpui::div;
+use neutron_components::{ReducedMotionScope, animation};
+
+ReducedMotionScope::new(true, div().child(my_content));
+
+// A child component can read the combined preference.
+let reduce_motion = animation::reduced_motion(cx);
+```
+
+`Skeleton` and `Spinner` render without repeat animations when reduced motion is
+active. Presence transitions and command-palette reveal delays also stop.
 
 ## AppShell integration
 
@@ -159,9 +176,16 @@ Theme files contain a [ThemeSet] with one or more variants (light and/or dark). 
 
 This design allows themes to automatically adapt to the user's appearance preference without requiring separate theme selection for light and dark modes.
 
-## Mode Preference
+## Mode preference
 
-Users can control how theme variants are applied using [ThemeModePreference]:
+Users can control how theme variants are applied using [ThemeModePreference].
+`System` is live. `Theme::apply_theme_set` stores the preference, and each
+`Root` watches its window appearance. When the system changes between light and
+dark, a `System` root resynchronizes the theme and refreshes all open windows.
+
+Pinned `Light` and `Dark` preferences ignore later appearance notifications.
+Use `Root` as the first view in a normal framework window so this subscription
+can receive appearance changes.
 
 - **`System`**: Automatically follows the OS appearance setting. When the system switches between light and dark mode, the theme updates accordingly.
 - **`Light`**: Always uses the light variant of the selected theme set.

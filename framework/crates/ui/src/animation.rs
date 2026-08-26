@@ -52,44 +52,101 @@ pub fn theme_spring_config(motion: &ThemeMotion) -> SpringConfig {
 ///
 /// https://cubic-bezier.com
 pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 {
-    move |t: f32| {
-        if !t.is_finite() {
-            return 0.0;
-        }
-        let t = t.clamp(0.0, 1.0);
-        let one_t = 1.0 - t;
-        let one_t2 = one_t * one_t;
-        let t2 = t * t;
-        let t3 = t2 * t;
-
-        // The Bezier curve function for x and y, where x0 = 0, y0 = 0, x3 = 1, y3 = 1
-        let _x = 3.0 * x1 * one_t2 * t + 3.0 * x2 * one_t * t2 + t3;
-        let y = 3.0 * y1 * one_t2 * t + 3.0 * y2 * one_t * t2 + t3;
-
-        if y.is_finite() {
-            y.clamp(0.0, 1.0)
-        } else {
-            0.0
-        }
-    }
+    cubic_bezier_with_output_bounds(x1, y1, x2, y2, true)
 }
 
 /// A cubic bezier function without clamping the output.
 pub fn cubic_bezier_unbounded(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 {
-    move |t: f32| {
-        if !t.is_finite() {
+    cubic_bezier_with_output_bounds(x1, y1, x2, y2, false)
+}
+
+const CUBIC_BEZIER_NEWTON_ITERATIONS: usize = 8;
+const CUBIC_BEZIER_BISECTION_ITERATIONS: usize = 32;
+const CUBIC_BEZIER_EPSILON: f32 = 1e-6;
+
+fn cubic_bezier_with_output_bounds(
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    bound_output: bool,
+) -> impl Fn(f32) -> f32 {
+    let valid_controls = [x1, y1, x2, y2].iter().all(|value| value.is_finite())
+        && (0.0..=1.0).contains(&x1)
+        && (0.0..=1.0).contains(&x2);
+
+    move |x: f32| {
+        if !x.is_finite() {
             return 0.0;
         }
-        let t = t.clamp(0.0, 1.0);
-        let one_t = 1.0 - t;
-        let one_t2 = one_t * one_t;
-        let t2 = t * t;
-        let t3 = t2 * t;
-
-        let _x = 3.0 * x1 * one_t2 * t + 3.0 * x2 * one_t * t2 + t3;
-        let y = 3.0 * y1 * one_t2 * t + 3.0 * y2 * one_t * t2 + t3;
-        if y.is_finite() { y } else { 0.0 }
+        let x = x.clamp(0.0, 1.0);
+        let parameter = if x <= 0.0 {
+            0.0
+        } else if x >= 1.0 {
+            1.0
+        } else if valid_controls {
+            solve_cubic_bezier_parameter(x, x1, x2)
+        } else {
+            // Keep direct helper calls finite; CSS input validation happens in the parser.
+            x
+        };
+        let y = sample_cubic_bezier(parameter, y1, y2);
+        if !y.is_finite() {
+            return 0.0;
+        }
+        if bound_output { y.clamp(0.0, 1.0) } else { y }
     }
+}
+
+fn sample_cubic_bezier(parameter: f32, control_1: f32, control_2: f32) -> f32 {
+    let one_minus_parameter = 1.0 - parameter;
+    let one_minus_parameter_squared = one_minus_parameter * one_minus_parameter;
+    let parameter_squared = parameter * parameter;
+    3.0 * control_1 * one_minus_parameter_squared * parameter
+        + 3.0 * control_2 * one_minus_parameter * parameter_squared
+        + parameter_squared * parameter
+}
+
+fn sample_cubic_bezier_derivative(parameter: f32, control_1: f32, control_2: f32) -> f32 {
+    let one_minus_parameter = 1.0 - parameter;
+    3.0 * control_1 * one_minus_parameter * one_minus_parameter
+        + 6.0 * (control_2 - control_1) * one_minus_parameter * parameter
+        + 3.0 * (1.0 - control_2) * parameter * parameter
+}
+
+fn solve_cubic_bezier_parameter(x: f32, x1: f32, x2: f32) -> f32 {
+    let mut parameter = x;
+    for _ in 0..CUBIC_BEZIER_NEWTON_ITERATIONS {
+        let derivative = sample_cubic_bezier_derivative(parameter, x1, x2);
+        if derivative.abs() <= CUBIC_BEZIER_EPSILON {
+            break;
+        }
+
+        let error = sample_cubic_bezier(parameter, x1, x2) - x;
+        if error.abs() <= CUBIC_BEZIER_EPSILON {
+            return parameter;
+        }
+
+        let next = parameter - error / derivative;
+        if !next.is_finite() || !(0.0..=1.0).contains(&next) {
+            break;
+        }
+        parameter = next;
+    }
+
+    let mut lower = 0.0;
+    let mut upper = 1.0;
+    for _ in 0..CUBIC_BEZIER_BISECTION_ITERATIONS {
+        parameter = (lower + upper) / 2.0;
+        let error = sample_cubic_bezier(parameter, x1, x2) - x;
+        if error < 0.0 {
+            lower = parameter;
+        } else {
+            upper = parameter;
+        }
+    }
+
+    (lower + upper) / 2.0
 }
 
 /// Parse a CSS cubic-bezier string into (x1, y1, x2, y2).
@@ -105,6 +162,12 @@ pub fn parse_cubic_bezier_easing(value: &str) -> Option<(f32, f32, f32, f32)> {
     let x2 = parts.next()?.parse::<f32>().ok()?;
     let y2 = parts.next()?.parse::<f32>().ok()?;
     if parts.next().is_some() {
+        return None;
+    }
+    if ![x1, y1, x2, y2].iter().all(|value| value.is_finite())
+        || !(0.0..=1.0).contains(&x1)
+        || !(0.0..=1.0).contains(&x2)
+    {
         return None;
     }
     Some((x1, y1, x2, y2))
@@ -548,6 +611,36 @@ mod tests {
     }
 
     #[test]
+    fn cubic_bezier_inverts_x_before_sampling_y() {
+        let easing = cubic_bezier(0.25, 0.1, 0.25, 1.0);
+
+        let midpoint = easing(0.5);
+
+        assert!((midpoint - 0.8024034).abs() < 0.0001, "got {midpoint}");
+    }
+
+    #[test]
+    fn cubic_bezier_invalid_controls_fall_back_to_input_parameter() {
+        let easing = cubic_bezier(2.0, 0.1, 0.25, 1.0);
+
+        assert_eq!(easing(0.25), 0.1984375);
+    }
+
+    #[test]
+    fn cubic_bezier_bisection_handles_flat_x_endpoint() {
+        let easing = cubic_bezier(0.0, 0.0, 0.0, 1.0);
+
+        let near_start = easing(1e-8);
+
+        assert!(
+            (near_start - 0.0000139048).abs() < 0.000001,
+            "got {near_start}"
+        );
+        assert_eq!(easing(0.0), 0.0);
+        assert_eq!(easing(1.0), 1.0);
+    }
+
+    #[test]
     fn strong_invoke_curve_is_unbounded_for_transform_use() {
         let easing = cubic_bezier_unbounded(0.13, 1.62, 0.0, 0.92);
         let mut peak = f32::MIN;
@@ -570,6 +663,14 @@ mod tests {
         assert_eq!(parse_cubic_bezier_easing("linear"), None);
         assert_eq!(
             parse_cubic_bezier_easing("cubic-bezier(0.1, 0.2, 0.3)"),
+            None
+        );
+        assert_eq!(
+            parse_cubic_bezier_easing("cubic-bezier(2.0, 0.1, 0.25, 1.0)"),
+            None
+        );
+        assert_eq!(
+            parse_cubic_bezier_easing("cubic-bezier(NaN, 0.1, 0.25, 1.0)"),
             None
         );
     }

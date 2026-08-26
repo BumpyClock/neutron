@@ -51,7 +51,7 @@ div()
 Dropdown menus are triggered by buttons or other interactive elements:
 
 ```rust
-use neutron_components::popup_menu::{PopupMenuExt as _, PopupMenuItem};
+use neutron_components::menu::{DropdownMenu as _, PopupMenuItem};
 
 let view = cx.entity();
 Button::new("menu-btn")

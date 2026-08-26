@@ -103,6 +103,10 @@ The Spinner component features a built-in rotation animation:
 - **Repeat**: Infinite loop
 - **Transform**: 360-degree rotation
 
+When reduced motion is active, Spinner renders its icon without the repeating
+rotation. `WindowShell::reduced_motion(true)` provides this preference to its
+content through `ReducedMotionScope`.
+
 ## Size Reference
 
 | Size        | Method              | Approximate Pixels |

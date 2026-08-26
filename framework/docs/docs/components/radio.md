@@ -59,7 +59,7 @@ impl Render for MyView {
         RadioGroup::horizontal("options")
             .children(["Option 1", "Option 2", "Option 3"])
             .selected_index(self.selected_option)
-            .on_change(cx.listener(|view, selected_index: &usize, _, cx| {
+            .on_click(cx.listener(|view, selected_index: &usize, _, cx| {
                 view.selected_option = Some(*selected_index);
                 cx.notify();
             }))
@@ -119,7 +119,7 @@ Radio::new("radio")
 RadioGroup::horizontal("horizontal-group")
     .children(["First", "Second", "Third"])
     .selected_index(Some(0))
-    .on_change(cx.listener(|view, index, _, cx| {
+    .on_click(cx.listener(|view, index, _, cx| {
         println!("Selected index: {}", index);
         cx.notify();
     }))
@@ -185,7 +185,7 @@ RadioGroup::vertical("disabled-group")
 | `children(items)`               | Add multiple radio buttons from an iterator                         |
 | `selected_index(Option<usize>)` | Set the selected option by index                                    |
 | `disabled(bool)`                | Disable all radio buttons in the group                              |
-| `on_change(fn)`                 | Callback when selection changes, receives `&usize` (selected index) |
+| `on_click(fn)`                  | Callback when selection changes, receives `&usize` (selected index) |
 
 ### Styling
 
@@ -222,7 +222,7 @@ impl Render for SettingsView {
                             .child(Radio::new("dark").label("Dark"))
                             .child(Radio::new("auto").label("Auto"))
                             .selected_index(self.theme)
-                            .on_change(cx.listener(|view, index, _, cx| {
+                            .on_click(cx.listener(|view, index, _, cx| {
                                 view.theme = Some(*index);
                                 cx.notify();
                             }))
@@ -236,7 +236,7 @@ impl Render for SettingsView {
                         RadioGroup::horizontal("language")
                             .children(["English", "Español", "Français"])
                             .selected_index(self.language)
-                            .on_change(cx.listener(|view, index, _, cx| {
+                            .on_click(cx.listener(|view, index, _, cx| {
                                 view.language = Some(*index);
                                 cx.notify();
                             }))
@@ -275,7 +275,7 @@ impl Render for SurveyView {
                             .child(Radio::new("dissatisfied").label("Dissatisfied"))
                             .child(Radio::new("very-dissatisfied").label("Very dissatisfied"))
                             .selected_index(self.satisfaction)
-                            .on_change(cx.listener(|view, index, _, cx| {
+                            .on_click(cx.listener(|view, index, _, cx| {
                                 view.satisfaction = Some(*index);
                                 cx.notify();
                             }))
@@ -294,7 +294,7 @@ impl Render for SurveyView {
                         RadioGroup::horizontal("recommendation")
                             .children((0..=10).map(|i| i.to_string()))
                             .selected_index(self.recommendation)
-                            .on_change(cx.listener(|view, index, _, cx| {
+                            .on_click(cx.listener(|view, index, _, cx| {
                                 view.recommendation = Some(*index);
                                 cx.notify();
                             }))
@@ -351,7 +351,7 @@ impl Render for PaymentView {
                             )
                     )
                     .selected_index(self.payment_method)
-                    .on_change(cx.listener(|view, index, _, cx| {
+                    .on_click(cx.listener(|view, index, _, cx| {
                         view.payment_method = Some(*index);
                         cx.notify();
                     }))

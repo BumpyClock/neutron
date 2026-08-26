@@ -116,6 +116,13 @@ impl SliderValue {
         }
     }
 
+    fn is_finite(&self) -> bool {
+        match self {
+            SliderValue::Single(value) => value.is_finite(),
+            SliderValue::Range(start, end) => start.is_finite() && end.is_finite(),
+        }
+    }
+
     fn set_start(&mut self, value: f32) {
         if let SliderValue::Range(_, end) = self {
             *self = SliderValue::Range(value.min(*end), *end);
@@ -208,16 +215,7 @@ impl SliderState {
 
     /// Set the minimum value of the slider, default: 0.0
     pub fn min(mut self, min: f32) -> Self {
-        if self.scale.is_logarithmic() {
-            assert!(
-                min > 0.0,
-                "`min` must be greater than 0 for SliderScale::Logarithmic"
-            );
-            assert!(
-                min < self.max,
-                "`min` must be less than `max` for Logarithmic scale"
-            );
-        }
+        assert!(min.is_finite(), "`min` must be finite");
         self.min = min;
         self.update_thumb_pos();
         self
@@ -225,12 +223,7 @@ impl SliderState {
 
     /// Set the maximum value of the slider, default: 100.0
     pub fn max(mut self, max: f32) -> Self {
-        if self.scale.is_logarithmic() {
-            assert!(
-                max > self.min,
-                "`max` must be greater than `min` for Logarithmic scale"
-            );
-        }
+        assert!(max.is_finite(), "`max` must be finite");
         self.max = max;
         self.update_thumb_pos();
         self
@@ -238,22 +231,17 @@ impl SliderState {
 
     /// Set the step value of the slider, default: 1.0
     pub fn step(mut self, step: f32) -> Self {
+        assert!(
+            step.is_finite() && step > 0.0,
+            "`step` must be finite and greater than 0"
+        );
         self.step = step;
+        self.update_thumb_pos();
         self
     }
 
     /// Set the scale of the slider, default: [`SliderScale::Linear`].
     pub fn scale(mut self, scale: SliderScale) -> Self {
-        if scale.is_logarithmic() {
-            assert!(
-                self.min > 0.0,
-                "`min` must be greater than 0 for Logarithmic scale"
-            );
-            assert!(
-                self.max > self.min,
-                "`max` must be greater than `min` for Logarithmic scale"
-            );
-        }
         self.scale = scale;
         self.update_thumb_pos();
         self
@@ -261,7 +249,10 @@ impl SliderState {
 
     /// Set the default value of the slider, default: 0.0
     pub fn default_value(mut self, value: impl Into<SliderValue>) -> Self {
-        self.value = value.into();
+        let value = value.into();
+        if value.is_finite() {
+            self.value = value;
+        }
         self.update_thumb_pos();
         self
     }
@@ -273,7 +264,11 @@ impl SliderState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.value = value.into();
+        let value = value.into();
+        if !value.is_finite() {
+            return;
+        }
+        self.value = value;
         self.update_thumb_pos();
         cx.notify();
     }
@@ -286,14 +281,35 @@ impl SliderState {
     /// Converts a value between 0.0 and 1.0 to a value between the minimum and maximum value,
     /// depending on the chosen scale.
     fn percentage_to_value(&self, percentage: f32) -> f32 {
+        let fallback = if self.min.is_finite() { self.min } else { 0.0 };
+        if !self.has_valid_configuration() || !percentage.is_finite() {
+            return fallback;
+        }
+        let percentage = percentage.clamp(0.0, 1.0);
         match self.scale {
-            SliderScale::Linear => self.min + (self.max - self.min) * percentage,
+            SliderScale::Linear => {
+                let min = f64::from(self.min);
+                let max = f64::from(self.max);
+                let value = min + (max - min) * f64::from(percentage);
+                if value.is_finite() {
+                    value.clamp(min, max) as f32
+                } else if percentage <= 0.0 {
+                    self.min
+                } else {
+                    self.max
+                }
+            }
             SliderScale::Logarithmic => {
-                // when percentage is 0, this simplifies to (max/min)^0 * min = 1 * min = min
-                // when percentage is 1, this simplifies to (max/min)^1 * min = (max*min)/min = max
-                // we clamp just to make sure we don't have issue with floating point precision
-                let base = self.max / self.min;
-                (base.powf(percentage) * self.min).clamp(self.min, self.max)
+                let min = f64::from(self.min);
+                let max = f64::from(self.max);
+                let min_log = min.ln();
+                let max_log = max.ln();
+                let value = (min_log + (max_log - min_log) * f64::from(percentage)).exp();
+                if value.is_finite() {
+                    value.clamp(min, max) as f32
+                } else {
+                    self.max
+                }
             }
         }
     }
@@ -301,35 +317,109 @@ impl SliderState {
     /// Converts a value between the minimum and maximum value to a value between 0.0 and 1.0,
     /// depending on the chosen scale.
     fn value_to_percentage(&self, value: f32) -> f32 {
-        match self.scale {
+        if !self.has_valid_configuration() || !value.is_finite() {
+            return 0.0;
+        }
+        let percentage = match self.scale {
             SliderScale::Linear => {
-                let range = self.max - self.min;
-                if range <= 0.0 {
-                    0.0
-                } else {
-                    (value - self.min) / range
-                }
+                let min = f64::from(self.min);
+                let max = f64::from(self.max);
+                let range = max - min;
+                (f64::from(value) - min) / range
             }
             SliderScale::Logarithmic => {
-                let base = self.max / self.min;
-                (value / self.min).log(base).clamp(0.0, 1.0)
+                let min_log = f64::from(self.min).ln();
+                let max_log = f64::from(self.max).ln();
+                let range = max_log - min_log;
+                if !min_log.is_finite() || !max_log.is_finite() || !range.is_finite() {
+                    return 0.0;
+                }
+                (f64::from(value).ln() - min_log) / range
             }
+        };
+        if percentage.is_finite() {
+            percentage.clamp(0.0, 1.0) as f32
+        } else {
+            0.0
         }
     }
 
+    fn has_valid_configuration(&self) -> bool {
+        self.min.is_finite()
+            && self.max.is_finite()
+            && self.min < self.max
+            && self.step.is_finite()
+            && self.step > 0.0
+            && (!self.scale.is_logarithmic() || self.min > 0.0)
+    }
+
+    fn quantize_value(&self, value: f32) -> Option<f32> {
+        if !self.has_valid_configuration() || !value.is_finite() {
+            return None;
+        }
+        let step = f64::from(self.step);
+        let quantized = (f64::from(value) / step).round() * step;
+        let quantized = if quantized.is_finite() {
+            quantized
+        } else if value >= self.max {
+            f64::from(self.max)
+        } else if value <= self.min {
+            f64::from(self.min)
+        } else {
+            return None;
+        };
+        Some(quantized.clamp(f64::from(self.min), f64::from(self.max)) as f32)
+    }
+
+    fn percentage_is_valid(&self) -> bool {
+        self.percentage.start.is_finite()
+            && self.percentage.end.is_finite()
+            && (0.0..=1.0).contains(&self.percentage.start)
+            && (0.0..=1.0).contains(&self.percentage.end)
+            && self.percentage.start <= self.percentage.end
+    }
+
+    fn reset_thumb_pos(&mut self) {
+        self.percentage = 0.0..0.0;
+    }
+
     fn update_thumb_pos(&mut self) {
+        if !self.has_valid_configuration() || !self.value.is_finite() {
+            self.reset_thumb_pos();
+            return;
+        }
         match self.value {
             SliderValue::Single(value) => {
                 let percentage = self.value_to_percentage(value.clamp(self.min, self.max));
-                self.percentage = 0.0..percentage;
+                self.percentage = 0.0..percentage.clamp(0.0, 1.0);
             }
             SliderValue::Range(start, end) => {
                 let clamped_start = start.clamp(self.min, self.max);
                 let clamped_end = end.clamp(self.min, self.max);
-                self.percentage =
-                    self.value_to_percentage(clamped_start)..self.value_to_percentage(clamped_end);
+                let start = self.value_to_percentage(clamped_start);
+                let end = self.value_to_percentage(clamped_end);
+                self.percentage = start.min(end)..start.max(end);
             }
         }
+    }
+
+    fn percentage_for_position(&self, axis: Axis, position: Point<Pixels>) -> Option<f32> {
+        if !self.has_valid_configuration() || !self.percentage_is_valid() {
+            return None;
+        }
+
+        let bounds = self.bounds;
+        let inner_pos = if axis.is_horizontal() {
+            (position.x - bounds.left()).as_f32()
+        } else {
+            (bounds.bottom() - position.y).as_f32()
+        };
+        let total_size = bounds.size.along(axis).as_f32();
+        if !inner_pos.is_finite() || !total_size.is_finite() || total_size <= 0.0 {
+            return None;
+        }
+
+        Some((inner_pos.clamp(0.0, total_size) / total_size).clamp(0.0, 1.0))
     }
 
     /// Update value by mouse position
@@ -341,16 +431,9 @@ impl SliderState {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let bounds = self.bounds;
-        let step = self.step;
-
-        let inner_pos = if axis.is_horizontal() {
-            position.x - bounds.left()
-        } else {
-            bounds.bottom() - position.y
+        let Some(percentage) = self.percentage_for_position(axis, position) else {
+            return;
         };
-        let total_size = bounds.size.along(axis);
-        let percentage = inner_pos.clamp(px(0.), total_size) / total_size;
 
         let percentage = if is_start {
             percentage.clamp(0.0, self.percentage.end)
@@ -359,7 +442,9 @@ impl SliderState {
         };
 
         let value = self.percentage_to_value(percentage);
-        let value = (value / step).round() * step;
+        let Some(value) = self.quantize_value(value) else {
+            return;
+        };
 
         if is_start {
             self.percentage.start = percentage;
@@ -657,5 +742,107 @@ impl RenderOnce for Slider {
                             }),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logarithmic_builder_accepts_scale_before_bounds() {
+        let slider = SliderState::new()
+            .scale(SliderScale::Logarithmic)
+            .min(1.0)
+            .max(100.0);
+
+        assert!(slider.percentage.start.is_finite());
+        assert!(slider.percentage.end.is_finite());
+        assert!((slider.percentage_to_value(0.5) - 10.0).abs() < 0.0001);
+    }
+
+    #[test]
+    #[should_panic(expected = "`min` must be finite")]
+    fn min_rejects_nonfinite_value() {
+        SliderState::new().min(f32::NAN);
+    }
+
+    #[test]
+    #[should_panic(expected = "`max` must be finite")]
+    fn max_rejects_nonfinite_value() {
+        SliderState::new().max(f32::INFINITY);
+    }
+
+    #[test]
+    #[should_panic(expected = "`step` must be finite and greater than 0")]
+    fn step_rejects_nonpositive_value() {
+        SliderState::new().step(0.0);
+    }
+
+    #[test]
+    fn quantized_value_is_clamped_to_slider_bounds() {
+        let slider = SliderState::new().min(0.0).max(1.0).step(0.6);
+
+        assert_eq!(slider.quantize_value(1.0), Some(1.0));
+    }
+
+    #[test]
+    fn finite_extreme_bounds_preserve_linear_conversion() {
+        let slider = SliderState::new().min(-f32::MAX).max(f32::MAX);
+
+        assert_eq!(slider.percentage_to_value(0.5), 0.0);
+        assert!((slider.value_to_percentage(0.0) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zero_or_nonfinite_slider_geometry_has_no_pointer_percentage() {
+        for width in [0.0, f32::NAN, f32::INFINITY] {
+            let mut slider = SliderState::new();
+            slider.bounds = Bounds::new(
+                gpui::point(px(0.0), px(0.0)),
+                gpui::size(px(width), px(20.0)),
+            );
+
+            assert_eq!(
+                slider.percentage_for_position(Axis::Horizontal, gpui::point(px(0.0), px(0.0))),
+                None,
+                "width {width:?} must not produce a pointer percentage"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn invalid_slider_relation_does_not_emit_change(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.update(|cx| {
+            cx.open_window(Default::default(), |_, cx| cx.new(|_| gpui::Empty))
+                .unwrap()
+        });
+        let mut visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        let state = visual_cx.update(|_, cx| cx.new(|_| SliderState::new().min(100.0).max(0.0)));
+        let changes = std::rc::Rc::new(std::cell::Cell::new(0));
+        let changes_for_subscription = changes.clone();
+        let _subscription = visual_cx.update(|_, cx| {
+            cx.subscribe(&state, move |_, _: &SliderEvent, _| {
+                changes_for_subscription.set(changes_for_subscription.get() + 1);
+            })
+        });
+
+        state.update_in(&mut visual_cx, |slider, window, cx| {
+            slider.bounds =
+                Bounds::new(gpui::point(px(0.0), px(0.0)), gpui::size(px(0.0), px(20.0)));
+            slider.update_value_by_position(
+                Axis::Horizontal,
+                gpui::point(px(0.0), px(0.0)),
+                false,
+                window,
+                cx,
+            );
+        });
+
+        assert!(state.read_with(&visual_cx, |slider, _| {
+            slider.percentage.start.is_finite() && slider.percentage.end.is_finite()
+        }));
+        assert_eq!(changes.get(), 0);
     }
 }

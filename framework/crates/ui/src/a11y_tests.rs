@@ -11,7 +11,9 @@ use crate::{
     button::{Button, ButtonVariants as _, Toggle},
     checkbox::Checkbox,
     input::{Input, InputState},
+    link::Link,
     list::ListItem,
+    radio::{Radio, RadioGroup},
     searchable_list::SearchableListItemElement,
     switch::Switch,
     v_flex,
@@ -62,6 +64,17 @@ impl Render for AccessibilityFixture {
             .child(Button::new("a11y-pin").label("Pin").toggled(true))
             .child(Button::new("a11y-docs").label("Documentation").link())
             .child(
+                Link::new("a11y-standalone-link")
+                    .aria_label("Standalone docs")
+                    .child("Standalone docs"),
+            )
+            .child(
+                Link::new("a11y-disabled-link")
+                    .aria_label("Disabled docs")
+                    .disabled(true)
+                    .child("Disabled docs"),
+            )
+            .child(
                 Checkbox::new("a11y-sync")
                     .label("Enable sync")
                     .checked(true)
@@ -96,6 +109,25 @@ impl Render for AccessibilityFixture {
                     .label("Locked Wi-Fi")
                     .disabled(true)
                     .on_click(|_, _, _| {}),
+            )
+            .child(
+                Radio::new("a11y-radio")
+                    .label("Stable channel")
+                    .checked(true),
+            )
+            .child(
+                Radio::new("a11y-disabled-radio")
+                    .label("Locked channel")
+                    .disabled(true),
+            )
+            .child(
+                RadioGroup::vertical("a11y-radio-group")
+                    .child(Radio::new("a11y-group-open").label("Group open"))
+                    .child(
+                        Radio::new("a11y-group-locked")
+                            .label("Group locked")
+                            .disabled(true),
+                    ),
             )
             .child(Input::new(&self.input).aria_label("Search"))
             .child(
@@ -249,6 +281,15 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
     let (_, docs) = node_with_label(&update, Role::Link, "Documentation");
     assert_eq!(docs.toggled(), None);
 
+    let (_, standalone_docs) = node_with_label(&update, Role::Link, "Standalone docs");
+    assert!(standalone_docs.supports_action(AccessibleAction::Click));
+    assert!(standalone_docs.supports_action(AccessibleAction::Focus));
+
+    let (_, disabled_docs) = node_with_label(&update, Role::Link, "Disabled docs");
+    assert!(disabled_docs.is_disabled());
+    assert!(!disabled_docs.supports_action(AccessibleAction::Click));
+    assert!(!disabled_docs.supports_action(AccessibleAction::Focus));
+
     let (_, sync) = node_with_label(&update, Role::CheckBox, "Enable sync");
     assert_eq!(sync.toggled(), Some(Toggled::True));
     assert!(sync.supports_action(AccessibleAction::Click));
@@ -279,6 +320,28 @@ fn stage1_contract_representative_components_project_accessibility_tree(cx: &mut
     assert!(locked_wifi.is_disabled());
     assert!(!locked_wifi.supports_action(AccessibleAction::Click));
     assert!(!locked_wifi.supports_action(AccessibleAction::Focus));
+
+    let (_, radio) = node_with_label(&update, Role::RadioButton, "Stable channel");
+    assert_eq!(radio.toggled(), Some(Toggled::True));
+    assert!(radio.supports_action(AccessibleAction::Click));
+    assert!(radio.supports_action(AccessibleAction::Focus));
+
+    let (_, disabled_radio) = node_with_label(&update, Role::RadioButton, "Locked channel");
+    assert_eq!(disabled_radio.toggled(), Some(Toggled::False));
+    assert!(disabled_radio.is_disabled());
+    assert!(!disabled_radio.supports_action(AccessibleAction::Click));
+    assert!(!disabled_radio.supports_action(AccessibleAction::Focus));
+
+    assert!(
+        update
+            .nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::RadioGroup)
+    );
+    let (_, group_open) = node_with_label(&update, Role::RadioButton, "Group open");
+    assert!(!group_open.is_disabled());
+    let (_, group_locked) = node_with_label(&update, Role::RadioButton, "Group locked");
+    assert!(group_locked.is_disabled());
 
     let (search_id, search) = node_with_label(&update, Role::TextInput, "Search");
     assert_eq!(search.value(), Some("query"));

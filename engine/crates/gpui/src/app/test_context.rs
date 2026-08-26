@@ -388,6 +388,16 @@ impl TestAppContext {
             .simulate_scale_factor(scale_factor);
     }
 
+    /// Simulates a change in the system appearance of a window.
+    pub fn simulate_window_appearance(
+        &self,
+        window_handle: AnyWindowHandle,
+        appearance: crate::WindowAppearance,
+    ) {
+        self.test_window(window_handle)
+            .simulate_appearance_change(appearance);
+    }
+
     /// Returns true if there's an alert dialog open.
     pub fn expect_restart(&self) -> oneshot::Receiver<Option<PathBuf>> {
         let (tx, rx) = futures::channel::oneshot::channel();

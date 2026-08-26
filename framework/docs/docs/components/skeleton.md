@@ -104,9 +104,12 @@ The Skeleton component includes a built-in pulse animation that:
 - Runs continuously with a 2-second duration
 - Uses a bounce easing function with ease-in-out
 - Animates opacity from 100% to 50% and back
-- Automatically repeats to indicate loading state
+- Repeats to indicate loading state
 
-The animation cannot be disabled as it's essential for indicating loading state.
+When reduced motion is active, Skeleton keeps its layout and color but skips the
+repeat animation. `WindowShell::reduced_motion(true)` applies this preference to
+its content. Use `ReducedMotionScope` when you need the preference for one
+subtree.
 
 ## Sizes
 

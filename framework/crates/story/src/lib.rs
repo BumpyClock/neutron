@@ -21,6 +21,8 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 
 mod app_menus;
 mod stories;
+#[cfg(test)]
+mod story_registry_tests;
 mod themes;
 mod title_bar;
 pub use crate::title_bar::AppTitleBar;
@@ -58,6 +60,140 @@ actions!(
 );
 
 const PANEL_NAME: &str = "StoryContainer";
+
+pub type StoryPanelFactory = fn(&mut Window, &mut App) -> Entity<StoryContainer>;
+pub type StoryRestoreFactory = fn(&mut Window, &mut App) -> StoryRestore;
+
+pub struct StoryDescriptor {
+    pub group: &'static str,
+    pub story_klass: &'static str,
+    pub panel_factory: StoryPanelFactory,
+    pub restore_factory: StoryRestoreFactory,
+}
+
+pub struct StoryRestore {
+    pub story_klass: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub closable: bool,
+    pub zoomable: Option<PanelControl>,
+    pub story: AnyView,
+    pub on_active: fn(AnyView, bool, &mut Window, &mut App),
+}
+
+impl StoryDescriptor {
+    pub fn panel(&self, window: &mut Window, cx: &mut App) -> Entity<StoryContainer> {
+        (self.panel_factory)(window, cx)
+    }
+
+    pub fn restore(&self, window: &mut Window, cx: &mut App) -> StoryRestore {
+        let mut restored = (self.restore_factory)(window, cx);
+        restored.story_klass = self.story_klass;
+        restored
+    }
+}
+
+fn panel_factory<S: Story>(window: &mut Window, cx: &mut App) -> Entity<StoryContainer> {
+    StoryContainer::panel::<S>(window, cx)
+}
+
+fn restore_factory<S: Story>(window: &mut Window, cx: &mut App) -> StoryRestore {
+    StoryRestore {
+        story_klass: S::klass(),
+        title: S::title(),
+        description: S::description(),
+        closable: S::closable(),
+        zoomable: S::zoomable(),
+        story: S::new_view(window, cx).into(),
+        on_active: S::on_active_any,
+    }
+}
+
+macro_rules! story_descriptor {
+    ($group:literal, $story:ty, $story_klass:literal) => {
+        StoryDescriptor {
+            group: $group,
+            story_klass: $story_klass,
+            panel_factory: panel_factory::<$story>,
+            restore_factory: restore_factory::<$story>,
+        }
+    };
+}
+
+static STORY_DESCRIPTORS: &[StoryDescriptor] = &[
+    story_descriptor!("Getting Started", WelcomeStory, "WelcomeStory"),
+    story_descriptor!("Components", AccordionStory, "AccordionStory"),
+    story_descriptor!("Components", AlertDialogStory, "AlertDialogStory"),
+    story_descriptor!("Components", AlertStory, "AlertStory"),
+    story_descriptor!("Components", AppShellStory, "AppShellStory"),
+    story_descriptor!("Components", AvatarStory, "AvatarStory"),
+    story_descriptor!("Components", BadgeStory, "BadgeStory"),
+    story_descriptor!("Components", BreadcrumbStory, "BreadcrumbStory"),
+    story_descriptor!("Components", ButtonStory, "ButtonStory"),
+    story_descriptor!("Components", CalendarStory, "CalendarStory"),
+    story_descriptor!("Components", ChartStory, "ChartStory"),
+    story_descriptor!("Components", CheckboxStory, "CheckboxStory"),
+    story_descriptor!("Components", ClipboardStory, "ClipboardStory"),
+    story_descriptor!("Components", CollapsibleStory, "CollapsibleStory"),
+    story_descriptor!("Components", ColorPickerStory, "ColorPickerStory"),
+    story_descriptor!("Components", ComboboxStory, "ComboboxStory"),
+    story_descriptor!("Components", CommandPaletteStory, "CommandPaletteStory"),
+    story_descriptor!("Components", DatePickerStory, "DatePickerStory"),
+    story_descriptor!("Components", DescriptionListStory, "DescriptionListStory"),
+    story_descriptor!("Components", DialogStory, "DialogStory"),
+    story_descriptor!("Components", DividerStory, "DividerStory"),
+    story_descriptor!("Components", DropdownButtonStory, "DropdownButtonStory"),
+    story_descriptor!("Components", FormStory, "FormStory"),
+    story_descriptor!("Components", GroupBoxStory, "GroupBoxStory"),
+    story_descriptor!("Components", HoverCardStory, "HoverCardStory"),
+    story_descriptor!("Components", IconStory, "IconStory"),
+    story_descriptor!("Components", ImageStory, "ImageStory"),
+    story_descriptor!("Components", InputStory, "InputStory"),
+    story_descriptor!("Components", KbdStory, "KbdStory"),
+    story_descriptor!("Components", LabelStory, "LabelStory"),
+    story_descriptor!("Components", ListStory, "ListStory"),
+    story_descriptor!("Components", MenuStory, "MenuStory"),
+    story_descriptor!("Components", NotificationStory, "NotificationStory"),
+    story_descriptor!("Components", NumberInputStory, "NumberInputStory"),
+    story_descriptor!("Components", OtpInputStory, "OtpInputStory"),
+    story_descriptor!("Components", PaginationStory, "PaginationStory"),
+    story_descriptor!("Components", PopoverStory, "PopoverStory"),
+    story_descriptor!("Components", ProgressStory, "ProgressStory"),
+    story_descriptor!("Components", RadioStory, "RadioStory"),
+    story_descriptor!("Components", RatingStory, "RatingStory"),
+    story_descriptor!("Components", ResizableStory, "ResizableStory"),
+    story_descriptor!("Components", ScrollbarStory, "ScrollbarStory"),
+    story_descriptor!("Components", SelectStory, "SelectStory"),
+    story_descriptor!("Components", SettingsStory, "SettingsStory"),
+    story_descriptor!("Components", SheetStory, "SheetStory"),
+    story_descriptor!("Components", FloatingSidebarStory, "FloatingSidebarStory"),
+    story_descriptor!("Components", SidebarStory, "SidebarStory"),
+    story_descriptor!("Components", SkeletonStory, "SkeletonStory"),
+    story_descriptor!("Components", SliderStory, "SliderStory"),
+    story_descriptor!("Components", SpinnerStory, "SpinnerStory"),
+    story_descriptor!("Components", StatusBarStory, "StatusBarStory"),
+    story_descriptor!("Components", StepperStory, "StepperStory"),
+    story_descriptor!("Components", SwitchStory, "SwitchStory"),
+    story_descriptor!("Components", TableStory, "TableStory"),
+    story_descriptor!("Components", TabsStory, "TabsStory"),
+    story_descriptor!("Components", TagStory, "TagStory"),
+    story_descriptor!("Components", TextareaStory, "TextareaStory"),
+    story_descriptor!("Components", ThemeColorsStory, "ThemeColorsStory"),
+    story_descriptor!("Components", ToggleStory, "ToggleStory"),
+    story_descriptor!("Components", TooltipStory, "TooltipStory"),
+    story_descriptor!("Components", TreeStory, "TreeStory"),
+    story_descriptor!("Components", VirtualListStory, "VirtualListStory"),
+];
+
+pub fn story_descriptors() -> &'static [StoryDescriptor] {
+    STORY_DESCRIPTORS
+}
+
+pub fn story_descriptor(story_klass: &str) -> Option<&'static StoryDescriptor> {
+    story_descriptors()
+        .iter()
+        .find(|descriptor| descriptor.story_klass == story_klass)
+}
 
 pub struct AppState {
     pub invisible_panels: Entity<Vec<SharedString>>,
@@ -204,8 +340,15 @@ pub fn init(cx: &mut App) {
         };
 
         let view = cx.new(|cx| {
-            let (title, description, closable, zoomable, story, on_active) =
-                story_state.to_story(window, cx);
+            let StoryRestore {
+                title,
+                description,
+                closable,
+                zoomable,
+                story,
+                on_active,
+                story_klass: _,
+            } = story_state.to_story(window, cx);
             let mut container = StoryContainer::new(window, cx)
                 .story(story, story_state.story_klass)
                 .on_active(on_active);
@@ -423,64 +566,15 @@ impl StoryState {
         serde_json::from_value(value).unwrap()
     }
 
-    fn to_story(
-        &self,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (
-        &'static str,
-        &'static str,
-        bool,
-        Option<PanelControl>,
-        AnyView,
-        fn(AnyView, bool, &mut Window, &mut App),
-    ) {
-        macro_rules! story {
-            ($klass:tt) => {
-                (
-                    $klass::title(),
-                    $klass::description(),
-                    $klass::closable(),
-                    $klass::zoomable(),
-                    $klass::view(window, cx).into(),
-                    $klass::on_active_any,
-                )
-            };
-        }
+    pub fn descriptor(&self) -> Option<&'static StoryDescriptor> {
+        story_descriptor(&self.story_klass)
+    }
 
-        match self.story_klass.to_string().as_str() {
-            "BreadcrumbStory" => story!(BreadcrumbStory),
-            "ButtonStory" => story!(ButtonStory),
-            "CalendarStory" => story!(CalendarStory),
-            "ComboboxStory" => story!(ComboboxStory),
-            "CommandPaletteStory" => story!(CommandPaletteStory),
-            "SelectStory" => story!(SelectStory),
-            "IconStory" => story!(IconStory),
-            "ImageStory" => story!(ImageStory),
-            "InputStory" => story!(InputStory),
-            "ListStory" => story!(ListStory),
-            "DialogStory" => story!(DialogStory),
-            "AlertDialogStory" => story!(AlertDialogStory),
-            "DividerStory" => story!(DividerStory),
-            "PopoverStory" => story!(PopoverStory),
-            "ProgressStory" => story!(ProgressStory),
-            "ResizableStory" => story!(ResizableStory),
-            "ScrollbarStory" => story!(ScrollbarStory),
-            "SwitchStory" => story!(SwitchStory),
-            "StatusBarStory" => story!(StatusBarStory),
-            "TableStory" => story!(TableStory),
-            "LabelStory" => story!(LabelStory),
-            "TooltipStory" => story!(TooltipStory),
-            "AccordionStory" => story!(AccordionStory),
-            "FloatingSidebarStory" => story!(FloatingSidebarStory),
-            "SidebarStory" => story!(SidebarStory),
-            "FormStory" => story!(FormStory),
-            "NotificationStory" => story!(NotificationStory),
-            "ThemeColorsStory" => story!(ThemeColorsStory),
-            _ => {
-                unreachable!("Invalid story klass: {}", self.story_klass)
-            }
-        }
+    fn to_story(&self, window: &mut Window, cx: &mut App) -> StoryRestore {
+        let descriptor = self
+            .descriptor()
+            .unwrap_or_else(|| unreachable!("Invalid story klass: {}", self.story_klass));
+        descriptor.restore(window, cx)
     }
 }
 

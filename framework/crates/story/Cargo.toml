@@ -38,6 +38,9 @@ unindent = "0.2.3"
 rust-i18n.workspace = true
 dirs = "6.0.0"
 
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18" }
 

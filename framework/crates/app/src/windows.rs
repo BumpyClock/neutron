@@ -51,6 +51,7 @@ const WINDOW_HOLD_REASON: &str = "window";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MenuSurface {
+    #[cfg_attr(any(target_os = "windows", target_os = "linux"), allow(dead_code))]
     NativeGlobal,
     InWindow,
 }

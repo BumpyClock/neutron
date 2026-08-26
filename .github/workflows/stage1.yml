@@ -728,11 +728,26 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           expected_tree="$(git rev-parse HEAD^{tree})"
           python3 - "$EXPECTED_SHA" "$expected_tree" "$EXPECTED_REPOSITORY" <<'PY'
+          import hashlib
           import json
           import pathlib
+          import subprocess
           import sys
 
           expected_sha, expected_tree, expected_repository = sys.argv[1:]
+          identity_paths = (
+              ".github/workflows/stage1.yml",
+              "Cargo.lock",
+              "Cargo.toml",
+              "engine/fork.toml",
+              "framework/compatibility.toml",
+          )
+          expected_digests = {
+              path: hashlib.sha256(
+                  subprocess.check_output(["git", "show", f"{expected_sha}:{path}"])
+              ).hexdigest()
+              for path in identity_paths
+          }
           manifests = sorted(pathlib.Path("stage1-evidence").glob("*/source-manifest.json"))
           verifications = sorted(pathlib.Path("stage1-evidence").glob("*/source-verification.json"))
           if len(manifests) != 7 or len(verifications) != 7:
@@ -743,6 +758,10 @@ jobs:
               workflow = record["workflow"]
               if source["head_commit"] != expected_sha or source["head_tree"] != expected_tree:
                   raise SystemExit(f"{path}: source commit or tree differs from acceptance source")
+              if source.get("source_clean") is not True:
+                  raise SystemExit(f"{path}: source checkout was not clean")
+              if source.get("identity_file_sha256") != expected_digests:
+                  raise SystemExit(f"{path}: identity-file digests differ from committed blobs")
               if workflow["github_repository"] != expected_repository or workflow["github_sha"] != expected_sha:
                   raise SystemExit(f"{path}: workflow repository or SHA differs from acceptance source")
           for path in verifications:

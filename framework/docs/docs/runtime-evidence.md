@@ -110,12 +110,15 @@ claims.
 
 Every Stage 1 job records `source-manifest.json` before build or execution. The
 manifest binds the artifact to the checked-out commit and tree, GitHub workflow
-identity, and SHA-256 digests of `Cargo.toml`, `Cargo.lock`,
-`compatibility.toml`, and this Stage 1 workflow. Recording fails for a dirty
-checkout or when `HEAD` differs from `GITHUB_SHA`. An `always()` step repeats the
-snapshot after execution and writes `source-verification.json`; a changed or
-dirty source tree fails the job. A retained run counts as exact-source evidence
-only when both files report the same identity and verification passed.
+identity, and committed-Git-blob SHA-256 digests of `Cargo.toml`, `Cargo.lock`,
+`engine/fork.toml`, `framework/compatibility.toml`, and this Stage 1 workflow.
+Recording fails for a dirty checkout or when `HEAD` differs from `GITHUB_SHA`.
+An `always()` step repeats the snapshot after execution and writes
+`source-verification.json`; a changed or dirty source tree fails the job. The
+aggregate job compares all seven digest maps with the accepted commit so checkout
+line-ending filters cannot create platform-specific source identities. A
+retained run counts as exact-source evidence only when both files report the same
+identity and verification passed.
 
 Every Stage 1 job uploads its directory even after a failed command. Linux
 native artifacts additionally retain Xvfb readiness/service logs or pinned

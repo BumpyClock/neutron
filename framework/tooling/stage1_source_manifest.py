@@ -28,7 +28,7 @@ class SourceIdentityError(RuntimeError):
     pass
 
 
-def git(*arguments: str) -> str:
+def git_bytes(*arguments: str) -> bytes:
     result = stage1_process.run_capture(
         ["git", *arguments],
         timeout_seconds=30,
@@ -40,15 +40,15 @@ def git(*arguments: str) -> str:
     if result.returncode != 0:
         stderr = result.stderr.decode("utf-8", errors="replace").strip()
         raise SourceIdentityError(f"git {' '.join(arguments)} failed: {stderr}")
-    return result.stdout.decode("utf-8").strip()
+    return result.stdout
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def git(*arguments: str) -> str:
+    return git_bytes(*arguments).decode("utf-8").strip()
+
+
+def committed_file_sha256(relative_path: str) -> str:
+    return hashlib.sha256(git_bytes("show", f"HEAD:{relative_path}")).hexdigest()
 
 
 def source_snapshot() -> dict[str, Any]:
@@ -62,7 +62,7 @@ def source_snapshot() -> dict[str, Any]:
         path = repository_root / relative_path
         if not path.is_file():
             raise SourceIdentityError(f"identity file is missing: {relative_path}")
-        files[relative_path] = file_sha256(path)
+        files[relative_path] = committed_file_sha256(relative_path)
 
     return {
         "head_commit": git("rev-parse", "HEAD"),

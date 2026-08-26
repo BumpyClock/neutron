@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -139,6 +140,49 @@ class Stage1SourceManifestTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("source checkout is not clean", result.stderr)
+
+    def test_record_hashes_committed_blobs_when_checkout_line_endings_differ(self) -> None:
+        _, root, commit = self.repository()
+        subprocess.run(
+            ["git", "config", "core.autocrlf", "true"],
+            cwd=root,
+            check=True,
+            timeout=5,
+        )
+        cargo_toml = root / "Cargo.toml"
+        cargo_toml.unlink()
+        subprocess.run(
+            ["git", "checkout", "--", "Cargo.toml"],
+            cwd=root,
+            check=True,
+            timeout=5,
+        )
+        self.assertIn(b"\r\n", cargo_toml.read_bytes())
+        status = subprocess.run(
+            ["git", "status", "--porcelain=v1"],
+            cwd=root,
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        ).stdout
+        self.assertEqual(status, "")
+
+        result = self.run_script(root, "record", commit)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((root / "artifacts/source-manifest.json").read_text())
+        committed = subprocess.run(
+            ["git", "show", f"{commit}:Cargo.toml"],
+            cwd=root,
+            check=True,
+            stdout=subprocess.PIPE,
+            timeout=5,
+        ).stdout
+        self.assertEqual(
+            manifest["source"]["identity_file_sha256"]["Cargo.toml"],
+            hashlib.sha256(committed).hexdigest(),
+        )
 
     def test_verify_retains_failure_when_source_changes(self) -> None:
         _, root, commit = self.repository()

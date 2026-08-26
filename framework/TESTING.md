@@ -66,11 +66,13 @@ and zero-window liveness. They make no native-event-loop, native-window,
 clipboard, renderer, or presentation claim.
 
 Before Stage 1 build or execution, every job records its exact commit, tree,
-GitHub workflow identity, clean-checkout status, and hashes of the root
-manifests, lockfile, compatibility policy, and workflow in
+GitHub workflow identity, clean-checkout status, and committed-Git-blob hashes
+of the root manifests, lockfile, compatibility policy, and workflow in
 `source-manifest.json`. An `always()` step records `source-verification.json`
 and fails if that identity or cleanliness changed. Artifacts lacking a matching
-passed verification are not exact-source evidence.
+passed verification are not exact-source evidence. The aggregate job compares
+all seven digest maps with the accepted commit so checkout line-ending filters
+cannot create platform-specific source identities.
 
 The watchdog timeout covers process creation and command execution. After that
 single deadline, cleanup has at most five additional seconds to terminate the

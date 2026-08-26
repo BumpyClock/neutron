@@ -6,12 +6,12 @@ order: -6
 
 # Testing and Runtime Evidence
 
-Stage 1 CI jobs are configured runtime checks, not historical evidence. This page
-records their intended assertions and evidence limits; it does **not** record a
-successful run or replace retained Stage 0 evidence. A platform result becomes
-retained evidence only when a job
-produces its JSONL, stderr, watchdog, and service logs and the conformance
-validator accepts the terminal record.
+Stage 1 CI jobs are configured runtime checks. This page records their assertions
+and evidence limits. The compatibility matrix publishes retained results only
+after every required job produces its JSONL, stderr, watchdog, and service logs,
+the conformance validator accepts each terminal record, and aggregate
+exact-source verification passes. Retained Stage 1 evidence supplements rather
+than replaces retained Stage 0 evidence.
 
 ## Evidence levels
 
@@ -31,8 +31,8 @@ validator accepts the terminal record.
 
 The workflow validates each native scenario JSONL stream with the explicit
 profile for its target job rather than treating process status as sufficient
-evidence. These configured checks are not retained platform evidence until a
-validated CI run is retained.
+evidence. A validated CI run is retained for the current compatibility line; the
+profile table defines the limits of its platform claims.
 
 | Job | Exact target assertions | Required presentation tag |
 |---|---|---|
@@ -193,10 +193,9 @@ scale transitions, and screen-reader validation remain manual-only work.
 
 ## Explicit non-claims
 
-At this source checkpoint, native Windows runtime, live Linux X11 runtime, live
-Linux Wayland GPUI runtime, and GitHub Actions are unrun. Source inspection,
-unit tests, compile checks, or a Weston fixture probe must not be reported as
-those runtime results.
+Retained exact-source CI evidence covers the native Windows, Linux X11, Linux
+Wayland, and macOS profiles listed above. It establishes only the evidence
+levels and software or hardware adapter classifications stated by each profile.
 
 - Native window construction and matching display-handle classification are not presentation evidence.
 - First-presentation evidence is not display scanout evidence.

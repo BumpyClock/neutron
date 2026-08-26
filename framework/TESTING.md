@@ -195,12 +195,11 @@ Linux target validation requires `api_submitted` only; WGPU
 `SurfaceTexture::present()` does not prove backend acceptance. macOS and Windows
 require exact `backend_accepted`, which still does not prove display scanout.
 
-All native-job artifact uploads use `if: always()`. These are configured checks,
-not a record that any Stage 1 job has run. They do not replace retained Stage 0
-matrix evidence; Stage 1 renderer/presentation status remains `not-verified`
-until a retained, validated run establishes that platform evidence. See [Testing
-and Runtime Evidence](docs/docs/runtime-evidence.md) for evidence levels, OS
-clipboard-reader requirements, and explicit non-claims.
+All native-job artifact uploads use `if: always()`. Retained exact-source Stage 1
+evidence now establishes the platform profiles published in the compatibility
+matrix. It supplements rather than replaces retained Stage 0 evidence. See
+[Testing and Runtime Evidence](docs/docs/runtime-evidence.md) for evidence
+levels, OS clipboard-reader requirements, and explicit non-claims.
 
 ## Packaging and compatibility
 

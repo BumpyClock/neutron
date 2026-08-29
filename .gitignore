@@ -7,6 +7,9 @@
 .idea/
 .vscode/
 
+# Python bytecode
+*.pyc
+
 # Tasque runtime data stays in sync-worktree storage or local ignore rules.
 .tasque/events.jsonl
 .tasque/state.json

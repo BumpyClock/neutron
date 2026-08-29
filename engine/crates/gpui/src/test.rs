@@ -25,13 +25,30 @@
 //!   assert!(true)
 //! }
 //! ```
-use crate::{Entity, Subscription, TestAppContext, TestDispatcher};
+use crate::{
+    Application, BackgroundExecutor, Entity, ForegroundExecutor, Subscription, TestAppContext,
+    TestDispatcher, TestPlatform,
+};
 use futures::StreamExt as _;
 use std::{
     env,
     panic::{self, RefUnwindSafe},
     pin::Pin,
+    sync::Arc,
 };
+
+/// Build a deterministic application backed by GPUI's test platform.
+///
+/// This application can create test windows without initializing native
+/// renderer, display, drag-and-drop, or compositor state.
+pub fn application() -> Application {
+    let dispatcher = Arc::new(TestDispatcher::new(0));
+    let background_executor = BackgroundExecutor::new(dispatcher.clone());
+    let foreground_executor = ForegroundExecutor::new(dispatcher);
+    let platform = TestPlatform::new(background_executor, foreground_executor);
+    platform.simulate_native_run();
+    Application::with_platform(platform)
+}
 
 /// Run the given test function with the configured parameters.
 /// This is intended for use with the `gpui::test` macro

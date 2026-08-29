@@ -37,6 +37,8 @@ pub(crate) struct TestPlatform {
     pub text_system: Arc<dyn PlatformTextSystem>,
     pub expect_restart: RefCell<Option<oneshot::Sender<Option<PathBuf>>>>,
     quit_callback: RefCell<Option<Box<dyn FnMut()>>>,
+    open_urls_callback: RefCell<Option<Box<dyn FnMut(Vec<String>)>>>,
+    reopen_callback: RefCell<Option<Box<dyn FnMut()>>>,
     launch_callback: RefCell<Option<Box<dyn FnOnce()>>>,
     system_wake_callback: RefCell<Option<Box<dyn FnMut()>>>,
     blocking_run: Cell<bool>,
@@ -140,6 +142,8 @@ impl TestPlatform {
             active_window: Default::default(),
             expect_restart: Default::default(),
             quit_callback: Default::default(),
+            open_urls_callback: Default::default(),
+            reopen_callback: Default::default(),
             launch_callback: Default::default(),
             system_wake_callback: Default::default(),
             blocking_run: Cell::new(false),
@@ -284,7 +288,7 @@ impl TestPlatform {
         *self.cursor_hidden_until_mouse_moves.lock() = false;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn simulate_native_run(&self) {
         self.blocking_run.set(true);
     }
@@ -480,8 +484,8 @@ impl Platform for TestPlatform {
         *self.opened_url.borrow_mut() = Some(url.to_string())
     }
 
-    fn on_open_urls(&self, _callback: Box<dyn FnMut(Vec<String>)>) {
-        unimplemented!()
+    fn on_open_urls(&self, callback: Box<dyn FnMut(Vec<String>)>) {
+        *self.open_urls_callback.borrow_mut() = Some(callback);
     }
 
     fn prompt_for_paths(
@@ -518,8 +522,8 @@ impl Platform for TestPlatform {
         *self.quit_callback.borrow_mut() = Some(callback);
     }
 
-    fn on_reopen(&self, _callback: Box<dyn FnMut()>) {
-        unimplemented!()
+    fn on_reopen(&self, callback: Box<dyn FnMut()>) {
+        *self.reopen_callback.borrow_mut() = Some(callback);
     }
 
     fn on_system_wake(&self, callback: Box<dyn FnMut()>) {

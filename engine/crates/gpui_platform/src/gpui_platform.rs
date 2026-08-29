@@ -68,6 +68,15 @@ pub fn try_headless() -> gpui::Result<gpui::Application> {
     )?))
 }
 
+/// Construct a deterministic application backed by GPUI's test platform.
+///
+/// Unlike [`try_headless`], this does not initialize the current operating
+/// system's platform adapter or create native windows.
+#[cfg(feature = "test-support")]
+pub fn test_application() -> gpui::Application {
+    gpui::test::application()
+}
+
 /// Unlike [`application`], this function returns a single-threaded web application.
 #[cfg(target_family = "wasm")]
 pub fn single_threaded_web() -> gpui::Application {
@@ -153,6 +162,18 @@ mod api_tests {
         let _: fn(bool) -> Rc<dyn Platform> = current_platform;
         let _: fn() -> gpui::Application = application;
         let _: fn() -> gpui::Application = headless;
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn test_application_opens_a_window_and_returns_after_quit() {
+        use gpui::{AppContext as _, Empty, WindowOptions};
+
+        test_application().run(|cx| {
+            cx.open_window(WindowOptions::default(), |_, cx| cx.new(|_| Empty))
+                .expect("the test platform opens a test window");
+            cx.quit();
+        });
     }
 }
 

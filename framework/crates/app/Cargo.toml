@@ -10,7 +10,7 @@ repository = "https://github.com/BumpyClock/neutron"
 
 [features]
 # Internal fixture; enable it explicitly for the harness-free headless test.
-test-support = []
+test-support = ["gpui_platform/test-support"]
 # Conformance-only Weston input seam; never enable in publishable application builds.
 wayland-conformance = ["gpui/test-support", "gpui_platform/test-support"]
 

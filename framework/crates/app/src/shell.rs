@@ -143,7 +143,7 @@ impl PlatformRunner {
         match self.kind {
             RunnerKind::Native => gpui_platform::try_application().map_err(AppShellError::Platform),
             #[cfg(feature = "test-support")]
-            RunnerKind::Headless => gpui_platform::try_headless().map_err(AppShellError::Platform),
+            RunnerKind::Headless => Ok(gpui_platform::test_application()),
             #[cfg(test)]
             RunnerKind::Failing => Err(AppShellError::Platform(anyhow::anyhow!(
                 "test platform construction failure"

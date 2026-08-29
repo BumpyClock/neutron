@@ -2,6 +2,12 @@
 
 CI reports validation by level. A compile-only job is not a runtime test.
 
+The [Stage 1 Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md)
+is the canonical, normative source for Stage 1 startup and teardown order,
+pure, headless, native, and story-smoke evidence clauses, exact-source identity,
+and source-blind validation. This page links to that contract instead of
+restating its clauses.
+
 ## Unit and doctest
 
 Command:
@@ -31,11 +37,34 @@ They are covered when the integration driver runs.
 The doctest lane includes the `neutron-components-assets` `Assets` example. Its
 manifest declares the required GPUI platform dependency for doctest builds.
 
-## Legacy native smoke
+## Framework CI launch and StoryApp CLI
 
-`native-launch-smoke` remains a Stage 0 launch check. It builds AppShell
-conformance examples on macOS, Windows, and Linux, and runs these smoke paths
-on macOS:
+`native-launch-smoke` is ordinary Framework CI. Job timeout is 60 minutes. It
+builds `app_shell`, `app_shell_background`, and `neutron-story` on macOS,
+Windows, and Linux. It does not retain Stage 1 JSONL, exact-source manifests,
+or renderer-presentation evidence.
+
+On macOS, Windows, and Linux, a 120-second watchdog runs the pre-platform
+StoryApp CLI gates:
+
+```bash
+neutron-story --help
+neutron-story --version
+```
+
+`--help` and `--version` return before any platform exists. macOS and Windows
+also run `--asset-smoke` and `--fail-start`; those require a platform backend.
+Linux ordinary CI does not compile an X11 or Wayland backend, so Linux runtime
+StoryApp checks belong to Stage 1. These gates prove help text, version output,
+asset fallback where run, and transactional startup failure where run. They do
+not prove a presented gallery, menus, themes, or shutdown ordering.
+
+macOS also runs an evidence-free `neutron-story --smoke` under the same
+120-second watchdog. The process must exit 0. It writes no `story-smoke` file
+because Framework CI does not set `GPUI_STAGE1_STORY_EVIDENCE_PATH`. Linux and
+Windows windowed gallery runs belong to Stage 1 native jobs.
+
+macOS still runs the example smokes:
 
 ```bash
 cargo run -p app_shell -- --asset-smoke
@@ -43,16 +72,15 @@ cargo run -p app_shell -- --smoke
 cargo run -p app_shell_background -- --smoke
 ```
 
-It is ordinary-CI regression coverage, not retained renderer-presentation or
-cross-platform native evidence. Windows retains only its no-window
-transactional-start failure smoke there. Stage 1 exclusively owns maintained
-native platform profiles, strict trace validation, exact-source manifests, and
-runtime artifacts.
+macOS and Windows also run the no-window `app_shell --fail-start` exit-2
+check. Stage 1 exclusively owns maintained native platform profiles, strict
+`story-smoke` validation, exact-source manifests, and runtime artifacts.
 
 ## Stage 1 lifecycle headless
 
 `stage1-lifecycle-headless-macos`, `stage1-lifecycle-headless-windows`, and
-`stage1-lifecycle-headless-linux` are separate jobs configured to run:
+`stage1-lifecycle-headless-linux` are separate jobs. Each job timeout is 20
+minutes. They run:
 
 ```bash
 cargo test --locked -p neutron-components-app --test headless --features test-support
@@ -65,14 +93,13 @@ prove lifecycle behavior only: normal return, startup failure, shutdown ordering
 and zero-window liveness. They make no native-event-loop, native-window,
 clipboard, renderer, or presentation claim.
 
-Before Stage 1 build or execution, every job records its exact commit, tree,
-GitHub workflow identity, clean-checkout status, and committed-Git-blob hashes
-of the root manifests, lockfile, compatibility policy, and workflow in
-`source-manifest.json`. An `always()` step records `source-verification.json`
-and fails if that identity or cleanliness changed. Artifacts lacking a matching
-passed verification are not exact-source evidence. The aggregate job compares
-all seven digest maps with the accepted commit so checkout line-ending filters
-cannot create platform-specific source identities.
+Every Stage 1 job records and verifies exact-source identity as
+`source-manifest.json` and `source-verification.json`. Those files bind
+commit, tree, GitHub workflow identity, clean-checkout status, and
+committed-Git-blob digests of the canonical identity set. See the [Stage 1
+Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md#exact-source-identity)
+for the recording, verification, and seven-manifest aggregate-comparison
+rules.
 
 The watchdog timeout covers process creation and command execution. After that
 single deadline, cleanup has at most five additional seconds to terminate the
@@ -98,6 +125,11 @@ The independently visible native jobs are:
 - `stage1-native-linux-x11-lavapipe`
 - `stage1-native-linux-wayland-lavapipe`
 
+The macOS, Windows, and Linux X11 native job timeouts are 50 minutes. The
+Wayland job timeout is 70 minutes because it also builds and runs the isolated
+Weston fixture. That budget covers the gallery
+dependency build plus the existing conformance matrix. It is not evidence.
+
 They first run and retain the seven `stage1_contract_` TestPlatform checks for
 focus/text, composition terminals, common-scale rounding, and AccessKit tree
 semantics. These checks execute on every native runner but remain deterministic
@@ -112,13 +144,19 @@ proves those contracts coexist with each native event loop/window/profile. It
 does not prove physical input, production IME, OS DPI transitions, assistive
 technology activation, or screen-reader behavior.
 
-They are configured to build `neutron-components-conformance`, record target
-metadata, run its native scenarios under the same external watchdog, retain
-stdout JSONL/stderr/logs, and validate each terminal JSONL stream with
-`neutron-components-conformance --validate <scenario> --profile <profile>`, using
-the profile named after its native job. Validation is deliberately a hard gate:
-the workflow must fail if that interface is absent or rejects the stream, rather
-than fall back to process status or text matching.
+They are configured to build `neutron-components-conformance` and
+`neutron-story`, record target metadata, run native scenarios under a 120-second
+watchdog, retain stdout JSONL/stderr/logs, and validate each terminal JSONL
+stream with a 30-second watchdog:
+
+```text
+neutron-components-conformance --validate <scenario> --profile <profile>
+```
+
+The profile name matches the native job. Focused `stage1_contract_` tests use a
+600-second watchdog. Validation is a hard gate: the workflow must fail if that
+interface is absent or rejects the stream, rather than fall back to process
+status or text matching.
 
 Every native window contributes one ordered, pointer-free evidence group:
 
@@ -148,6 +186,28 @@ failure, not a clipboard claim. On Windows, the clipboard scenario is configured
 to start in an owned kill-on-close Job Object before scenario code executes;
 that provides watchdog cleanup containment, not clipboard evidence.
 
+After those conformance scenarios, each native job runs `neutron-story --smoke`
+in the same platform environment (macOS Metal, Windows WARP, Linux X11/Xvfb
+lavapipe, or Linux Wayland/Weston lavapipe). Stage 1 sets
+`GPUI_STAGE1_STORY_EVIDENCE_PATH` to `story-smoke.jsonl` in that job's
+artifact directory. A 120-second watchdog bounds the macOS and Windows
+processes. Linux X11 and Wayland use a 180-second watchdog inside the existing
+session. A 30-second watchdog then runs:
+
+```text
+neutron-components-conformance --validate story-smoke --profile <profile>
+```
+
+The validator requires the strict ten-record `story-smoke` contract in the
+[Stage 1 Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md#story-smoke).
+The stream stays in the same native artifact. Aggregate acceptance still
+requires exactly seven uploads. Story smoke proves typed `DesktopApp`
+declaration, primary opening, first-presentation observation, declared menu
+model, nonzero bundled theme catalog, shutdown ordering, and clean return. It
+does not prove OS menu pixels or activation, display scanout, broad
+rendering, input, clipboard, accessibility, arbitrary themes, or settings
+edits. Framework CI StoryApp CLI gates are not this evidence.
+
 Profiles are exact contracts, not a strength ordering:
 
 | Profile | Window / display kinds | Renderer contract | Presentation tag |
@@ -165,8 +225,8 @@ name evidence. This proves software-GPU selection, not hardware-GPU execution.
 
 Linux Wayland first starts a normal Weston 16 headless/Pixman compositor for
 `lifecycle-clean`, `lifecycle-startup-failure`,
-`lifecycle-background-quit`, `window-cycle`, `menu-command`, and
-`interaction-contracts`. It stops that
+`lifecycle-background-quit`, `window-cycle`, `menu-command`,
+`interaction-contracts`, and `story-smoke`. It stops that
 compositor before starting the official private client-test fixture. Only the
 clipboard scenario runs inside the 320x240 Pixman test-desktop fixture. Its C
 fixture owns one Bash clipboard-orchestrator child, which owns separate GPUI
@@ -195,10 +255,13 @@ Linux target validation requires `api_submitted` only; WGPU
 `SurfaceTexture::present()` does not prove backend acceptance. macOS and Windows
 require exact `backend_accepted`, which still does not prove display scanout.
 
-All native-job artifact uploads use `if: always()`. Retained exact-source Stage 1
-evidence now establishes the platform profiles published in the compatibility
-matrix. It supplements rather than replaces retained Stage 0 evidence. See
-[Testing and Runtime Evidence](docs/docs/runtime-evidence.md) for evidence
+All native-job artifact uploads use `if: always()`. An accepted, retained
+exact-source Stage 1 evidence run establishes the platform profiles published
+in the compatibility matrix. Current per-platform headless/native/renderer
+status may be `not-verified` pending re-acceptance, so consult the generated
+compatibility matrix rather than this page for current status. Accepted
+Stage 1 evidence supplements rather than replaces retained Stage 0 evidence.
+See [Testing and Runtime Evidence](docs/docs/runtime-evidence.md) for evidence
 levels, OS clipboard-reader requirements, and explicit non-claims.
 
 ## Packaging and compatibility

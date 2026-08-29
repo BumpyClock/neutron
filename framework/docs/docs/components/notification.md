@@ -19,34 +19,9 @@ use neutron_components::{
 
 ## Usage
 
-### Setup application root view for display of notifications
+### Root
 
-You need to set up your application's root view to render the notification layer. This is typically done in your main application struct's render method.
-
-The [Root::render_notification_layer](https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html#method.render_notification_layer) function handles rendering any active modals on top of your app content.
-
-```rust
-use neutron_components::{TitleBar, Root};
-
-struct Example {}
-
-impl Render for Example {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let notification_layer = Root::render_notification_layer(window, cx);
-
-        div()
-            .size_full()
-            .child(
-                v_flex()
-                    .size_full()
-                    .child(TitleBar::new())
-                    .child(div().flex_1().child("Hello world!")),
-            )
-            // Render the notification layer on top of the app content
-            .children(notification_layer)
-    }
-}
-```
+[Root](../root.md) must be the first view in the window. It renders the notification layer exactly once. Push notifications with `window.push_notification`.
 
 ### Basic Notification
 

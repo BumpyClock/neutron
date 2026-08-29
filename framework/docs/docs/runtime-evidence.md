@@ -13,19 +13,20 @@ the conformance validator accepts each terminal record, and aggregate
 exact-source verification passes. Retained Stage 1 evidence supplements rather
 than replaces retained Stage 0 evidence.
 
+The [Stage 1 Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md)
+is the canonical, normative source for startup and teardown order,
+pure, headless, native, and story-smoke evidence clauses, exact-source identity,
+and source-blind validation. This page links to that contract instead of
+restating its clauses.
+
 ## Evidence levels
 
-| Level | What it establishes | What it does not establish |
-|---|---|---|
-| Unit proof | Isolated logic and deterministic state transitions. | An event loop, native window, or graphics API call. |
-| Headless integration proof | AppShell lifecycle behavior through the injected headless runner, including normal return and startup failure. | A native OS event loop, native window, clipboard, renderer, or presentation. |
-| Native event-loop proof | The application returns normally after an actual platform event loop processes the scenario. | That a native window or renderer was selected unless separate records prove it. |
-| Native window proof | Matching pointer-free raw window and display classifications: AppKit/AppKit, Win32/Windows, Xcb/Xcb, or Wayland/Wayland. | Pointer values, a visible desktop frame, rendering, presentation, or display scanout. |
-| Presentation API submission proof | The renderer reached its platform-specific first presentation API observation. For WGPU, this means `SurfaceTexture::present()` returned. | Backend acceptance, compositor presentation, display scanout, or user-visible pixels. |
-| Backend-acceptance proof | The platform-specific Metal or D3D11 conformance path reports backend acceptance or scheduling. | Display scanout, presentation completion, or general GPU correctness. |
-| Software-GPU proof | The selected adapter is software: D3D11 WARP or a CPU Vulkan adapter constrained to lavapipe with matching adapter-name evidence. | Physical GPU execution, hardware performance, or driver certification. |
-| Hardware-GPU proof | The selected Metal adapter is classified as hardware. | Performance, thermal behavior, display scanout, or broad device compatibility. |
-| Manual-only proof | A capability needs a human or dedicated external accessibility/input evaluation. | Automated certification. |
+The [Stage 1 Contract evidence-levels
+table](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md#evidence-levels)
+defines the proof levels: pure, headless integration, native event-loop and
+window, presentation, backend-acceptance, software and hardware GPU,
+story-smoke, exact-source, source-blind, and manual-only. This page does not
+repeat that table.
 
 ## Platform-specific automated scope
 
@@ -47,7 +48,29 @@ contain `WARP` or equal `Microsoft Basic Render Driver` case-insensitively.
 
 The three `stage1-lifecycle-headless-*` jobs intentionally establish only the
 headless lifecycle level. They do not create a native window and do not make
-native renderer or presentation claims.
+native renderer or presentation claims. They do not run `story-smoke`.
+
+Ordinary Framework CI StoryApp CLI gates (`neutron-story --help`, `--version`,
+`--asset-smoke`, `--fail-start`, and a macOS-only evidence-free `--smoke`) are
+regression coverage. They do not set `GPUI_STAGE1_STORY_EVIDENCE_PATH` and they
+are not retained Stage 1 evidence.
+
+## Story smoke
+
+Each native job runs `neutron-story --smoke` under its existing platform
+environment, validates the stream as `story-smoke` against that profile, and
+keeps the files in the same artifact. Stage 1 sets
+`GPUI_STAGE1_STORY_EVIDENCE_PATH`. Without that variable, `--smoke` writes no
+evidence file.
+
+The [Stage 1 Contract story-smoke
+section](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md#story-smoke)
+defines the ten-record order and the proof limits. Story smoke proves typed
+`DesktopApp` declaration, primary opening, first-presentation observation,
+declared menu model, nonzero bundled theme catalog, shutdown ordering, and
+clean return. It does not prove OS menu pixels or activation, display
+scanout, broad rendering, input, clipboard, accessibility, arbitrary themes,
+or settings edits.
 
 ## Framework contract boundaries
 
@@ -64,12 +87,13 @@ or focused test before it becomes platform evidence.
 | Composition injection | Deterministic marked/preedit selection and commit run inside a presented native window; focused tests cover unmark, replacement, empty-update, and focus-loss terminals. | Native event loop/window + deterministic injection | Injected composition is not comprehensive IME, candidate-window, keyboard-layout, or platform input-method certification. Mouse caret relocation during marked text, Escape semantics, and blur while context-menu state is active remain product-policy choices. |
 | Scaling | A native scale factor is recorded and logical/device conversions are checked at 1.25, 1.5, and 2.0. | Native window observation + focused conversion | It does not prove monitor-DPI changes, multi-display movement, or native compositor scaling at those injected values. |
 | AccessKit tree publication | A presented native platform window receives a forced tree update with representative roles, names, states, values, focus, and actions. | Native platform-window submission | It does not assert adapter acceptance, assistive-technology activation, or VoiceOver, Narrator, Orca, or other screen-reader behavior. |
+| Story smoke | The gallery `DesktopApp` opens its primary surface, observes first presentation once, resolves the declared menu model, loads a nonzero bundled theme catalog, shuts down in order, and returns `Ok`. | Story-smoke proof on the native profile that produced the stream | It does not prove OS menu pixels or activation, display scanout, broad rendering, input, clipboard, accessibility, arbitrary themes, or settings edits. |
 
 ## Artifact and validation contract
 
-A native scenario writes schema-versioned JSONL to stdout. The CI watchdog
-captures that file separately from stderr and its own timeout/process log. CI
-then supplies the JSONL to:
+A native conformance scenario writes schema-versioned JSONL to stdout. The CI
+watchdog captures that file separately from stderr and its own timeout/process
+log. CI then supplies the JSONL to:
 
 ```text
 neutron-components-conformance --validate <scenario> --profile <profile>
@@ -87,6 +111,15 @@ rejection records in passed traces. Protocol parsing also rejects unknown
 record or payload fields, scenario-invalid event names, and duplicate lifecycle
 milestones. Handle records contain kinds only, never addresses or numeric
 handles.
+
+`story-smoke` is not a conformance-runner scenario. Stage 1 sets
+`GPUI_STAGE1_STORY_EVIDENCE_PATH` to `story-smoke.jsonl` in the same native
+artifact directory, then runs `neutron-story --smoke`. The gallery writes the
+ten-record stream to that path, not to stdout. The job validates it with
+`--validate story-smoke --profile <profile>`. The profile pins only the
+platform family on `menu_projected`. Native handle, renderer, and
+presentation-backend records fail the stream. The files stay in the existing
+native artifact. Aggregate acceptance still requires exactly seven uploads.
 
 The headless lifecycle target is a Rust integration executable rather than the
 native conformance protocol, so its artifacts are stdout/stderr and watchdog
@@ -108,19 +141,15 @@ termination alone is not reported as successful cleanup. These supervision
 records support artifact integrity and bounded teardown, not native behavior
 claims.
 
-Every Stage 1 job records `source-manifest.json` before build or execution. The
-manifest binds the artifact to the checked-out commit and tree, GitHub workflow
-identity, and committed-Git-blob SHA-256 digests of `Cargo.toml`, `Cargo.lock`,
-`engine/fork.toml`, `framework/compatibility.toml`, and this Stage 1 workflow.
-Recording fails for a dirty checkout or when `HEAD` differs from `GITHUB_SHA`.
-An `always()` step repeats the snapshot after execution and writes
-`source-verification.json`; a changed or dirty source tree fails the job. The
-aggregate job compares all seven digest maps with the accepted commit so checkout
-line-ending filters cannot create platform-specific source identities. A
-retained run counts as exact-source evidence only when both files report the same
-identity and verification passed.
+Every Stage 1 job records and verifies committed-Git-blob SHA-256 digests of
+the canonical identity set. The [Stage 1 Contract exact-source-identity
+section](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md#exact-source-identity)
+defines that set and the recording, verification, and seven-manifest
+aggregate-comparison rules.
 
-Every Stage 1 job uploads its directory even after a failed command. Linux
+Every Stage 1 job uploads its directory even after a failed command. Native
+artifacts also retain `story-smoke.jsonl` plus its stdout, stderr, watchdog,
+and validation logs when that step ran. Linux
 native artifacts additionally retain Xvfb readiness/service logs or pinned
 Weston metadata, TAP, compositor logs, and `vulkaninfo` output. Xvfb uses an
 active readiness probe. The Wayland job runs non-clipboard scenarios on a normal
@@ -193,14 +222,22 @@ scale transitions, and screen-reader validation remain manual-only work.
 
 ## Explicit non-claims
 
-Retained exact-source CI evidence covers the native Windows, Linux X11, Linux
-Wayland, and macOS profiles listed above. It establishes only the evidence
-levels and software or hardware adapter classifications stated by each profile.
+An accepted, retained exact-source CI run covers only the native Windows,
+Linux X11, Linux Wayland, and macOS profiles listed above, and establishes
+only the evidence levels and software or hardware adapter classifications
+stated by each profile. Current headless/native/renderer status is
+`not-verified` pending re-acceptance on this candidate. See the generated
+[compatibility matrix](../COMPATIBILITY.md) for current per-platform status.
 
 - Native window construction and matching display-handle classification are not presentation evidence.
 - First-presentation evidence is not display scanout evidence.
 - Linux WGPU/lavapipe jobs claim `ApiSubmitted`, not WGPU backend acceptance.
 - WARP and lavapipe are software adapters, not hardware GPU evidence.
+- Story smoke is not OS menu pixel or activation proof, display scanout proof,
+  broad rendering proof, or input, clipboard, accessibility, arbitrary theme,
+  or settings-edit certification.
+- Framework CI StoryApp CLI gates are not retained Stage 1 `story-smoke`
+  evidence.
 - The automated suite does not certify comprehensive IME behavior.
 - The automated suite does not certify VoiceOver, Narrator, Orca, or any other
   screen-reader integration.

@@ -3,6 +3,7 @@ set -euo pipefail
 
 artifact_dir="${GPUI_STAGE1_ARTIFACT_DIR:?GPUI_STAGE1_ARTIFACT_DIR is required}"
 binary="${GPUI_STAGE1_BINARY:?GPUI_STAGE1_BINARY is required}"
+story_binary="${GPUI_STAGE1_STORY_BINARY:?GPUI_STAGE1_STORY_BINARY is required}"
 validation_profile="${GPUI_STAGE1_VALIDATION_PROFILE:?GPUI_STAGE1_VALIDATION_PROFILE is required}"
 : "${DISPLAY:?DISPLAY is required}"
 
@@ -17,6 +18,27 @@ python3 tooling/stage1_watchdog.py \
   --log "$artifact_dir/vulkaninfo.watchdog.log" \
   -- vulkaninfo --summary
 grep -Eiq 'lavapipe|llvmpipe' "$artifact_dir/vulkaninfo.log"
+
+# StoryApp integration evidence: the same bounded watchdog, inside this
+# session's compositor/display, writing into the job's existing artifact
+# directory. Native handle, renderer, clipboard, input, and accessibility
+# evidence stays owned by the conformance scenarios above.
+run_story_smoke() {
+  GPUI_STAGE1_STORY_EVIDENCE_PATH="$artifact_dir/story-smoke.jsonl" \
+    python3 tooling/stage1_watchdog.py \
+      --timeout-seconds 180 \
+      --stdout "$artifact_dir/story-smoke.stdout.log" \
+      --stderr "$artifact_dir/story-smoke.stderr.log" \
+      --log "$artifact_dir/story-smoke.watchdog.log" \
+      -- "$story_binary" --smoke
+  python3 tooling/stage1_watchdog.py \
+    --timeout-seconds 30 \
+    --stdin "$artifact_dir/story-smoke.jsonl" \
+    --stdout "$artifact_dir/story-smoke.validation.stdout.log" \
+    --stderr "$artifact_dir/story-smoke.validation.stderr.log" \
+    --log "$artifact_dir/story-smoke.validation.watchdog.log" \
+    -- "$binary" --validate story-smoke --profile "$validation_profile"
+}
 
 run_scenario() {
   local scenario="$1"
@@ -43,6 +65,7 @@ run_scenario lifecycle-background-quit 0
 run_scenario window-cycle 0
 run_scenario menu-command 0
 run_scenario interaction-contracts 0
+run_story_smoke
 python3 tooling/stage1_clipboard_harness.py \
   --binary "$binary" \
   --timeout-seconds 120 \

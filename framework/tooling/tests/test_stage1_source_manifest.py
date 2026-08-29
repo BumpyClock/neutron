@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).parents[1]))
+import stage1_source_manifest  # noqa: E402
+
 
 SCRIPT = Path(__file__).parents[1] / "stage1_source_manifest.py"
+REPOSITORY_ROOT = Path(__file__).parents[3]
+STAGE1_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/stage1.yml"
+STAGE1_CONTRACT = REPOSITORY_ROOT / "framework/STAGE1-CONTRACT.md"
 GITHUB_VARIABLES = (
     "GITHUB_REPOSITORY",
     "GITHUB_SHA",
@@ -29,13 +37,7 @@ class Stage1SourceManifestTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        for relative_path in (
-            "Cargo.toml",
-            "Cargo.lock",
-            "engine/fork.toml",
-            "framework/compatibility.toml",
-            ".github/workflows/stage1.yml",
-        ):
+        for relative_path in stage1_source_manifest.IDENTITY_FILES:
             path = root / relative_path
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"identity: {relative_path}\n", encoding="utf-8")
@@ -119,13 +121,7 @@ class Stage1SourceManifestTests(unittest.TestCase):
         self.assertEqual(manifest["source"]["head_commit"], commit)
         self.assertEqual(
             set(manifest["source"]["identity_file_sha256"]),
-            {
-                "Cargo.toml",
-                "Cargo.lock",
-                "engine/fork.toml",
-                "framework/compatibility.toml",
-                ".github/workflows/stage1.yml",
-            },
+            set(stage1_source_manifest.IDENTITY_FILES),
         )
         self.assertEqual(manifest["workflow"]["github_repository"], "BumpyClock/neutron")
         self.assertTrue(manifest["source"]["source_clean"])
@@ -195,6 +191,27 @@ class Stage1SourceManifestTests(unittest.TestCase):
         verification = json.loads((root / "artifacts/source-verification.json").read_text())
         self.assertEqual(verification["outcome"], "failed")
         self.assertIn("source checkout is not clean", verification["error"])
+
+
+class Stage1IdentityParityTests(unittest.TestCase):
+    """Parity checks against the real repository's stage1.yml and contract.
+
+    These read the actual committed files rather than fixtures so the
+    canonical identity list cannot silently drift between the workflow
+    aggregate, the contract documentation, and IDENTITY_FILES.
+    """
+
+    def test_workflow_aggregate_matches_identity_files(self) -> None:
+        text = STAGE1_WORKFLOW.read_text(encoding="utf-8")
+        match = re.search(r"identity_paths = \((.*?)\)\n", text, re.DOTALL)
+        self.assertIsNotNone(match, "identity_paths tuple not found in stage1.yml")
+        paths = ast.literal_eval("(" + match.group(1) + ")")
+        self.assertEqual(paths, stage1_source_manifest.IDENTITY_FILES)
+
+    def test_contract_canonical_list_matches_identity_files(self) -> None:
+        text = STAGE1_CONTRACT.read_text(encoding="utf-8")
+        paths = tuple(re.findall(r"^\d+\. `([^`]+)`$", text, re.MULTILINE))
+        self.assertEqual(paths, stage1_source_manifest.IDENTITY_FILES)
 
 
 if __name__ == "__main__":

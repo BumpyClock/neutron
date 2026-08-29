@@ -46,7 +46,7 @@ described in [Building an Application](./app-shell.md), then create the window:
 ```rust
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
-use neutron_components_app::{StandardMenus, WindowManager};
+use neutron_components_app::{AppDeclaration, Surface, SurfaceKey};
 use neutron_components_app::ui::{button::*, *};
 
 neutron_components_app::include_identity!();
@@ -70,23 +70,29 @@ impl Render for HelloWorld {
     }
 }
 
+fn build_hello(_args: &(), _window: &mut Window, cx: &mut App) -> Entity<HelloWorld> {
+    cx.new(|_| HelloWorld)
+}
+
+struct HelloApp;
+
+impl DesktopApp for HelloApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY).primary_surface(Surface::new(
+            SurfaceKey::<HelloWorld>::primary(),
+            build_hello,
+        ))
+    }
+}
+
 fn main() -> Result<(), AppShellError> {
-    AppShell::builder(APP_IDENTITY)
-        .assets(neutron_components_assets::Assets)
-        .standard_menus(StandardMenus::new())
-        .start(|_, cx| {
-            WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {
-                cx.new(|_| HelloWorld)
-            })?;
-            Ok(())
-        })
-        .run()
+    AppShell::run::<HelloApp>()
 }
 ```
 
-AppShell initializes Neutron Components, wraps managed windows in `Root`, and wires
-desktop lifecycle. See [Building an Application](./app-shell.md) for standard
-Settings/About controls and Windows/Linux menu-bar placement.
+AppShell initializes Neutron Components, wraps the primary surface in `Root`, and
+wires desktop lifecycle. See [Building an Application](./app-shell.md) for
+declaration defaults, Settings, and Windows/Linux menu-bar placement.
 
 ## Community & Support
 

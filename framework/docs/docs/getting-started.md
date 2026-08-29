@@ -46,7 +46,7 @@ Then build the native app:
 ```rust
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
-use neutron_components_app::{StandardMenus, WindowManager};
+use neutron_components_app::{AppDeclaration, Surface, SurfaceKey};
 use neutron_components_app::ui::{button::*, *};
 
 neutron_components_app::include_identity!();
@@ -71,24 +71,30 @@ impl Render for HelloWorld {
     }
 }
 
+fn build_hello(_args: &(), _window: &mut Window, cx: &mut App) -> Entity<HelloWorld> {
+    cx.new(|_| HelloWorld)
+}
+
+struct HelloApp;
+
+impl DesktopApp for HelloApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY).primary_surface(Surface::new(
+            SurfaceKey::<HelloWorld>::primary(),
+            build_hello,
+        ))
+    }
+}
+
 fn main() -> Result<(), AppShellError> {
-    AppShell::builder(APP_IDENTITY)
-        .assets(neutron_components_assets::Assets)
-        .standard_menus(StandardMenus::new())
-        .start(|_, cx| {
-            WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {
-                cx.new(|_| HelloWorld)
-            })?;
-            Ok(())
-        })
-        .run()
+    AppShell::run::<HelloApp>()
 }
 ```
 
 :::info
-AppShell calls `neutron_components::init`, applies compiled identity, wraps managed
-windows in `Root`, and sequences startup/shutdown. Your `start` callback owns app
-services and initial windows.
+AppShell calls `neutron_components::init`, applies compiled identity, wraps the
+primary surface in `Root`, and sequences startup/shutdown. `DesktopApp::declaration`
+describes the app. `AppShell::run` starts it.
 :::
 
 For standard Settings/About actions, persistent controls, native macOS menus,
@@ -216,11 +222,17 @@ Explore the component documentation to learn more about each component:
 
 ## Development
 
-To run the component gallery:
+Run the component gallery from the repository root:
 
 ```bash
-cargo run
+cargo run -p neutron-story
 ```
+
+`neutron-story` is a `DesktopApp`. `--help` and `--version` return before any
+platform exists. `--asset-smoke` and `--fail-start` are ordinary CLI gates.
+`--smoke` opens the gallery and quits after first presentation. Stage 1
+retained `story-smoke` evidence requires `GPUI_STAGE1_STORY_EVIDENCE_PATH` and
+`--validate story-smoke`. See [Testing and Runtime Evidence](./runtime-evidence.md).
 
 More examples can be found in the `examples` directory:
 

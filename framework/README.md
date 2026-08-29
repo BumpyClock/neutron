@@ -44,32 +44,30 @@ and CI](TESTING.md) for validation levels and native-runtime limits.
 
 ### AppShell (experimental)
 
-Native applications can use `neutron-components-app` to centralize identity, paths,
-component initialization, startup/shutdown, settings, managed windows, standard
+Native applications can use `neutron-components-app` to declare identity, paths,
+component initialization, startup/shutdown, settings, managed surfaces, standard
 desktop menus, and platform capability reporting:
 
 ```rs
-AppShell::builder(APP_IDENTITY)
-    .assets(neutron_components_assets::Assets)
-    .standard_menus(
-        StandardMenus::new()
-            .on_settings(open_settings)
-            .on_about(open_about),
-    )
-    .start(|_, cx| {
-        WindowManager::open(cx, WindowSpec::new("main"), |_, cx| {
-            cx.new(|_| MainView)
-        })?;
-        Ok(())
-    })
-    .run()
+impl DesktopApp for MyApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY).primary_surface(Surface::new(
+            SurfaceKey::<MainView>::primary(),
+            build_main,
+        ))
+    }
+}
+
+fn main() -> Result<(), AppShellError> {
+    AppShell::run::<MyApp>()
+}
 ```
 
 See [Building an Application](docs/docs/app-shell.md) for identity codegen,
-desktop-menu opt-in, automatic Windows/Linux menu-bar placement, persistent
-settings, platform evidence, and current limitations. Managed normal windows
-receive in-window menu bars on Windows/Linux. macOS uses the global native menu.
-Raw windows remain app-owned.
+declaration defaults, Windows/Linux menu-bar placement, persistent settings,
+platform evidence, and current limitations. Managed surfaces receive in-window
+menu bars on Windows/Linux. macOS uses the global native menu. Raw windows
+remain app-owned.
 
 ### Manual GPUI bootstrap
 
@@ -136,11 +134,19 @@ The `neutron-components-assets` crate also bundles library-owned non-icon assets
 
 ## Development
 
-We have a gallery of applications built with Neutron Components.
+Run the component gallery from the repository root:
 
 ```bash
-cargo run
+cargo run -p neutron-story
 ```
+
+`neutron-story` implements `DesktopApp`. Framework CI runs `--help` and
+`--version` on macOS, Windows, and Linux. macOS and Windows also run
+`--asset-smoke` and `--fail-start`. Linux runtime checks belong to Stage 1,
+which compiles the selected display backend. macOS also runs an evidence-free
+`--smoke`. Retained `story-smoke` evidence requires
+`GPUI_STAGE1_STORY_EVIDENCE_PATH` and profile validation. See [testing and
+CI](TESTING.md).
 
 More examples can be found in the `examples` directory. You can run them with `cargo run --example <example_name>`.
 

@@ -7,6 +7,7 @@ on:
       - main
     tags:
       - "*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -183,7 +184,7 @@ jobs:
   stage1-native-macos-metal:
     name: stage1-native-macos-metal
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       GPUI_RENDERER: default
     steps:
@@ -219,8 +220,8 @@ jobs:
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
             -- cargo test --locked -p neutron-components stage1_contract_
-      - name: Build native conformance runner
-        run: cargo build --locked -p neutron-components-conformance
+      - name: Build native conformance runner and gallery application
+        run: cargo build --locked -p neutron-components-conformance -p neutron-story
       - name: Run and validate native scenarios
         shell: bash
         run: |
@@ -267,6 +268,39 @@ jobs:
             --validation-log "$artifact_dir/clipboard.validation.watchdog.log" \
             --validation-profile "$validation_profile" \
             --reader-command pbpaste
+      # StoryApp integration evidence, bounded by the same watchdog and kept
+      # in this job's existing artifact directory: no new job, no new upload.
+      # `story-smoke` proves the real gallery declaration reached its primary
+      # surface, resolved its platform menu model, loaded bundled themes,
+      # presented once, and shut down through AppShell. Native handle,
+      # renderer, clipboard, input, and accessibility evidence stays owned by
+      # the conformance scenarios above.
+      #
+      # Sizing note, not evidence: on a local macOS arm64 host with a warm
+      # cargo cache this run took 0.83-3.43s wall clock (the first run pays
+      # the bundled-theme sync) and an incremental gallery rebuild took ~6s.
+      # The native jobs' timeouts were raised by ten minutes for the cold CI
+      # build of the gallery's dependency graph, which was not measured here.
+      - name: Run and validate the gallery story smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/stage1-${{ github.job }}"
+          export GPUI_STAGE1_STORY_EVIDENCE_PATH="$artifact_dir/story-smoke.jsonl"
+          python3 framework/tooling/stage1_watchdog.py \
+            --timeout-seconds 120 \
+            --stdout "$artifact_dir/story-smoke.stdout.log" \
+            --stderr "$artifact_dir/story-smoke.stderr.log" \
+            --log "$artifact_dir/story-smoke.watchdog.log" \
+            -- target/debug/neutron-story --smoke
+          python3 framework/tooling/stage1_watchdog.py \
+            --timeout-seconds 30 \
+            --stdin "$artifact_dir/story-smoke.jsonl" \
+            --stdout "$artifact_dir/story-smoke.validation.stdout.log" \
+            --stderr "$artifact_dir/story-smoke.validation.stderr.log" \
+            --log "$artifact_dir/story-smoke.validation.watchdog.log" \
+            -- target/debug/neutron-components-conformance \
+              --validate story-smoke --profile macos-metal
       - name: Verify exact source identity
         if: always()
         uses: ./.github/actions/stage1-source-identity
@@ -284,7 +318,7 @@ jobs:
   stage1-native-windows-warp:
     name: stage1-native-windows-warp
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       GPUI_RENDERER: software
       GPUI_DISABLE_DIRECT_COMPOSITION: "1"
@@ -320,8 +354,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
-      - name: Build native conformance runner
-        run: cargo build --locked -p neutron-components-conformance
+      - name: Build native conformance runner and gallery application
+        run: cargo build --locked -p neutron-components-conformance -p neutron-story
       - name: Run and validate native scenarios
         shell: pwsh
         run: |
@@ -375,6 +409,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
+      # StoryApp integration evidence under the same bounded Job Object
+      # supervision as the scenarios above, written into this job's existing
+      # artifact directory. No new job and no new upload.
+      - name: Run and validate the gallery story smoke
+        shell: pwsh
+        run: |
+          $artifactDir = Join-Path $env:RUNNER_TEMP "stage1-${{ github.job }}"
+          $env:GPUI_STAGE1_STORY_EVIDENCE_PATH = Join-Path $artifactDir "story-smoke.jsonl"
+          & python framework/tooling/stage1_watchdog.py `
+            --timeout-seconds 120 `
+            --stdout (Join-Path $artifactDir "story-smoke.stdout.log") `
+            --stderr (Join-Path $artifactDir "story-smoke.stderr.log") `
+            --log (Join-Path $artifactDir "story-smoke.watchdog.log") `
+            -- target\debug\neutron-story.exe --smoke
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          & python framework/tooling/stage1_watchdog.py `
+            --timeout-seconds 30 `
+            --stdin (Join-Path $artifactDir "story-smoke.jsonl") `
+            --stdout (Join-Path $artifactDir "story-smoke.validation.stdout.log") `
+            --stderr (Join-Path $artifactDir "story-smoke.validation.stderr.log") `
+            --log (Join-Path $artifactDir "story-smoke.validation.watchdog.log") `
+            -- target\debug\neutron-components-conformance.exe --validate story-smoke --profile windows-warp
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
       - name: Verify exact source identity
         if: always()
         uses: ./.github/actions/stage1-source-identity
@@ -392,7 +454,7 @@ jobs:
   stage1-native-linux-x11-lavapipe:
     name: stage1-native-linux-x11-lavapipe
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       GPUI_RENDERER: software
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -441,8 +503,8 @@ jobs:
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
             -- cargo test --locked -p neutron-components stage1_contract_
-      - name: Build native conformance runner
-        run: cargo build --locked -p neutron-components-conformance -p gpui_platform --no-default-features --features gpui_platform/x11
+      - name: Build native conformance runner and gallery application
+        run: cargo build --locked -p neutron-components-conformance -p neutron-story -p gpui_platform --no-default-features --features gpui_platform/x11
       - name: Run and validate native scenarios
         shell: bash
         run: |
@@ -457,6 +519,7 @@ jobs:
 
           export GPUI_STAGE1_ARTIFACT_DIR="$artifact_dir"
           export GPUI_STAGE1_BINARY="$GITHUB_WORKSPACE/target/debug/neutron-components-conformance"
+          export GPUI_STAGE1_STORY_BINARY="$GITHUB_WORKSPACE/target/debug/neutron-story"
           export GPUI_STAGE1_VALIDATION_PROFILE="linux-x11-lavapipe"
           python3 framework/tooling/stage1_service_harness.py \
             --timeout-seconds 900 \
@@ -488,7 +551,7 @@ jobs:
   stage1-native-linux-wayland-lavapipe:
     name: stage1-native-linux-wayland-lavapipe
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 70
     env:
       GPUI_RENDERER: software
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -545,8 +608,8 @@ jobs:
             --stderr "$artifact_dir/focused-contracts.stderr.log" \
             --log "$artifact_dir/focused-contracts.watchdog.log" \
             -- cargo test --locked -p neutron-components stage1_contract_
-      - name: Build native conformance runner
-        run: cargo build --locked -p neutron-components-conformance --features wayland-conformance
+      - name: Build native conformance runner and gallery application
+        run: cargo build --locked -p neutron-components-conformance -p neutron-story --features neutron-components-conformance/wayland-conformance
       - name: Build pinned Weston Wayland fixture
         shell: bash
         run: |
@@ -644,6 +707,7 @@ jobs:
           export WAYLAND_DISPLAY="$normal_socket"
           export GPUI_STAGE1_ARTIFACT_DIR="$artifact_dir"
           export GPUI_STAGE1_BINARY="$binary"
+          export GPUI_STAGE1_STORY_BINARY="$GITHUB_WORKSPACE/target/debug/neutron-story"
           export GPUI_STAGE1_VALIDATION_PROFILE="$validation_profile"
           python3 framework/tooling/stage1_service_harness.py \
             --timeout-seconds 900 \
@@ -736,11 +800,16 @@ jobs:
 
           expected_sha, expected_tree, expected_repository = sys.argv[1:]
           identity_paths = (
-              ".github/workflows/stage1.yml",
-              "Cargo.lock",
               "Cargo.toml",
+              "Cargo.lock",
               "engine/fork.toml",
               "framework/compatibility.toml",
+              ".github/workflows/stage1.yml",
+              "framework/crates/app/Cargo.toml",
+              "framework/crates/story/Cargo.toml",
+              "framework/STAGE1-CONTRACT.md",
+              "framework/tooling/stage1_source_manifest.py",
+              ".github/actions/stage1-source-identity/action.yml",
           )
           expected_digests = {
               path: hashlib.sha256(

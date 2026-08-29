@@ -6,9 +6,9 @@ order: -7
 
 # Root View
 
-The [Root] component for as the root provider of Neutron Components features in a window. We must to use [Root] as the **first level child** of a window to enable Neutron Components features.
+[Root] must be the first view in a window. It owns sheets, dialogs, notifications, and tab navigation for that window.
 
-This is important, if we don't use [Root] as the first level child of a window, there will have some unexpected behaviors.
+If Root is not first, `Root::update` panics and those overlays never render.
 
 :::tip
 `neutron-components-app::WindowManager::open` and `open_singleton` wrap content in
@@ -40,31 +40,10 @@ fn main() {
 
 ## Overlays
 
-We have dialogs, sheets, notifications, we need placement for them to show, so [Root] provides methods to render these overlays:
+Root renders the sheet, dialog, and notification layers exactly once. It mounts them as a sibling of the content view.
 
-- [Root::render_dialog_layer](https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html#method.render_dialog_layer) - Render the current opened modals.
-- [Root::render_sheet_layer](https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html#method.render_sheet_layer) - Render the current opened drawers.
-- [Root::render_notification_layer](https://docs.rs/neutron-components/latest/neutron_components/struct.Root.html#method.render_notification_layer) - Render the notification list.
+Open overlays from the content view with `WindowExt` methods `open_sheet`, `open_dialog`, and `push_notification`. Do not paint those layers in the content view's `render` method.
 
-We can put these layers in the `render` method your first level view (Root > YourFirstView):
-
-```rs
-struct MyApp;
-
-impl Render for MyApp {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .child("My App Content")
-            .children(Root::render_dialog_layer(cx))
-            .children(Root::render_sheet_layer(cx))
-            .children(Root::render_notification_layer(cx))
-    }
-}
-```
-
-:::tip
-Here the example we used `children` method, it because if there is no opened dialogs, sheets, notifications, these methods will return `None`, so GPUI will not render anything.
-:::
+GPUI dispatches an action by walking from the focused element through its ancestors only. A focused dialog or sheet does not deliver actions into the content view's `on_action` handlers, and the content view's actions do not leak into the overlay.
 
 [Root]: https://docs.rs/neutron-components/latest/neutron_components/root/struct.Root.html

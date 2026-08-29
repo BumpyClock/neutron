@@ -119,18 +119,19 @@ active. Presence transitions and command-palette reveal delays also stop.
 
 ## AppShell integration
 
-AppShell can initialize the registry, persist mode/name in its
-`shell-preferences` store, and project theme choices into `StandardMenus`:
+`AppDeclaration::new` already installs the registry theme, persists mode and
+name in the shell-preferences store, and projects Appearance into the standard
+menu bar.
 
 ```rs
-AppShell::builder(APP_IDENTITY)
-    .theme(ThemeSource::registry())
-    .standard_menus(StandardMenus::new().with_theme_menu())
+AppDeclaration::new(APP_IDENTITY)
+    .theme(ThemeSource::bundled(app_theme_assets))
     // ...
 ```
 
-Calling `.theme(...)` opts into shell preferences automatically. Apps without a
-theme or explicit `.shell_preferences()` consumer do not create that store.
+`.theme(...)` replaces the registry source. Shell preferences and Appearance
+stay. `.without_theme()` drops the theme source, the shell-preferences store,
+and the Appearance section.
 
 ## Material Surfaces
 

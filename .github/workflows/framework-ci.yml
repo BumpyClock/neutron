@@ -18,6 +18,7 @@ jobs:
   msrv:
     name: Rust 1.90 package checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -46,6 +47,7 @@ jobs:
           - target: x86_64-windows-msvc
             run_on: windows-latest
     runs-on: ${{ matrix.run_on }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -92,6 +94,7 @@ jobs:
   unit-and-headless:
     name: Unit, doctest, and headless tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -113,6 +116,7 @@ jobs:
     name: Compatibility and package manifests
     needs: unit-and-headless
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -145,6 +149,7 @@ jobs:
           - target: x86_64-windows-msvc
             run_on: windows-latest
     runs-on: ${{ matrix.run_on }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -158,9 +163,123 @@ jobs:
         uses: ./.github/actions/install-linux-dependencies
       # Build on every OS: this exercises the full D4 identity chain (build.rs +
       # include_identity!) cross-platform, even where we do not launch a
-      # GPU-backed window below.
-      - name: Build conformance examples
-        run: cargo build --locked -p app_shell -p app_shell_background
+      # GPU-backed window below. `neutron-story` is the real gallery
+      # application declaration, so its identity chain and CLI contract are
+      # regression-checked here too.
+      - name: Build conformance examples and the gallery application
+        run: cargo build --locked -p app_shell -p app_shell_background -p neutron-story
+      # Bounded, no-window CLI regression checks for the gallery binary.
+      # `stage1_watchdog.py` is used only as a portable bounded process runner:
+      # these steps open no window, retain no Stage 1 evidence, and never set
+      # GPUI_STAGE1_STORY_EVIDENCE_PATH.
+      #
+      # `--help` and `--version` return from the pure launch parser before any
+      # platform or GPUI object exists, so they are meaningful on every target.
+      - name: Story pre-platform CLI contract (macOS and Linux)
+        if: ${{ matrix.run_on != 'windows-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_dir="$RUNNER_TEMP/story-cli"
+          mkdir -p "$log_dir"
+          story="target/debug/neutron-story"
+
+          bounded() {
+            local name="$1"
+            local expected_exit_code="$2"
+            shift 2
+            python3 framework/tooling/stage1_watchdog.py \
+              --timeout-seconds 120 \
+              --expected-exit-code "$expected_exit_code" \
+              --stdout "$log_dir/$name.stdout.log" \
+              --stderr "$log_dir/$name.stderr.log" \
+              --log "$log_dir/$name.watchdog.log" \
+              -- "$@"
+          }
+
+          bounded help 0 "$story" --help
+          grep -Fq -- '--asset-smoke' "$log_dir/help.stdout.log"
+          bounded version 0 "$story" --version
+          grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' "$log_dir/version.stdout.log"
+      # `--asset-smoke` and `--fail-start` construct the platform and GPUI, so
+      # they need a platform backend the default feature graph actually builds.
+      # The workspace pins `gpui_platform` with `default-features = false`, so
+      # the Linux build carries neither the `x11` nor the `wayland` feature and
+      # `try_current_platform` refuses to construct a windowed backend. Linux
+      # story runtime therefore belongs to Stage 1, which selects the backend
+      # features and owns its compositor, renderer, and retained evidence.
+      # Do not reintroduce Xvfb or a software-renderer claim here: no display
+      # server makes a backend the build never compiled appear.
+      - name: Story platform CLI contract (macOS)
+        if: ${{ matrix.run_on == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_dir="$RUNNER_TEMP/story-cli"
+          mkdir -p "$log_dir"
+          story="target/debug/neutron-story"
+
+          bounded() {
+            local name="$1"
+            local expected_exit_code="$2"
+            shift 2
+            python3 framework/tooling/stage1_watchdog.py \
+              --timeout-seconds 120 \
+              --expected-exit-code "$expected_exit_code" \
+              --stdout "$log_dir/$name.stdout.log" \
+              --stderr "$log_dir/$name.stderr.log" \
+              --log "$log_dir/$name.watchdog.log" \
+              -- "$@"
+          }
+
+          bounded asset-smoke 0 "$story" --asset-smoke
+          bounded fail-start 2 "$story" --fail-start
+          grep -Fq NEUTRON_STORY_FAIL_START_REACHED "$log_dir/fail-start.stderr.log"
+      # Windows keeps the platform-constructing modes. `gpui_windows` is a plain
+      # `cfg(target_os = "windows")` dependency of `gpui_platform` with no
+      # feature gate, so `try_current_platform` builds `WindowsPlatform` in the
+      # default graph, and the `app_shell` startup-failure step below reaches
+      # its in-startup marker on this runner — which only happens after the
+      # platform and GPUI are constructed. Windowed Windows story runs still
+      # belong to Stage 1's WARP job.
+      - name: Story CLI contract (Windows)
+        if: ${{ matrix.run_on == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $logDir = Join-Path $env:RUNNER_TEMP "story-cli"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          $story = "target\debug\neutron-story.exe"
+
+          function Invoke-StoryCli([string]$Name, [int]$ExpectedExitCode, [string[]]$StoryArguments) {
+            & python framework/tooling/stage1_watchdog.py `
+              --timeout-seconds 120 `
+              --expected-exit-code $ExpectedExitCode `
+              --stdout (Join-Path $logDir "$Name.stdout.log") `
+              --stderr (Join-Path $logDir "$Name.stderr.log") `
+              --log (Join-Path $logDir "$Name.watchdog.log") `
+              -- $story @StoryArguments
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
+          Invoke-StoryCli "help" 0 @("--help")
+          if (-not (Get-Content (Join-Path $logDir "help.stdout.log") -Raw).Contains("--asset-smoke")) {
+            Write-Output "story --help did not document the smoke modes"
+            exit 1
+          }
+          Invoke-StoryCli "version" 0 @("--version")
+          if (-not ((Get-Content (Join-Path $logDir "version.stdout.log") -Raw) -match '^\d+\.\d+\.\d+')) {
+            Write-Output "story --version did not print a version"
+            exit 1
+          }
+          Invoke-StoryCli "asset-smoke" 0 @("--asset-smoke")
+          Invoke-StoryCli "fail-start" 2 @("--fail-start")
+          if (-not (Get-Content (Join-Path $logDir "fail-start.stderr.log") -Raw).Contains("NEUTRON_STORY_FAIL_START_REACHED")) {
+            Write-Output "story transactional start callback marker was not emitted"
+            exit 1
+          }
+          exit 0
       # Retain the established macOS example smoke as a fast ordinary-CI
       # regression. Linux and Windows example binaries are compiled here, while
       # their configured native runtime coverage belongs to Stage 1's dedicated
@@ -171,6 +290,23 @@ jobs:
           cargo run --locked -p app_shell -- --asset-smoke
           cargo run --locked -p app_shell -- --smoke
           cargo run --locked -p app_shell_background -- --smoke
+      # A windowed gallery smoke, bounded and evidence-free. macOS is the only
+      # ordinary-CI target with a display backend; Linux and Windows windowed
+      # story runs belong to Stage 1's native jobs, which own their compositor,
+      # renderer, and retained evidence.
+      - name: Story window smoke (macOS)
+        if: ${{ matrix.run_on == 'macos-latest' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_dir="$RUNNER_TEMP/story-cli"
+          mkdir -p "$log_dir"
+          python3 framework/tooling/stage1_watchdog.py \
+            --timeout-seconds 120 \
+            --stdout "$log_dir/smoke.stdout.log" \
+            --stderr "$log_dir/smoke.stderr.log" \
+            --log "$log_dir/smoke.watchdog.log" \
+            -- target/debug/neutron-story --smoke
       # This ordinary-CI regression opens no window and checks the legacy example
       # exit contract. Stage 1 separately validates the protocol startup-failure
       # scenario on every maintained native profile.

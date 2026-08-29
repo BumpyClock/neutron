@@ -21,6 +21,11 @@ IDENTITY_FILES = (
     "engine/fork.toml",
     "framework/compatibility.toml",
     ".github/workflows/stage1.yml",
+    "framework/crates/app/Cargo.toml",
+    "framework/crates/story/Cargo.toml",
+    "framework/STAGE1-CONTRACT.md",
+    "framework/tooling/stage1_source_manifest.py",
+    ".github/actions/stage1-source-identity/action.yml",
 )
 
 

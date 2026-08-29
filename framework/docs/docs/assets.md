@@ -45,18 +45,18 @@ If your app has its own assets, do not replace `neutron_components_assets::Asset
 
 This is the recommended downstream integration pattern.
 
-With AppShell, register sources in precedence order:
+With AppShell, register application sources on the declaration. AppShell appends
+`neutron_components_assets::Assets` last as the fallback.
 
 ```rs
-AppShell::builder(APP_IDENTITY)
+AppDeclaration::new(APP_IDENTITY)
     .assets(AppAssets)
-    .assets(neutron_components_assets::Assets)
     // ...
 ```
 
 Loading uses first-hit-wins semantics. An earlier source error is remembered but
 does not prevent a later source from resolving the path. If no source resolves
-it, AppShell returns the first remembered error; it returns `Ok(None)` only when
+it, AppShell returns the first remembered error. It returns `Ok(None)` only when
 every source reports a clean miss.
 
 For a raw GPUI host, use the two-source helper:

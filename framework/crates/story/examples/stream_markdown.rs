@@ -5,9 +5,17 @@ use neutron_components::{
     text::{TextView, TextViewState},
     v_flex,
 };
-use neutron_components_assets::Assets;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{AppDeclaration, Surface, SurfaceKey};
+use neutron_story::{
+    example_failure, example_http_client_module, example_theme_source, focus_example,
+    story_preferences_key, story_preferences_module, with_example_window_defaults,
+};
+
+neutron_components_app::include_identity!();
 
 pub struct Example {
+    focus_handle: FocusHandle,
     markdown_state: Entity<TextViewState>,
     tx: smol::channel::Sender<String>,
     scroll_handle: ScrollHandle,
@@ -40,6 +48,7 @@ impl Example {
         });
 
         Self {
+            focus_handle: cx.focus_handle(),
             markdown_state,
             scroll_handle,
             tx,
@@ -48,7 +57,7 @@ impl Example {
         }
     }
 
-    fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+    fn view(_args: &(), window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
     }
 
@@ -75,10 +84,17 @@ impl Example {
     }
 }
 
+impl Focusable for Example {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl Render for Example {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id("example")
+            .track_focus(&self.focus_handle)
             .size_full()
             .p_4()
             .gap_4()
@@ -107,18 +123,34 @@ impl Render for Example {
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+fn primary_surface() -> Surface<Example, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), Example::view)
+            .title("Stream Markdown")
+            .after_open(focus_example::<Example>),
+        size(px(600.), px(800.)),
+    )
+}
 
-    app.run(move |cx| {
-        neutron_story::init(cx);
-        cx.activate(true);
+/// The `stream_markdown` example's `DesktopApp` declaration. Zero-sized:
+/// `AppShell` never creates or retains an application object.
+struct StreamMarkdownExampleApp;
 
-        neutron_story::create_new_window_with_size(
-            "Stream Markdown",
-            Some(size(px(600.), px(800.))),
-            Example::view,
-            cx,
-        );
-    });
+impl DesktopApp for StreamMarkdownExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<StreamMarkdownExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("stream_markdown example", error),
+    }
 }

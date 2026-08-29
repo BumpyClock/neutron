@@ -1,284 +1,41 @@
-use gpui::{prelude::*, *};
-use neutron_components::{
-    ActiveTheme as _, FloatingSidebar, Icon, IconName, h_flex,
-    input::{Input, InputEvent, InputState},
-    sidebar::{SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
-    v_flex,
-};
-use neutron_components_assets::Assets;
-use neutron_story::*;
+//! `neutron-story` — the Neutron Components gallery application.
 
-pub struct Gallery {
-    stories: Vec<(&'static str, Vec<Entity<StoryContainer>>)>,
-    active_group_index: Option<usize>,
-    active_index: Option<usize>,
-    collapsed: bool,
-    sidebar_width: Pixels,
-    search_input: Entity<InputState>,
-    _subscriptions: Vec<Subscription>,
-}
+mod app;
+mod commands;
+mod evidence;
+mod gallery;
+mod launch;
+mod setup;
 
-impl Gallery {
-    pub fn new(init_story: Option<&str>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search..."));
-        let _subscriptions = vec![cx.subscribe(&search_input, |this, _, e, cx| match e {
-            InputEvent::Change => {
-                this.active_group_index = Some(0);
-                this.active_index = Some(0);
-                cx.notify()
+use std::process::ExitCode;
+
+use neutron_components_app::AppShell;
+
+neutron_components_app::include_identity!();
+
+use app::StoryApp;
+
+fn main() -> ExitCode {
+    let outcome = AppShell::run::<StoryApp>();
+    // The post-run tail owns the `story-smoke` terminal record: a `passed`
+    // outcome is only ever written once `AppShell::run` has actually
+    // returned. A no-op unless Stage 1 asked for evidence.
+    let evidence = evidence::finish(&outcome);
+
+    match outcome {
+        Ok(()) => match evidence {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("neutron-story story-smoke evidence failed: {error:#}");
+                ExitCode::from(2)
             }
-            _ => {}
-        })];
-        let mut stories = Vec::new();
-        for descriptor in story_descriptors() {
-            if stories
-                .last()
-                .is_none_or(|(group, _)| *group != descriptor.group)
-            {
-                stories.push((descriptor.group, Vec::new()));
+        },
+        Err(error) => {
+            if let Err(evidence_error) = evidence {
+                eprintln!("neutron-story story-smoke evidence failed: {evidence_error:#}");
             }
-            stories
-                .last_mut()
-                .expect("story registry always has a group")
-                .1
-                .push(descriptor.panel(window, cx));
+            eprintln!("neutron-story failed: {:#}", anyhow::Error::new(error));
+            ExitCode::from(2)
         }
-
-        let mut this = Self {
-            search_input,
-            stories,
-            active_group_index: Some(0),
-            active_index: Some(0),
-            collapsed: false,
-            sidebar_width: px(255.0),
-            _subscriptions,
-        };
-
-        if let Some(init_story) = init_story {
-            this.set_active_story(init_story, window, cx);
-        }
-
-        this
     }
-
-    fn set_active_story(&mut self, name: &str, window: &mut Window, cx: &mut App) {
-        let name = name.to_string();
-        self.search_input.update(cx, |this, cx| {
-            this.set_value(&name, window, cx);
-        })
-    }
-
-    fn view(init_story: Option<&str>, window: &mut Window, cx: &mut App) -> Entity<Self> {
-        cx.new(|cx| Self::new(init_story, window, cx))
-    }
-}
-
-impl Render for Gallery {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let query = self.search_input.read(cx).value().trim().to_lowercase();
-
-        let stories: Vec<_> = self
-            .stories
-            .iter()
-            .filter_map(|(name, items)| {
-                let filtered_items: Vec<_> = items
-                    .iter()
-                    .filter(|story| story.read(cx).name.to_lowercase().contains(&query))
-                    .cloned()
-                    .collect();
-
-                if !filtered_items.is_empty() {
-                    Some((name, filtered_items))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let active_group = self.active_group_index.and_then(|index| stories.get(index));
-        let active_story = self
-            .active_index
-            .and(active_group)
-            .and_then(|group| group.1.get(self.active_index.unwrap()));
-        let (story_name, description) =
-            if let Some(story) = active_story.as_ref().map(|story| story.read(cx)) {
-                (story.name.clone(), story.description.clone())
-            } else {
-                ("".into(), "".into())
-            };
-
-        let inset = px(8.0);
-        let collapsed_width = px(48.0);
-        let sidebar_width = if self.collapsed {
-            collapsed_width
-        } else {
-            self.sidebar_width
-        };
-        let content_offset = sidebar_width + inset;
-        let view = cx.entity().downgrade();
-
-        div()
-            .relative()
-            .size_full()
-            .overflow_hidden()
-            .child(
-                FloatingSidebar::new("gallery-sidebar")
-                    .width(self.sidebar_width)
-                    .collapsed(self.collapsed)
-                    .inset(inset)
-                    .on_resize_end(move |width, _, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                this.sidebar_width = width;
-                                cx.notify();
-                            });
-                        }
-                    })
-                    .header_with({
-                        let search_input = self.search_input.clone();
-                        move |collapsed, _, cx| {
-                            v_flex()
-                                .w_full()
-                                .gap_4()
-                                .child(
-                                    SidebarHeader::new()
-                                        .w_full()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .rounded(cx.theme().radius)
-                                                .bg(cx.theme().primary)
-                                                .text_color(cx.theme().primary_foreground)
-                                                .size_8()
-                                                .flex_shrink_0()
-                                                .when(!collapsed, |this| {
-                                                    this.child(Icon::new(
-                                                        IconName::GalleryVerticalEnd,
-                                                    ))
-                                                })
-                                                .when(collapsed, |this| {
-                                                    this.size_4()
-                                                        .bg(cx.theme().transparent)
-                                                        .text_color(cx.theme().foreground)
-                                                        .child(Icon::new(
-                                                            IconName::GalleryVerticalEnd,
-                                                        ))
-                                                })
-                                                .rounded_lg(),
-                                        )
-                                        .when(!collapsed, |this| {
-                                            this.child(
-                                                v_flex()
-                                                    .gap_0()
-                                                    .text_sm()
-                                                    .flex_1()
-                                                    .line_height(relative(1.25))
-                                                    .overflow_hidden()
-                                                    .text_ellipsis()
-                                                    .child("Neutron Story")
-                                                    .child(
-                                                        div()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child("Components")
-                                                            .text_xs(),
-                                                    ),
-                                            )
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .bg(cx.theme().sidebar_accent)
-                                        .rounded_full()
-                                        .px_1()
-                                        .when(cx.theme().radius.is_zero(), |this| {
-                                            this.rounded(px(0.))
-                                        })
-                                        .flex_1()
-                                        .mx_1()
-                                        .child(
-                                            Input::new(&search_input)
-                                                .appearance(false)
-                                                .cleanable(true),
-                                        ),
-                                )
-                        }
-                    })
-                    .children(stories.clone().into_iter().enumerate().map(
-                        |(group_ix, (group_name, sub_stories))| {
-                            SidebarGroup::new(*group_name).child(SidebarMenu::new().children(
-                                sub_stories.iter().enumerate().map(|(ix, story)| {
-                                    SidebarMenuItem::new(story.read(cx).name.clone())
-                                        .active(
-                                            self.active_group_index == Some(group_ix)
-                                                && self.active_index == Some(ix),
-                                        )
-                                        .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, _, cx| {
-                                                this.active_group_index = Some(group_ix);
-                                                this.active_index = Some(ix);
-                                                cx.notify();
-                                            },
-                                        ))
-                                }),
-                            ))
-                        },
-                    )),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .h_full()
-                    .overflow_x_hidden()
-                    .pl(content_offset)
-                    .child(
-                        h_flex()
-                            .id("header")
-                            .p_4()
-                            .border_b_1()
-                            .border_color(cx.theme().border)
-                            .justify_between()
-                            .items_start()
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(div().text_xl().child(story_name))
-                                    .child(
-                                        div()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(description),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("story")
-                            .flex_1()
-                            .overflow_y_scroll()
-                            .when_some(active_story, |this, active_story| {
-                                this.child(active_story.clone())
-                            }),
-                    )
-                    .into_any_element(),
-            )
-    }
-}
-
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
-
-    // Parse `cargo run -- <story_name>`
-    let name = std::env::args().nth(1);
-
-    app.run(move |cx| {
-        neutron_story::init(cx);
-        cx.activate(true);
-
-        neutron_story::create_new_window(
-            "Neutron Story",
-            move |window, cx| Gallery::view(name.as_deref(), window, cx),
-            cx,
-        );
-    });
 }

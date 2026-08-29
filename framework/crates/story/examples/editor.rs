@@ -28,8 +28,20 @@ use neutron_components::{
     tree::{TreeItem, TreeState, tree},
     v_flex,
 };
-use neutron_components_assets::Assets;
-use neutron_story::Open;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{
+    AppDeclaration, Command, CommandBinding, CommandId, Menu, MenuBar, MenuKey, Surface, SurfaceKey,
+};
+use neutron_story::{
+    example_failure, example_http_client_module, example_theme_source, focus_example,
+    story_preferences_key, story_preferences_module, with_example_window_defaults,
+};
+
+neutron_components_app::include_identity!();
+
+actions!(story_editor_example, [OpenFile]);
+
+const OPEN_FILE_ID: CommandId = CommandId::new("story-editor-example.open-file");
 
 enum Lang {
     BuiltIn(Language),
@@ -52,7 +64,9 @@ impl Lang {
     }
 }
 
-fn init() {
+/// Registers the `navi` tree-sitter language, matching the deleted `init()`
+/// call that used to run once before window creation.
+fn register_navi_language(_cx: &mut App) -> anyhow::Result<()> {
     LanguageRegistry::singleton().register(
         "navi",
         &LanguageConfig::new(
@@ -64,6 +78,7 @@ fn init() {
             "",
         ),
     );
+    Ok(())
 }
 
 pub struct Example {
@@ -857,7 +872,7 @@ impl Example {
         });
     }
 
-    fn on_action_open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_action_open(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
         let path = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: true,
@@ -1110,19 +1125,57 @@ impl Render for Example {
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+fn build_example(_args: &(), window: &mut Window, cx: &mut App) -> Entity<Example> {
+    cx.new(|cx| Example::new(window, cx))
+}
 
-    app.run(move |cx| {
-        neutron_story::init(cx);
-        init();
-        cx.activate(true);
+impl Focusable for Example {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.editor.focus_handle(cx)
+    }
+}
 
-        neutron_story::create_new_window_with_size(
-            "Editor",
-            Some(size(px(1200.), px(750.))),
-            |window, cx| cx.new(|cx| Example::new(window, cx)),
-            cx,
-        );
-    });
+/// The window-scoped Open command: `cmd-o` on macOS, `ctrl-o` elsewhere,
+/// matching the deleted global `Open` keybinding exactly.
+fn open_file_command() -> Command<OpenFile> {
+    Command::window(OPEN_FILE_ID, OpenFile)
+        .label("Open…")
+        .binding(CommandBinding::platform("cmd-o", "ctrl-o"))
+}
+
+fn primary_surface() -> Surface<Example, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), build_example)
+            .title("Editor")
+            .after_open(focus_example::<Example>),
+        size(px(1200.), px(750.)),
+    )
+}
+
+/// The `editor` example's `DesktopApp` declaration. Zero-sized: `AppShell`
+/// never creates or retains an application object.
+struct EditorExampleApp;
+
+impl DesktopApp for EditorExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .start(register_navi_language)
+            .command(open_file_command())
+            .menu_bar(
+                MenuBar::standard().contribute(Menu::keyed(MenuKey::FILE).command(OPEN_FILE_ID)),
+            )
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<EditorExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("editor example", error),
+    }
 }

@@ -1,63 +1,36 @@
 use gpui::{
-    Action, AnyElement, AnyView, App, AppContext, Bounds, Context, Div, Entity, EventEmitter,
-    FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement, Pixels, Render, RenderOnce, SharedString, Size, StyleRefinement, Styled, Window,
-    WindowBounds, WindowKind, WindowOptions, actions, div, prelude::FluentBuilder as _, px, rems,
-    size,
+    AnyElement, AnyView, App, AppContext, Context, Div, Entity, EventEmitter, Focusable, Global,
+    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, actions, div, prelude::FluentBuilder as _, px, rems,
 };
 use neutron_components::{
-    ActiveTheme, IconName, Root, WindowExt, WindowShell,
+    ActiveTheme, IconName, Root, WindowExt,
     button::Button,
     dock::{Panel, PanelControl, PanelEvent, PanelInfo, PanelState, TitleStyle, register_panel},
     group_box::{GroupBox, GroupBoxVariants as _},
     h_flex,
     menu::PopupMenu,
     notification::Notification,
-    scroll::{ScrollableElement as _, ScrollbarShow},
-    v_flex,
+    scroll::ScrollableElement as _,
 };
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-mod app_menus;
+mod example_support;
+mod settings;
 mod stories;
 #[cfg(test)]
 mod story_registry_tests;
-mod themes;
-mod title_bar;
-pub use crate::title_bar::AppTitleBar;
+pub use example_support::{
+    ExampleThemes, default_example_window_size, example_failure, example_http_client_module,
+    example_theme_source, focus_example, with_example_window_defaults,
+};
+pub use settings::{
+    StorySettings, StoryUiPreferences, build_settings, story_preferences_key,
+    story_preferences_module, update_locale, update_story_preferences,
+};
 pub use stories::*;
 
-#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
-pub struct SelectScrollbarShow(ScrollbarShow);
-
-#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
-pub struct SelectLocale(SharedString);
-
-#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
-pub struct SelectFont(usize);
-
-#[derive(Action, Clone, PartialEq, Eq, Deserialize)]
-#[action(namespace = story, no_json)]
-pub struct SelectRadius(usize);
-
-actions!(
-    story,
-    [
-        About,
-        Open,
-        Quit,
-        ToggleSearch,
-        TestAction,
-        Tab,
-        TabPrev,
-        ShowPanelInfo,
-        ToggleListActiveHighlight
-    ]
-);
+actions!(story, [TestAction, ShowPanelInfo]);
 
 const PANEL_NAME: &str = "StoryContainer";
 
@@ -215,122 +188,44 @@ impl AppState {
     }
 }
 
-pub fn create_new_window<F, E>(title: &str, crate_view_fn: F, cx: &mut App)
-where
-    E: Into<AnyView>,
-    F: FnOnce(&mut Window, &mut App) -> E + Send + 'static,
-{
-    create_new_window_with_size(title, None, crate_view_fn, cx);
-}
-
-pub fn create_new_window_with_size<F, E>(
-    title: &str,
-    window_size: Option<Size<Pixels>>,
-    crate_view_fn: F,
-    cx: &mut App,
-) where
-    E: Into<AnyView>,
-    F: FnOnce(&mut Window, &mut App) -> E + Send + 'static,
-{
-    let mut window_size = window_size.unwrap_or(size(px(1600.0), px(1200.0)));
-    if let Some(display) = cx.primary_display() {
-        let display_size = display.bounds().size;
-        window_size.width = window_size.width.min(display_size.width * 0.85);
-        window_size.height = window_size.height.min(display_size.height * 0.85);
-    }
-    let window_bounds = Bounds::centered(None, window_size, cx);
-    let title = SharedString::from(title.to_string());
-
-    cx.spawn(async move |cx| {
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(window_bounds)),
-            window_min_size: Some(gpui::Size {
-                width: px(480.),
-                height: px(320.),
-            }),
-            kind: WindowKind::Normal,
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            ..WindowShell::window_options()
-        };
-
-        let window = cx
-            .open_window(options, |window, cx| {
-                let view = crate_view_fn(window, cx);
-                let story_root = cx.new(|cx| StoryRoot::new(title.clone(), view, window, cx));
-
-                // Set focus to the StoryRoot to enable it's actions.
-                let focus_handle = story_root.focus_handle(cx);
-                window.defer(cx, move |window, cx| {
-                    focus_handle.focus(window, cx);
-                });
-
-                cx.new(|cx| Root::new(story_root, window, cx))
-            })
-            .expect("failed to open window");
-
-        window
-            .update(cx, |_, window, _| {
-                window.activate_window();
-                window.set_window_title(&title);
-            })
-            .expect("failed to update window");
-
-        Ok::<_, anyhow::Error>(())
-    })
-    .detach();
-}
-
 impl Global for AppState {}
 
-pub fn init(cx: &mut App) {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("neutron_components=trace".parse().unwrap()),
-        )
-        .init();
-
-    neutron_components::init(cx);
+/// Initialize story-registry state: [`AppState`], per-story key bindings, and
+/// the `ShowPanelInfo` handler every `StoryContainer` panel's dropdown menu
+/// dispatches.
+///
+/// AppShell owns `neutron_components::init` and process bootstrap; this is the
+/// library's own one-time registration, meant to be called from an
+/// application's `story.app-state` setup module. Panel/restore factory
+/// registration is a separate step; see [`init_panels`].
+pub fn init_app_state(cx: &mut App) {
     AppState::init(cx);
-    themes::init(cx);
     stories::init(cx);
 
-    let http_client =
-        std::sync::Arc::new(reqwest_client::ReqwestClient::user_agent("neutron-story").unwrap());
-    cx.set_http_client(http_client);
-
-    cx.bind_keys([
-        KeyBinding::new("/", ToggleSearch, None),
-        #[cfg(target_os = "macos")]
-        KeyBinding::new("cmd-o", Open, None),
-        #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("ctrl-o", Open, None),
-        #[cfg(target_os = "macos")]
-        KeyBinding::new("cmd-q", Quit, None),
-        #[cfg(not(target_os = "macos"))]
-        KeyBinding::new("alt-f4", Quit, None),
-    ]);
-
-    cx.on_action(|_: &Quit, cx: &mut App| {
-        cx.quit();
-    });
-
-    cx.on_action(|_: &About, cx: &mut App| {
-        if let Some(window) = cx.active_window().and_then(|w| w.downcast::<Root>()) {
+    cx.on_action(|_: &ShowPanelInfo, cx: &mut App| {
+        if let Some(window) = cx
+            .active_window()
+            .and_then(|window| window.downcast::<Root>())
+        {
             cx.defer(move |cx| {
-                window
-                    .update(cx, |root, window, cx| {
-                        root.push_notification("Neutron Story\nVersion 0.1.0", window, cx);
-                    })
-                    .unwrap();
+                let _ = window.update(cx, |_, window, cx| {
+                    struct Info;
+                    let note = Notification::new()
+                        .message("You have clicked panel info.")
+                        .id::<Info>();
+                    window.push_notification(note, cx);
+                });
             });
         }
     });
+}
 
+/// Register the dock-restorable `StoryContainer` panel/restore factory.
+///
+/// Kept separate from [`init_app_state`] so an application's setup module can
+/// depend on `AppState` having initialized first without mixing panel
+/// registration into that same step.
+pub fn init_panels(cx: &mut App) {
     register_panel(cx, PANEL_NAME, |_, _, info, window, cx| {
         let story_state = match info {
             PanelInfo::Panel(value) => StoryState::from_value(value.clone()),
@@ -370,8 +265,6 @@ pub fn init(cx: &mut App) {
         });
         Box::new(view)
     });
-
-    cx.activate(true);
 }
 
 #[derive(IntoElement)]
@@ -680,93 +573,5 @@ impl Render for StoryContainer {
             .when_some(self.story.clone(), |this, story| {
                 this.child(div().size_full().p(self.paddings).child(story))
             })
-    }
-}
-
-struct StoryRoot {
-    focus_handle: FocusHandle,
-    title_bar: Entity<AppTitleBar>,
-    view: AnyView,
-}
-
-impl StoryRoot {
-    pub fn new(
-        title: impl Into<SharedString>,
-        view: impl Into<AnyView>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let title_bar = cx.new(|cx| AppTitleBar::new(title, window, cx));
-        Self {
-            focus_handle: cx.focus_handle(),
-            title_bar,
-            view: view.into(),
-        }
-    }
-
-    fn on_action_panel_info(
-        &mut self,
-        _: &ShowPanelInfo,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        struct Info;
-        let note = Notification::new()
-            .message("You have clicked panel info.")
-            .id::<Info>();
-        window.push_notification(note, cx);
-    }
-
-    fn on_action_toggle_search(
-        &mut self,
-        _: &ToggleSearch,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.propagate();
-        if window.has_focused_input(cx) {
-            return;
-        }
-
-        struct Search;
-        let note = Notification::new()
-            .message("You have toggled search.")
-            .id::<Search>();
-        window.push_notification(note, cx);
-    }
-}
-
-impl Focusable for StoryRoot {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
-impl Render for StoryRoot {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
-
-        div()
-            .id("story-root")
-            .on_action(cx.listener(Self::on_action_panel_info))
-            .on_action(cx.listener(Self::on_action_toggle_search))
-            .size_full()
-            .child(
-                v_flex()
-                    .size_full()
-                    .child(self.title_bar.clone())
-                    .child(
-                        div()
-                            .track_focus(&self.focus_handle)
-                            .flex_1()
-                            .overflow_hidden()
-                            .child(self.view.clone()),
-                    )
-                    .children(sheet_layer)
-                    .children(dialog_layer)
-                    .children(notification_layer),
-            )
     }
 }

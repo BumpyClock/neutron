@@ -1,13 +1,12 @@
 use std::rc::Rc;
 
 use anyhow::Context as _;
-use neutron_components_app::AppShellExt as _;
+use neutron_components_app::Shell as _;
 use neutron_components_app::gpui::prelude::FluentBuilder as _;
 use neutron_components_app::gpui::{
-    App, AppContext as _, Context, FocusHandle, InteractiveElement as _, IntoElement, KeyDownEvent,
-    ParentElement, Render, RendererInfo, Styled, Window, div,
+    App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _, IntoElement,
+    KeyDownEvent, ParentElement, Render, RendererInfo, Styled, Window, div,
 };
-use neutron_components_app::{OpenedWindow, WindowManager, WindowSpec};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use serde::Serialize;
 use serde_json::json;
@@ -63,129 +62,109 @@ impl Render for ConformanceView {
     }
 }
 
-/// Open a real AppShell-managed window, capture native/renderer evidence before
-/// the root view draws, and invoke `after_first_presentation` after its first
-/// renderer presentation evidence (not display scanout).
-pub(crate) fn open_native_window(
+/// Build the plain conformance root with no key-down handler. Used as a
+/// `Surface`/`SurfaceKey` build hook: non-capturing, so every scenario that
+/// needs only the root's presence and focus target shares this one function.
+///
+/// Generic over the launch type `T` because each scenario now declares its
+/// own `LaunchSpec<T>` (so its primary surface's arguments are `&T`, not
+/// `&()`); the root itself never reads the launch value, so one function
+/// still serves every scenario, monomorphized per call site.
+pub(crate) fn build_conformance_view<T>(
+    _args: &T,
+    _window: &mut Window,
     cx: &mut App,
-    protocol: Protocol,
-    state: ScenarioState,
-    key: &'static str,
-    title: &'static str,
-    after_first_presentation: impl FnOnce(&mut App) + 'static,
-) -> anyhow::Result<OpenedWindow<ConformanceView>> {
-    open_native_window_with_root(
-        cx,
-        protocol,
-        state,
-        key,
-        title,
-        |_, cx| {
-            cx.new(|cx| ConformanceView {
-                focus_handle: cx.focus_handle(),
-                on_key_down: None,
-            })
-        },
-        move |_, cx| after_first_presentation(cx),
-    )
+) -> Entity<ConformanceView> {
+    cx.new(|cx| ConformanceView {
+        focus_handle: cx.focus_handle(),
+        on_key_down: None,
+    })
 }
 
+/// Build the conformance root with a key-down handler installed and focused.
+/// Used by the Wayland conformance path of the clipboard scenario, where a
+/// synthetic key press must reach the window's content.
 #[cfg(feature = "wayland-conformance")]
-pub(crate) fn open_native_window_with_key_down(
+pub(crate) fn build_conformance_view_with_key_down(
+    window: &mut Window,
     cx: &mut App,
-    protocol: Protocol,
-    state: ScenarioState,
-    key: &'static str,
-    title: &'static str,
     on_key_down: impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static,
-    after_first_presentation: impl FnOnce(&mut Window, &mut App) + 'static,
-) -> anyhow::Result<OpenedWindow<ConformanceView>> {
+) -> Entity<ConformanceView> {
     let on_key_down = Rc::new(on_key_down) as KeyDownHandler;
-    open_native_window_with_root(
-        cx,
-        protocol,
-        state,
-        key,
-        title,
-        move |window, cx| {
-            let view = cx.new(move |cx| ConformanceView {
-                focus_handle: cx.focus_handle(),
-                on_key_down: Some(on_key_down),
-            });
-            let focus_handle = view.read(cx).focus_handle.clone();
-            focus_handle.focus(window, cx);
-            view
-        },
-        after_first_presentation,
-    )
+    let view = cx.new(move |cx| ConformanceView {
+        focus_handle: cx.focus_handle(),
+        on_key_down: Some(on_key_down),
+    });
+    let focus_handle = view.read(cx).focus_handle.clone();
+    focus_handle.focus(window, cx);
+    view
 }
 
-pub(crate) fn open_native_window_with_root<V: 'static + Render>(
+/// Capture native/renderer evidence for a just-opened surface window, emit it
+/// (plus `window_opened`), and arrange for `after_first_presentation` to run
+/// once the window's first renderer presentation evidence (not display
+/// scanout) resolves.
+///
+/// Intended to be called from a `Surface::after_open` hook, once the
+/// declaration's conformance global is in hand. Non-fatal: an evidence
+/// failure is recorded on `state` and requests quit, matching every other
+/// conformance failure path, rather than propagating an error the infallible
+/// `after_open` hook signature cannot carry.
+pub(crate) fn observe_native_window(
+    window: &mut Window,
     cx: &mut App,
-    protocol: Protocol,
-    state: ScenarioState,
+    protocol: &Protocol,
+    state: &ScenarioState,
     key: &'static str,
     title: &'static str,
-    build_root: impl FnOnce(&mut Window, &mut App) -> neutron_components_app::gpui::Entity<V>,
-    after_first_presentation: impl FnOnce(&mut Window, &mut App) + 'static,
-) -> anyhow::Result<OpenedWindow<V>> {
-    let observation_protocol = protocol.clone();
-    let observation_state = state.clone();
-    let opened = WindowManager::open(
-        cx,
-        WindowSpec::new(key)
-            .title(title)
-            .on_open(move |window, cx| {
-                let evidence = match capture_evidence(window) {
-                    Ok(evidence) => evidence,
-                    Err(error) => {
-                        observation_state.record_failure(format!(
-                            "native window evidence capture failed: {error:#}"
-                        ));
-                        return;
-                    }
-                };
-
-                observation_state.emit(
-                    &observation_protocol,
-                    "native_window_handle",
-                    json!({"kind": evidence.handle_kind}),
-                );
-                observation_state.emit(
-                    &observation_protocol,
-                    "native_display_handle",
-                    json!({"kind": evidence.display_kind}),
-                );
-                observation_state.emit(
-                    &observation_protocol,
-                    "renderer_info",
-                    json!({"renderer_info": evidence.renderer_info}),
-                );
-                if observation_state.failure().is_some() {
-                    return;
-                }
-
-                observe_first_presentation(
-                    window,
-                    cx,
-                    observation_protocol.clone(),
-                    observation_state.clone(),
-                    after_first_presentation,
-                );
-            }),
-        build_root,
-    )
-    .context("open native conformance window")?;
+    after_first_presentation: fn(&mut Window, &mut App),
+) {
+    let evidence = match capture_evidence(window) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            state.record_failure(format!("native window evidence capture failed: {error:#}"));
+            cx.request_quit();
+            return;
+        }
+    };
 
     state.emit(
-        &protocol,
+        protocol,
+        "native_window_handle",
+        json!({"kind": evidence.handle_kind}),
+    );
+    state.emit(
+        protocol,
+        "native_display_handle",
+        json!({"kind": evidence.display_kind}),
+    );
+    state.emit(
+        protocol,
+        "renderer_info",
+        json!({"renderer_info": evidence.renderer_info}),
+    );
+    if state.failure().is_some() {
+        cx.request_quit();
+        return;
+    }
+
+    state.emit(
+        protocol,
         "window_opened",
         json!({"key": key, "title": title}),
     );
-    if let Some(failure) = state.failure() {
-        anyhow::bail!("native window setup failed: {failure}");
+    if state.failure().is_some() {
+        cx.request_quit();
+        return;
     }
-    Ok(opened)
+
+    observe_first_presentation(
+        window,
+        cx,
+        protocol.clone(),
+        state.clone(),
+        after_first_presentation,
+    );
 }
 
 fn capture_evidence(window: &Window) -> anyhow::Result<NativeWindowEvidence> {
@@ -246,7 +225,7 @@ fn observe_first_presentation(
     cx: &mut App,
     protocol: Protocol,
     state: ScenarioState,
-    after_first_presentation: impl FnOnce(&mut Window, &mut App) + 'static,
+    after_first_presentation: fn(&mut Window, &mut App),
 ) {
     // This receiver is subscribed before the root view is built and before the
     // window has an opportunity to draw. Stage 1 bounds the process externally;

@@ -1,5 +1,7 @@
 use std::fmt;
 
+use neutron_components_app::ProcessLaunch;
+
 /// Native conformance scenarios supported by this executable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -11,6 +13,9 @@ pub(crate) enum Scenario {
     MenuCommand,
     Clipboard,
     InteractionContracts,
+    /// Validate-only: `neutron-story --smoke` writes this stream itself, so
+    /// this runner never launches a `story-smoke` conformance application.
+    StorySmoke,
 }
 
 impl Scenario {
@@ -23,7 +28,15 @@ impl Scenario {
             Self::MenuCommand => "menu-command",
             Self::Clipboard => "clipboard",
             Self::InteractionContracts => "interaction-contracts",
+            Self::StorySmoke => "story-smoke",
         }
+    }
+
+    /// Whether this runner can execute the scenario. `story-smoke` is
+    /// produced by the `neutron-story` binary, so only its validator lives
+    /// here.
+    const fn is_runnable(self) -> bool {
+        !matches!(self, Self::StorySmoke)
     }
 
     fn parse(value: &str) -> Result<Self, CliError> {
@@ -35,6 +48,7 @@ impl Scenario {
             "menu-command" => Ok(Self::MenuCommand),
             "clipboard" => Ok(Self::Clipboard),
             "interaction-contracts" => Ok(Self::InteractionContracts),
+            "story-smoke" => Ok(Self::StorySmoke),
             _ => Err(CliError::InvalidScenario(value.to_owned())),
         }
     }
@@ -106,6 +120,7 @@ pub(crate) enum CliError {
     MissingProfileValue,
     MissingScenario,
     ProfileRequiresValidation,
+    ValidateOnlyScenario(Scenario),
     UnexpectedArgument(String),
 }
 
@@ -122,7 +137,7 @@ impl fmt::Display for CliError {
             }
             Self::InvalidScenario(value) => write!(
                 formatter,
-                "unknown scenario {value:?}; expected lifecycle-clean, lifecycle-startup-failure, lifecycle-background-quit, window-cycle, menu-command, clipboard, or interaction-contracts"
+                "unknown scenario {value:?}; expected lifecycle-clean, lifecycle-startup-failure, lifecycle-background-quit, window-cycle, menu-command, clipboard, interaction-contracts, or story-smoke"
             ),
             Self::InvalidProfile(value) => write!(
                 formatter,
@@ -135,6 +150,10 @@ impl fmt::Display for CliError {
             Self::ProfileRequiresValidation => {
                 formatter.write_str("--profile may only be used with --validate")
             }
+            Self::ValidateOnlyScenario(scenario) => write!(
+                formatter,
+                "scenario {scenario} cannot be run by this executable; it is produced by neutron-story --smoke and is only accepted as --validate {scenario}"
+            ),
             Self::UnexpectedArgument(argument) => {
                 write!(formatter, "unexpected argument {argument:?}")
             }
@@ -142,12 +161,47 @@ impl fmt::Display for CliError {
     }
 }
 
+// Every variant is already a stable, leaf `Display` message with no further
+// cause to chain, so the default `source() -> None` is correct as-is. This
+// impl exists so a scenario's launch parser can propagate a `CliError` with
+// `?` into its `anyhow::Result`, re-parsing a `ProcessLaunch` through exactly
+// the same grammar `main` used instead of a second, potentially-diverging
+// implementation.
+impl std::error::Error for CliError {}
+
 /// Parse a process argument vector. Scenario runs write versioned JSONL to stdout.
 pub(crate) fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, CliError> {
     let mut arguments = args.into_iter();
     let _program = arguments.next();
-    let arguments: Vec<_> = arguments.collect();
+    parse_arguments(arguments.collect())
+}
 
+/// Parse a [`ProcessLaunch`]'s complete argument list with exactly the same
+/// grammar as [`parse`]. `ProcessLaunch::args` already excludes the executable
+/// name (unlike the raw argv `parse` receives), so there is no program name to
+/// skip here.
+///
+/// A typed scenario's launch parser calls this to confirm, from the real
+/// process facts, that it was the scenario `main` selected — through the one
+/// shared grammar, never a second, potentially-diverging implementation.
+pub(crate) fn parse_process(process: &ProcessLaunch) -> Result<Command, CliError> {
+    let mut arguments = Vec::with_capacity(process.args().len());
+    for argument in process.args() {
+        match argument.to_str() {
+            Some(argument) => arguments.push(argument.to_owned()),
+            None => {
+                return Err(CliError::UnexpectedArgument(
+                    argument.to_string_lossy().into_owned(),
+                ));
+            }
+        }
+    }
+    parse_arguments(arguments)
+}
+
+/// The shared grammar behind [`parse`] and [`parse_process`], over an
+/// argument list that already excludes the executable name.
+fn parse_arguments(arguments: Vec<String>) -> Result<Command, CliError> {
     if arguments
         .iter()
         .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
@@ -206,6 +260,8 @@ pub(crate) fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, C
         (Some(scenario), None) => {
             if profile.is_some() {
                 Err(CliError::ProfileRequiresValidation)
+            } else if !scenario.is_runnable() {
+                Err(CliError::ValidateOnlyScenario(scenario))
             } else {
                 Ok(Command::Run(scenario))
             }
@@ -236,6 +292,11 @@ Scenarios:
   menu-command                Project and dispatch a registered native menu command.
   clipboard                   Write and externally verify a native clipboard payload.
   interaction-contracts       Verify focused UI contracts in a presented native window.
+
+Validate-only scenarios:
+  story-smoke                 Integration evidence written by `neutron-story --smoke`
+                              (GPUI_STAGE1_STORY_EVIDENCE_PATH). This executable validates
+                              the stream; it never runs the scenario.
 
 Validation profiles:
   macos-metal
@@ -451,6 +512,53 @@ mod tests {
     }
 
     #[test]
+    fn story_smoke_validates_but_never_runs() {
+        let command = parse([
+            "conformance".to_owned(),
+            "--validate".to_owned(),
+            "story-smoke".to_owned(),
+            "--profile".to_owned(),
+            "macos-metal".to_owned(),
+        ])
+        .expect("story-smoke validation should parse");
+        assert!(matches!(
+            command,
+            Command::Validate {
+                scenario: Scenario::StorySmoke,
+                profile: Some(ValidationProfile::MacosMetal),
+            }
+        ));
+
+        for arguments in [
+            vec![
+                "conformance".to_owned(),
+                "--scenario=story-smoke".to_owned(),
+            ],
+            vec![
+                "conformance".to_owned(),
+                "--scenario".to_owned(),
+                "story-smoke".to_owned(),
+            ],
+        ] {
+            let error = parse(arguments).unwrap_err();
+            assert_eq!(error, CliError::ValidateOnlyScenario(Scenario::StorySmoke));
+            let message = error.to_string();
+            assert!(message.contains("neutron-story --smoke"), "{message}");
+            assert!(message.contains("--validate story-smoke"), "{message}");
+        }
+    }
+
+    #[test]
+    fn parse_process_also_refuses_to_run_story_smoke() {
+        let process = ProcessLaunch::new(vec!["--scenario=story-smoke".into()], None);
+
+        assert_eq!(
+            parse_process(&process).unwrap_err(),
+            CliError::ValidateOnlyScenario(Scenario::StorySmoke)
+        );
+    }
+
+    #[test]
     fn help_ignores_other_arguments() {
         let command = parse([
             "conformance".to_owned(),
@@ -461,5 +569,36 @@ mod tests {
         .expect("help should parse");
 
         assert!(matches!(command, Command::Help));
+    }
+
+    #[test]
+    fn parse_process_agrees_with_parse_on_the_same_selection() {
+        let process = ProcessLaunch::new(vec!["--scenario=window-cycle".into()], None);
+
+        let command = parse_process(&process).expect("process facts should parse");
+
+        assert!(matches!(command, Command::Run(Scenario::WindowCycle)));
+    }
+
+    #[test]
+    fn parse_process_does_not_skip_a_program_name() {
+        // `ProcessLaunch::args` already excludes the executable name, unlike
+        // the raw argv `parse` receives: the first element here is a real
+        // flag, not a program name to discard.
+        let process = ProcessLaunch::new(vec!["--scenario".into(), "lifecycle-clean".into()], None);
+
+        let command = parse_process(&process).expect("process facts should parse");
+
+        assert!(matches!(command, Command::Run(Scenario::LifecycleClean)));
+    }
+
+    #[test]
+    fn parse_process_rejects_the_same_malformed_input_as_parse() {
+        let process = ProcessLaunch::new(vec!["--scenario".into()], None);
+
+        assert_eq!(
+            parse_process(&process).unwrap_err(),
+            CliError::MissingScenarioValue
+        );
     }
 }

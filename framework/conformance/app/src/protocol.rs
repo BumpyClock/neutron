@@ -1,4 +1,5 @@
 mod interaction_contracts;
+mod story_smoke;
 
 use std::io::{self, BufRead, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -135,8 +136,11 @@ pub(crate) fn validate_jsonl_with_profile(
         if terminal_seen {
             anyhow::bail!("JSONL record appeared after terminal at line {line_number}");
         }
-        if records.is_empty() && record.event != "scenario_started" {
-            anyhow::bail!("first JSONL event must be scenario_started");
+        if records.is_empty() {
+            let first_event = first_event(expected_scenario);
+            if record.event != first_event {
+                anyhow::bail!("first JSONL event must be {first_event}");
+            }
         }
         if record.event == "terminal" {
             validate_terminal(&record.data)?;
@@ -155,7 +159,12 @@ pub(crate) fn validate_jsonl_with_profile(
         anyhow::bail!("JSONL trace did not contain a terminal record");
     }
     validate_event_cardinality(&records, expected_scenario)?;
-    validate_post_run_records(&records)?;
+    // `story-smoke` is written by `neutron-story`, not by a scenario in this
+    // executable: it has no `shutdown_complete` record, and its own validator
+    // already pins every record position exactly.
+    if expected_scenario != Scenario::StorySmoke {
+        validate_post_run_records(&records)?;
+    }
     match expected_scenario {
         Scenario::LifecycleClean => validate_lifecycle_clean(&records),
         Scenario::LifecycleStartupFailure => validate_lifecycle_startup_failure(&records),
@@ -164,6 +173,7 @@ pub(crate) fn validate_jsonl_with_profile(
         Scenario::MenuCommand => validate_menu_command(&records),
         Scenario::Clipboard => validate_clipboard(&records),
         Scenario::InteractionContracts => interaction_contracts::validate(&records),
+        Scenario::StorySmoke => story_smoke::validate(&records),
     }?;
     validate_no_failure_evidence(&records)?;
     if let Some(profile) = profile {
@@ -180,8 +190,12 @@ fn validate_record_shape(record: &ParsedRecord, scenario: Scenario) -> anyhow::R
         );
     }
 
-    let fields = allowed_data_fields(&record.event)
-        .ok_or_else(|| anyhow::anyhow!("unknown protocol event {:?}", record.event))?;
+    let fields = if scenario == Scenario::StorySmoke {
+        story_smoke::allowed_data_fields(&record.event)
+    } else {
+        allowed_data_fields(&record.event)
+    }
+    .ok_or_else(|| anyhow::anyhow!("unknown protocol event {:?}", record.event))?;
     validate_object_fields(&record.data, fields, &format!("{} data", record.event))?;
 
     if record.event == "app_event" {
@@ -201,6 +215,9 @@ fn validate_record_shape(record: &ParsedRecord, scenario: Scenario) -> anyhow::R
             | Scenario::InteractionContracts => {
                 matches!(kind, "started" | "shutdown_requested" | "will_exit")
             }
+            // Unreachable: `story-smoke` has no `app_event` in its
+            // vocabulary, so `event_allowed_for_scenario` rejected it above.
+            Scenario::StorySmoke => false,
         };
         if !allowed {
             anyhow::bail!("app_event kind {kind:?} is not allowed for scenario {scenario}");
@@ -238,7 +255,22 @@ fn validate_record_shape(record: &ParsedRecord, scenario: Scenario) -> anyhow::R
     Ok(())
 }
 
+/// The first event a scenario's stream must open with.
+fn first_event(scenario: Scenario) -> &'static str {
+    match scenario {
+        Scenario::StorySmoke => story_smoke::FIRST_EVENT,
+        _ => "scenario_started",
+    }
+}
+
 fn event_allowed_for_scenario(scenario: Scenario, event: &str) -> bool {
+    // `story-smoke` shares the record shape but not the vocabulary: it is
+    // written by `neutron-story`, so none of the shared runner events below
+    // apply to it.
+    if scenario == Scenario::StorySmoke {
+        return story_smoke::event_allowed(event);
+    }
+
     if matches!(
         event,
         "scenario_started"
@@ -340,6 +372,8 @@ fn event_allowed_for_scenario(scenario: Scenario, event: &str) -> bool {
                 | "presentation_count_invalid"
                 | "presentation_delivery_failed"
         ),
+        // Handled above: `story-smoke` never reaches this match.
+        Scenario::StorySmoke => false,
         Scenario::InteractionContracts => matches!(
             event,
             "startup_transaction_started"
@@ -458,6 +492,9 @@ fn validate_event_cardinality(records: &[ParsedRecord], scenario: Scenario) -> a
                 | Scenario::MenuCommand
                 | Scenario::Clipboard
                 | Scenario::InteractionContracts => 3,
+                // `story-smoke` has no `app_event`; its own validator pins
+                // every record position exactly.
+                Scenario::StorySmoke => 0,
             },
             // Native evidence cardinality belongs to exact profile validation. Generic scenario
             // validation intentionally permits extra evidence so source-blind profile tests can
@@ -503,6 +540,10 @@ fn validate_profile(
         | Scenario::Clipboard
         | Scenario::InteractionContracts => 1,
         Scenario::LifecycleStartupFailure | Scenario::LifecycleBackgroundQuit => 0,
+        // Integration proof only: `story-smoke` deliberately carries no
+        // native handle, renderer, or presentation-backend evidence, so a
+        // profile only pins the platform family its menu model resolved for.
+        Scenario::StorySmoke => 0,
         Scenario::WindowCycle => 2,
     };
     let mut groups = 0;
@@ -553,6 +594,28 @@ fn validate_profile(
     }
     if profile == ValidationProfile::LinuxWaylandLavapipe && scenario == Scenario::Clipboard {
         validate_wayland_clipboard_input(records)?;
+    }
+    if scenario == Scenario::StorySmoke {
+        validate_story_smoke_platform(records, profile)?;
+    }
+    Ok(())
+}
+
+/// The platform family each validation profile runs on. `story-smoke` records
+/// the platform its declared menu model resolved for, so a trace captured on
+/// the wrong host cannot be filed under this profile.
+fn validate_story_smoke_platform(
+    records: &[ParsedRecord],
+    profile: ValidationProfile,
+) -> anyhow::Result<()> {
+    let expected = match profile {
+        ValidationProfile::MacosMetal => "macOS",
+        ValidationProfile::WindowsWarp => "Windows",
+        ValidationProfile::LinuxX11Lavapipe | ValidationProfile::LinuxWaylandLavapipe => "Linux",
+    };
+    let platform = story_smoke::recorded_platform(records)?;
+    if platform != expected {
+        anyhow::bail!("profile {profile} requires platform {expected:?}, found {platform:?}");
     }
     Ok(())
 }
@@ -1322,7 +1385,11 @@ impl Protocol {
         Self::with_writer(scenario, Box::new(io::stdout()))
     }
 
-    fn with_writer(scenario: Scenario, writer: Box<dyn Write + Send>) -> Self {
+    /// Construct a `Protocol` over an arbitrary writer. `pub(crate)` (rather
+    /// than test-only) so other modules' tests can build one backed by an
+    /// in-memory writer to inspect the exact record stream a run produces,
+    /// the same way this module's own tests do.
+    pub(crate) fn with_writer(scenario: Scenario, writer: Box<dyn Write + Send>) -> Self {
         Self {
             state: Arc::new(Mutex::new(ProtocolState {
                 scenario,
@@ -1331,6 +1398,15 @@ impl Protocol {
                 writer,
             })),
         }
+    }
+
+    /// The scenario this run's canonical `Protocol` was constructed for.
+    /// [`crate::scenarios::parse_core`] checks this against the scenario its
+    /// caller's own launch parser confirmed, so a canonical-protocol handoff
+    /// crossed with the wrong scenario is reported explicitly rather than
+    /// silently tagging records with the wrong scenario.
+    pub(crate) fn scenario(&self) -> Scenario {
+        self.lock().scenario
     }
 
     /// Write one non-terminal protocol record and flush it before returning.
@@ -3023,5 +3099,366 @@ mod tests {
         ]);
         renumber(&mut records);
         records
+    }
+
+    /// The installed-menu payload `neutron-story` observes on `platform`.
+    ///
+    /// Mirrors a real recorded stream: the emitter reads this back from
+    /// `gpui::App::get_menus`, so these tests pin the shape the validator
+    /// accepts, not the shape any declaration reconstructs.
+    fn story_menu_item(menu: &str, action: &str, label: &str) -> Value {
+        json!({
+            "menu": menu,
+            "path": menu,
+            "action": action,
+            "label": label,
+            "disabled": false,
+        })
+    }
+
+    fn story_menu_data(platform: &str) -> Value {
+        let mut items = Vec::new();
+        let theme_menu = match platform {
+            "macOS" => "Neutron Story",
+            _ => "View",
+        };
+        let (menu_names, system_menus) = match platform {
+            "macOS" => (
+                json!(["Neutron Story", "Edit", "Help", "Window"]),
+                json!([{"menu": "Neutron Story", "path": "Neutron Story", "name": "Services"}]),
+            ),
+            _ => (json!(["File", "Edit", "View", "Window", "Help"]), json!([])),
+        };
+
+        if platform == "macOS" {
+            items.extend([
+                story_menu_item("Neutron Story", "app::About", "About Neutron Story"),
+                story_menu_item("Neutron Story", "app::OpenSettings", "Settings\u{2026}"),
+                story_menu_item("Neutron Story", "app::HideApp", "Hide Neutron Story"),
+                story_menu_item("Neutron Story", "app::HideOthers", "Hide Others"),
+                story_menu_item("Neutron Story", "app::ShowAll", "Show All"),
+                story_menu_item("Neutron Story", "app::Quit", "Quit Neutron Story"),
+                story_menu_item("Window", "app::Minimize", "Minimize"),
+                story_menu_item("Window", "app::Zoom", "Zoom"),
+            ]);
+        } else {
+            let settings = if platform == "Linux" {
+                "Preferences"
+            } else {
+                "Settings"
+            };
+            items.extend([
+                story_menu_item("File", "app::OpenSettings", settings),
+                story_menu_item("File", "app::Quit", "Quit"),
+                story_menu_item("Help", "app::About", "About Neutron Story"),
+            ]);
+        }
+        items.push(story_menu_item(
+            "Window",
+            "app::CloseWindow",
+            "Close Window",
+        ));
+        items.push(story_menu_item(
+            "Help",
+            "story::OpenRepository",
+            "Open Repository",
+        ));
+        for label in ["System", "Light", "Dark"] {
+            items.push(story_menu_item(theme_menu, "theme::SwitchThemeMode", label));
+        }
+        items.push(story_menu_item(theme_menu, "theme::SwitchTheme", "Default"));
+        for (action, label) in [
+            ("input::Undo", "Undo"),
+            ("input::Redo", "Redo"),
+            ("input::Cut", "Cut"),
+            ("input::Copy", "Copy"),
+            ("input::Paste", "Paste"),
+            ("input::Delete", "Delete"),
+            ("input::DeleteToPreviousWordStart", "Delete Previous Word"),
+            ("input::DeleteToNextWordEnd", "Delete Next Word"),
+            ("input::Search", "Find"),
+            ("input::SelectAll", "Select All"),
+        ] {
+            items.push(story_menu_item("Edit", action, label));
+        }
+
+        json!({
+            "observation": "installed_menu_model",
+            "platform": platform,
+            "menu_names": menu_names,
+            "items": items,
+            "system_menus": system_menus,
+            "available_actions": [
+                "app::About",
+                "app::OpenSettings",
+                "story::OpenRepository",
+                "story::ToggleSearch",
+            ],
+        })
+    }
+
+    fn valid_story_smoke_trace(platform: &str) -> Vec<Value> {
+        let scenario = "story-smoke";
+        let mut records = vec![
+            record(
+                0,
+                scenario,
+                "story_started",
+                json!({"runner": "neutron-story", "mode": "smoke"}),
+            ),
+            record(
+                0,
+                scenario,
+                "primary_opened",
+                json!({"surface": "primary", "view": "gallery", "title": "Neutron Story"}),
+            ),
+            record(0, scenario, "menu_projected", story_menu_data(platform)),
+            record(
+                0,
+                scenario,
+                "themes_loaded",
+                json!({
+                    "source": "bundled-verified",
+                    "embedded_count": 20,
+                    "verified_count": 20,
+                    "catalog": 21,
+                    "selected": "Default",
+                }),
+            ),
+            record(0, scenario, "first_presented", json!({"count": 1})),
+            record(
+                0,
+                scenario,
+                "quit_requested",
+                json!({"source": "first_presentation"}),
+            ),
+            record(
+                0,
+                scenario,
+                "shutdown_requested",
+                json!({"reason": "requested"}),
+            ),
+            record(0, scenario, "will_exit", json!({})),
+            record(0, scenario, "run_returned", json!({"result": "ok"})),
+            record(
+                0,
+                scenario,
+                "terminal",
+                json!({"outcome": "passed", "exit_code": 0}),
+            ),
+        ];
+        renumber(&mut records);
+        records
+    }
+
+    fn story_smoke_rejects(records: Vec<Value>, reason: &str) {
+        assert!(
+            validate_jsonl(trace(records), Scenario::StorySmoke).is_err(),
+            "story-smoke accepted {reason}"
+        );
+    }
+
+    #[test]
+    fn validates_one_story_smoke_stream_per_platform_family() {
+        for (platform, profile) in [
+            ("macOS", ValidationProfile::MacosMetal),
+            ("Windows", ValidationProfile::WindowsWarp),
+            ("Linux", ValidationProfile::LinuxX11Lavapipe),
+            ("Linux", ValidationProfile::LinuxWaylandLavapipe),
+        ] {
+            validate_jsonl(
+                trace(valid_story_smoke_trace(platform)),
+                Scenario::StorySmoke,
+            )
+            .unwrap_or_else(|error| {
+                panic!("{platform} story-smoke trace should validate: {error}")
+            });
+            validate_jsonl_with_profile(
+                trace(valid_story_smoke_trace(platform)),
+                Scenario::StorySmoke,
+                Some(profile),
+            )
+            .unwrap_or_else(|error| panic!("{profile} story-smoke trace should validate: {error}"));
+        }
+    }
+
+    #[test]
+    fn rejects_story_smoke_traces_from_the_wrong_platform_family() {
+        for (platform, profile) in [
+            ("Linux", ValidationProfile::MacosMetal),
+            ("macOS", ValidationProfile::WindowsWarp),
+            ("Windows", ValidationProfile::LinuxX11Lavapipe),
+            ("macOS", ValidationProfile::LinuxWaylandLavapipe),
+        ] {
+            assert!(
+                validate_jsonl_with_profile(
+                    trace(valid_story_smoke_trace(platform)),
+                    Scenario::StorySmoke,
+                    Some(profile),
+                )
+                .is_err(),
+                "profile {profile} accepted a {platform} story-smoke trace"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_story_smoke_order() {
+        let mut reordered = valid_story_smoke_trace("macOS");
+        reordered.swap(4, 5);
+        renumber(&mut reordered);
+        story_smoke_rejects(reordered, "quit requested before first presentation");
+
+        let mut missing_menu = valid_story_smoke_trace("macOS");
+        missing_menu.retain(|record| record["event"] != "menu_projected");
+        renumber(&mut missing_menu);
+        story_smoke_rejects(missing_menu, "a trace without the menu model");
+
+        let mut duplicated = valid_story_smoke_trace("macOS");
+        duplicated.insert(5, duplicated[4].clone());
+        renumber(&mut duplicated);
+        story_smoke_rejects(duplicated, "a duplicated first_presented record");
+
+        let mut foreign = valid_story_smoke_trace("macOS");
+        foreign.insert(
+            4,
+            record(
+                0,
+                "story-smoke",
+                "frame_presented",
+                json!({"presentation_evidence": "backend_accepted", "count": 1}),
+            ),
+        );
+        renumber(&mut foreign);
+        story_smoke_rejects(foreign, "native presentation evidence it does not own");
+
+        let mut wrong_first = valid_story_smoke_trace("macOS");
+        wrong_first[0] = record(
+            1,
+            "story-smoke",
+            "scenario_started",
+            json!({"runner": "native", "exit_policy": "explicit"}),
+        );
+        story_smoke_rejects(wrong_first, "a conformance scenario_started opener");
+    }
+
+    /// Drop every item dispatching `action` from a `menu_projected` payload.
+    fn without_action(records: &mut [Value], action: &str) {
+        let items = event_mut(records, "menu_projected", 0)["data"]["items"]
+            .as_array_mut()
+            .expect("menu_projected carries an items array");
+        items.retain(|item| item["action"] != json!(action));
+    }
+
+    #[test]
+    fn rejects_malformed_story_smoke_content() {
+        let mut wrong_names = valid_story_smoke_trace("macOS");
+        event_mut(&mut wrong_names, "menu_projected", 0)["data"]["menu_names"] =
+            json!(["File", "Edit", "View", "Window", "Help"]);
+        story_smoke_rejects(wrong_names, "a Windows menu bar observed as macOS");
+
+        let mut reconstructed = valid_story_smoke_trace("macOS");
+        event_mut(&mut reconstructed, "menu_projected", 0)["data"]["observation"] =
+            json!("declared_menu_outline");
+        story_smoke_rejects(reconstructed, "a reconstructed menu outline");
+
+        let mut no_edit = valid_story_smoke_trace("macOS");
+        without_action(&mut no_edit, "input::SelectAll");
+        story_smoke_rejects(no_edit, "an installed menu missing the Edit vocabulary");
+
+        let mut no_contribution = valid_story_smoke_trace("macOS");
+        without_action(&mut no_contribution, "story::OpenRepository");
+        story_smoke_rejects(no_contribution, "a dropped Help contribution");
+
+        let mut no_about = valid_story_smoke_trace("macOS");
+        without_action(&mut no_about, "app::About");
+        story_smoke_rejects(no_about, "a disabled About feature");
+
+        let mut no_settings = valid_story_smoke_trace("Linux");
+        without_action(&mut no_settings, "app::OpenSettings");
+        story_smoke_rejects(no_settings, "a removed Settings surface");
+
+        let mut no_themes = valid_story_smoke_trace("macOS");
+        without_action(&mut no_themes, "theme::SwitchTheme");
+        story_smoke_rejects(no_themes, "an Appearance section projecting no theme set");
+
+        let mut wrong_label = valid_story_smoke_trace("Linux");
+        event_mut(&mut wrong_label, "menu_projected", 0)["data"]["items"][0]["label"] =
+            json!("Settings\u{2026}");
+        story_smoke_rejects(wrong_label, "the macOS Settings label on Linux");
+
+        let mut unavailable = valid_story_smoke_trace("macOS");
+        event_mut(&mut unavailable, "menu_projected", 0)["data"]["available_actions"] =
+            json!(["app::About", "app::OpenSettings", "story::OpenRepository"]);
+        story_smoke_rejects(unavailable, "an unavailable window-scoped Toggle Search");
+
+        let mut disabled = valid_story_smoke_trace("macOS");
+        event_mut(&mut disabled, "menu_projected", 0)["data"]["items"][0]["disabled"] = json!(true);
+        story_smoke_rejects(disabled, "a disabled required menu action");
+
+        let mut nested_item_field = valid_story_smoke_trace("macOS");
+        event_mut(&mut nested_item_field, "menu_projected", 0)["data"]["items"][0]["extra"] =
+            json!(true);
+        story_smoke_rejects(nested_item_field, "an unknown nested menu-item field");
+
+        let mut nested_system_field = valid_story_smoke_trace("macOS");
+        event_mut(&mut nested_system_field, "menu_projected", 0)["data"]["system_menus"][0]["extra"] =
+            json!(true);
+        story_smoke_rejects(nested_system_field, "an unknown nested system-menu field");
+
+        let mut stray_system_menu = valid_story_smoke_trace("Linux");
+        event_mut(&mut stray_system_menu, "menu_projected", 0)["data"]["system_menus"] =
+            json!([{"menu": "File", "path": "File", "name": "Services"}]);
+        story_smoke_rejects(stray_system_menu, "a macOS system menu on Linux");
+
+        let mut unverified = valid_story_smoke_trace("macOS");
+        event_mut(&mut unverified, "themes_loaded", 0)["data"]["source"] = json!("bundled");
+        story_smoke_rejects(unverified, "an unverified bundled theme claim");
+
+        let mut partial = valid_story_smoke_trace("macOS");
+        event_mut(&mut partial, "themes_loaded", 0)["data"]["verified_count"] = json!(19);
+        story_smoke_rejects(partial, "a partially verified bundled theme set");
+
+        let mut nothing_embedded = valid_story_smoke_trace("macOS");
+        event_mut(&mut nothing_embedded, "themes_loaded", 0)["data"]["embedded_count"] = json!(0);
+        event_mut(&mut nothing_embedded, "themes_loaded", 0)["data"]["verified_count"] = json!(0);
+        story_smoke_rejects(nothing_embedded, "an empty embedded bundled theme set");
+
+        let mut empty_catalog = valid_story_smoke_trace("macOS");
+        event_mut(&mut empty_catalog, "themes_loaded", 0)["data"]["catalog"] = json!(0);
+        story_smoke_rejects(empty_catalog, "an empty bundled theme catalog");
+
+        let mut unselected = valid_story_smoke_trace("macOS");
+        event_mut(&mut unselected, "themes_loaded", 0)["data"]["selected"] = json!("");
+        story_smoke_rejects(unselected, "no selected theme");
+
+        let mut two_presentations = valid_story_smoke_trace("macOS");
+        event_mut(&mut two_presentations, "first_presented", 0)["data"]["count"] = json!(2);
+        story_smoke_rejects(two_presentations, "a first-presentation count of two");
+
+        let mut timer_quit = valid_story_smoke_trace("macOS");
+        event_mut(&mut timer_quit, "quit_requested", 0)["data"]["source"] = json!("timer");
+        story_smoke_rejects(timer_quit, "a timer-driven quit");
+
+        let mut run_error = valid_story_smoke_trace("macOS");
+        event_mut(&mut run_error, "run_returned", 0)["data"]["result"] = json!("error");
+        story_smoke_rejects(run_error, "a non-Ok AppShell::run result");
+
+        let mut unknown_field = valid_story_smoke_trace("macOS");
+        event_mut(&mut unknown_field, "themes_loaded", 0)["data"]["hot_reload"] = json!(true);
+        story_smoke_rejects(unknown_field, "an unknown data field");
+    }
+
+    #[test]
+    fn rejects_a_failed_story_smoke_terminal() {
+        let mut failed = valid_story_smoke_trace("macOS");
+        event_mut(&mut failed, "terminal", 0)["data"] =
+            json!({"outcome": "failed", "exit_code": 1, "error": "window closed early"});
+        story_smoke_rejects(failed, "a failed terminal");
+
+        let mut nonzero = valid_story_smoke_trace("macOS");
+        event_mut(&mut nonzero, "terminal", 0)["data"] =
+            json!({"outcome": "passed", "exit_code": 2});
+        story_smoke_rejects(nonzero, "a passed terminal with a nonzero exit code");
     }
 }

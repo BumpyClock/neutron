@@ -1,22 +1,30 @@
 use anyhow::Result;
 use gpui::*;
 use neutron_components::{
-    IconName, Root, Sizable, WindowExt as _,
+    IconName, Sizable, WindowExt as _,
     button::{Button, ButtonVariants as _},
     dock::{ClosePanel, DockArea, DockAreaState, DockEvent, DockItem, DockPlacement, ToggleZoom},
+    h_flex,
     menu::DropdownMenu,
     notification::Notification,
 };
 
-use neutron_components_assets::Assets;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{
+    AppDeclaration, SetupContext, SetupKey, SetupModule, Surface, SurfaceKey,
+};
 use neutron_story::{
-    AccordionStory, AppState, AppTitleBar, ButtonStory, CalendarStory, DialogStory, FormStory,
-    IconStory, ImageStory, InputStory, LabelStory, ListStory, NotificationStory, Open,
-    PopoverStory, ProgressStory, ResizableStory, ScrollbarStory, SelectStory, SidebarStory,
-    StoryContainer, SwitchStory, TableStory, TooltipStory,
+    AccordionStory, AppState, ButtonStory, CalendarStory, DialogStory, FormStory, IconStory,
+    ImageStory, InputStory, LabelStory, ListStory, NotificationStory, PopoverStory, ProgressStory,
+    ResizableStory, ScrollbarStory, SelectStory, SidebarStory, StoryContainer, SwitchStory,
+    TableStory, TooltipStory, default_example_window_size, example_failure,
+    example_http_client_module, example_theme_source, story_preferences_key,
+    story_preferences_module, with_example_window_defaults,
 };
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
+
+neutron_components_app::include_identity!();
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = story, no_json)]
@@ -38,20 +46,7 @@ const STATE_FILE: &str = "target/docks.json";
 #[cfg(not(debug_assertions))]
 const STATE_FILE: &str = "docks.json";
 
-pub fn init(cx: &mut App) {
-    cx.on_action(|_action: &Open, _cx: &mut App| {});
-    neutron_story::init(cx);
-
-    cx.bind_keys(vec![
-        KeyBinding::new("shift-escape", ToggleZoom, None),
-        KeyBinding::new("ctrl-w", ClosePanel, None),
-    ]);
-
-    cx.activate(true);
-}
-
 pub struct StoryWorkspace {
-    title_bar: Entity<AppTitleBar>,
     dock_area: Entity<DockArea>,
     last_layout_state: Option<DockAreaState>,
     toggle_button_visible: bool,
@@ -103,79 +98,79 @@ impl StoryWorkspace {
         })
         .detach();
 
-        let title_bar = cx.new(|cx| {
-            AppTitleBar::new("Examples", window, cx).child({
-                move |_, cx| {
-                    Button::new("add-panel")
-                        .icon(IconName::LayoutDashboard)
-                        .small()
-                        .ghost()
-                        .dropdown_menu({
-                            let invisible_panels = AppState::global(cx).invisible_panels.clone();
-
-                            move |menu, _, cx| {
-                                menu.menu(
-                                    "Add Panel to Center",
-                                    Box::new(AddPanel(DockPlacement::Center)),
-                                )
-                                .separator()
-                                .menu("Add Panel to Left", Box::new(AddPanel(DockPlacement::Left)))
-                                .menu(
-                                    "Add Panel to Right",
-                                    Box::new(AddPanel(DockPlacement::Right)),
-                                )
-                                .menu(
-                                    "Add Panel to Bottom",
-                                    Box::new(AddPanel(DockPlacement::Bottom)),
-                                )
-                                .separator()
-                                .menu(
-                                    "Show / Hide Dock Toggle Button",
-                                    Box::new(ToggleDockToggleButton),
-                                )
-                                .separator()
-                                .menu_with_check(
-                                    "Sidebar",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Sidebar")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Sidebar"))),
-                                )
-                                .menu_with_check(
-                                    "Dialog",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Dialog")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Dialog"))),
-                                )
-                                .menu_with_check(
-                                    "Accordion",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("Accordion")),
-                                    Box::new(TogglePanelVisible(SharedString::from("Accordion"))),
-                                )
-                                .menu_with_check(
-                                    "List",
-                                    !invisible_panels
-                                        .read(cx)
-                                        .contains(&SharedString::from("List")),
-                                    Box::new(TogglePanelVisible(SharedString::from("List"))),
-                                )
-                            }
-                        })
-                        .anchor(Corner::TopRight)
-                }
-            })
-        });
-
         Self {
             dock_area,
-            title_bar,
             last_layout_state: None,
             toggle_button_visible: true,
             _save_layout_task: None,
         }
+    }
+
+    /// The toolbar's Add Panel dropdown button: was previously hosted in the
+    /// deleted `AppTitleBar`'s custom title-bar chrome; `AppShell`'s Surface
+    /// now owns the native title bar, so this renders as a small toolbar row
+    /// above the dock area instead. Behavior (menu items, `AddPanel`/
+    /// `TogglePanelVisible`/`ToggleDockToggleButton` dispatch) is unchanged.
+    fn add_panel_button(&self, cx: &Context<Self>) -> impl IntoElement {
+        Button::new("add-panel")
+            .icon(IconName::LayoutDashboard)
+            .small()
+            .ghost()
+            .dropdown_menu({
+                let invisible_panels = AppState::global(cx).invisible_panels.clone();
+
+                move |menu, _, cx| {
+                    menu.menu(
+                        "Add Panel to Center",
+                        Box::new(AddPanel(DockPlacement::Center)),
+                    )
+                    .separator()
+                    .menu("Add Panel to Left", Box::new(AddPanel(DockPlacement::Left)))
+                    .menu(
+                        "Add Panel to Right",
+                        Box::new(AddPanel(DockPlacement::Right)),
+                    )
+                    .menu(
+                        "Add Panel to Bottom",
+                        Box::new(AddPanel(DockPlacement::Bottom)),
+                    )
+                    .separator()
+                    .menu(
+                        "Show / Hide Dock Toggle Button",
+                        Box::new(ToggleDockToggleButton),
+                    )
+                    .separator()
+                    .menu_with_check(
+                        "Sidebar",
+                        !invisible_panels
+                            .read(cx)
+                            .contains(&SharedString::from("Sidebar")),
+                        Box::new(TogglePanelVisible(SharedString::from("Sidebar"))),
+                    )
+                    .menu_with_check(
+                        "Dialog",
+                        !invisible_panels
+                            .read(cx)
+                            .contains(&SharedString::from("Dialog")),
+                        Box::new(TogglePanelVisible(SharedString::from("Dialog"))),
+                    )
+                    .menu_with_check(
+                        "Accordion",
+                        !invisible_panels
+                            .read(cx)
+                            .contains(&SharedString::from("Accordion")),
+                        Box::new(TogglePanelVisible(SharedString::from("Accordion"))),
+                    )
+                    .menu_with_check(
+                        "List",
+                        !invisible_panels
+                            .read(cx)
+                            .contains(&SharedString::from("List")),
+                        Box::new(TogglePanelVisible(SharedString::from("List"))),
+                    )
+                }
+            })
+            .anchor(Corner::TopRight)
     }
 
     fn save_layout(
@@ -373,54 +368,6 @@ impl StoryWorkspace {
         )
     }
 
-    pub fn new_local(cx: &mut App) -> Task<anyhow::Result<WindowHandle<Root>>> {
-        let mut window_size = size(px(1600.0), px(1200.0));
-        if let Some(display) = cx.primary_display() {
-            let display_size = display.bounds().size;
-            window_size.width = window_size.width.min(display_size.width * 0.85);
-            window_size.height = window_size.height.min(display_size.height * 0.85);
-        }
-
-        let window_bounds = Bounds::centered(None, window_size, cx);
-
-        cx.spawn(async move |cx| {
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(window_bounds)),
-                #[cfg(not(target_os = "linux"))]
-                titlebar: Some(neutron_components::TitleBar::title_bar_options()),
-                window_min_size: Some(gpui::Size {
-                    width: px(640.),
-                    height: px(480.),
-                }),
-                #[cfg(target_os = "linux")]
-                window_background: gpui::WindowBackgroundAppearance::Transparent,
-                #[cfg(target_os = "linux")]
-                window_decorations: Some(gpui::WindowDecorations::Client),
-                kind: WindowKind::Normal,
-                ..Default::default()
-            };
-
-            let window = cx.open_window(options, |window, cx| {
-                let story_view = cx.new(|cx| StoryWorkspace::new(window, cx));
-                cx.new(|cx| Root::new(story_view, window, cx))
-            })?;
-
-            window
-                .update(cx, |_, window, cx| {
-                    window.activate_window();
-                    window.set_window_title("GPUI App");
-                    cx.on_release(|_, cx| {
-                        // exit app
-                        cx.quit();
-                    })
-                    .detach();
-                })
-                .expect("failed to update window");
-
-            Ok(window)
-        })
-    }
-
     fn on_action_add_panel(
         &mut self,
         action: &AddPanel,
@@ -487,26 +434,8 @@ impl StoryWorkspace {
     }
 }
 
-pub fn open_new(
-    cx: &mut App,
-    init: impl FnOnce(&mut Root, &mut Window, &mut Context<Root>) + 'static + Send,
-) -> Task<()> {
-    let task: Task<std::result::Result<WindowHandle<Root>, anyhow::Error>> =
-        StoryWorkspace::new_local(cx);
-    cx.spawn(async move |cx| {
-        if let Some(root) = task.await.ok() {
-            root.update(cx, |workspace, window, cx| init(workspace, window, cx))
-                .expect("failed to init workspace");
-        }
-    })
-}
-
 impl Render for StoryWorkspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("story-workspace")
             .on_action(cx.listener(Self::on_action_add_panel))
@@ -516,23 +445,76 @@ impl Render for StoryWorkspace {
             .size_full()
             .flex()
             .flex_col()
-            .child(self.title_bar.clone())
+            .child(
+                h_flex()
+                    .id("story-workspace-toolbar")
+                    .w_full()
+                    .justify_end()
+                    .p_2()
+                    .child(self.add_panel_button(cx)),
+            )
             .child(self.dock_area.clone())
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+fn build_story_workspace(_args: &(), window: &mut Window, cx: &mut App) -> Entity<StoryWorkspace> {
+    cx.new(|cx| StoryWorkspace::new(window, cx))
+}
 
-    app.run(move |cx| {
-        init(cx);
+fn primary_surface() -> Surface<StoryWorkspace, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), build_story_workspace).title("GPUI App"),
+        default_example_window_size(),
+    )
+    .min_size(size(px(640.0), px(480.0)))
+}
 
-        open_new(cx, |_, _, _| {
-            // do something
-        })
-        .detach();
-    });
+/// Registers the `AppState` global and the `StoryContainer` panel/restore
+/// factory: `AppState` first, matching the deleted `init()`'s order, since
+/// `on_action_toggle_panel_visible` and the add-panel dropdown both read it,
+/// and dock restoration reads the registry it restores from.
+fn init_panels_setup(cx: &mut SetupContext<'_>) -> anyhow::Result<()> {
+    neutron_story::init_app_state(cx.app());
+    neutron_story::init_panels(cx.app());
+    Ok(())
+}
+
+const PANELS_SETUP_KEY: SetupKey = SetupKey::new("dock-example.panels");
+
+/// The deleted global `shift-escape`/`ctrl-w` bindings for `ToggleZoom` and
+/// `ClosePanel`, installed once at startup exactly as before.
+fn init_dock_bindings(cx: &mut SetupContext<'_>) -> anyhow::Result<()> {
+    cx.app().bind_keys(vec![
+        KeyBinding::new("shift-escape", ToggleZoom, None),
+        KeyBinding::new("ctrl-w", ClosePanel, None),
+    ]);
+    Ok(())
+}
+
+/// The `dock` example's `DesktopApp` declaration. Zero-sized: `AppShell`
+/// never creates or retains an application object.
+struct DockExampleApp;
+
+impl DesktopApp for DockExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .setup(SetupModule::new(PANELS_SETUP_KEY, init_panels_setup))
+            .setup(
+                SetupModule::new(SetupKey::new("dock-example.bindings"), init_dock_bindings)
+                    .after(PANELS_SETUP_KEY),
+            )
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<DockExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("dock example", error),
+    }
 }

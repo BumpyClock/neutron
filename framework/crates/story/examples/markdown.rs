@@ -9,8 +9,20 @@ use neutron_components::{
     resizable::{h_resizable, resizable_panel},
     text::markdown,
 };
-use neutron_components_assets::Assets;
-use neutron_story::Open;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{
+    AppDeclaration, Command, CommandBinding, CommandId, Menu, MenuBar, MenuKey, Surface, SurfaceKey,
+};
+use neutron_story::{
+    default_example_window_size, example_failure, example_http_client_module, example_theme_source,
+    focus_example, story_preferences_key, story_preferences_module, with_example_window_defaults,
+};
+
+neutron_components_app::include_identity!();
+
+actions!(story_markdown_example, [OpenFile]);
+
+const OPEN_FILE_ID: CommandId = CommandId::new("story-markdown-example.open-file");
 
 pub struct Example {
     input_state: Entity<InputState>,
@@ -42,7 +54,7 @@ impl Example {
         }
     }
 
-    fn on_action_open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_action_open(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
         let path = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: true,
@@ -69,8 +81,14 @@ impl Example {
         .detach();
     }
 
-    fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+    fn view(_args: &(), window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
+    }
+}
+
+impl Focusable for Example {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.input_state.focus_handle(cx)
     }
 }
 
@@ -139,13 +157,48 @@ impl Render for Example {
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+/// The window-scoped Open command: `cmd-o` on macOS, `ctrl-o` elsewhere,
+/// matching the deleted global `Open` keybinding exactly. Dispatched to
+/// whichever view is focused; `Example::on_action_open` handles it once focus
+/// has moved inside its own subtree (e.g. after the user clicks the editor).
+fn open_file_command() -> Command<OpenFile> {
+    Command::window(OPEN_FILE_ID, OpenFile)
+        .label("Open…")
+        .binding(CommandBinding::platform("cmd-o", "ctrl-o"))
+}
 
-    app.run(move |cx| {
-        neutron_story::init(cx);
-        cx.activate(true);
+fn primary_surface() -> Surface<Example, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), Example::view)
+            .title("Markdown Editor")
+            .after_open(focus_example::<Example>),
+        default_example_window_size(),
+    )
+}
 
-        neutron_story::create_new_window("Markdown Editor", Example::view, cx);
-    });
+/// The `markdown` example's `DesktopApp` declaration. Zero-sized: `AppShell`
+/// never creates or retains an application object.
+struct MarkdownExampleApp;
+
+impl DesktopApp for MarkdownExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .command(open_file_command())
+            .menu_bar(
+                MenuBar::standard().contribute(Menu::keyed(MenuKey::FILE).command(OPEN_FILE_ID)),
+            )
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<MarkdownExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("markdown example", error),
+    }
 }

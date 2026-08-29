@@ -93,7 +93,9 @@ fn every_gallery_descriptor_can_restore() {
 #[gpui::test]
 fn every_gallery_restore_factory_builds_story(cx: &mut gpui::TestAppContext) {
     let window = cx.update(|cx| {
-        super::init(cx);
+        neutron_components::init(cx);
+        super::init_app_state(cx);
+        super::init_panels(cx);
         cx.open_window(Default::default(), |_, cx| cx.new(|_| gpui::Empty))
             .unwrap()
     });

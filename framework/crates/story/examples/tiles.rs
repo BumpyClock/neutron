@@ -1,7 +1,7 @@
 use anyhow::{Context as _, Result};
 use gpui::*;
 use neutron_components::{
-    ActiveTheme, Root, Sizable, TitleBar, WindowExt as _,
+    ActiveTheme, Sizable, WindowExt as _,
     dock::{
         DockArea, DockAreaState, DockEvent, DockItem, Panel, PanelEvent, PanelInfo, PanelRegistry,
         PanelState, PanelView, register_panel,
@@ -10,12 +10,19 @@ use neutron_components::{
     notification::Notification,
     scroll::ScrollbarShow,
 };
-use neutron_components_assets::Assets;
-use neutron_story::{ButtonStory, IconStory, StoryContainer};
+use neutron_components_app::prelude::*;
+use neutron_components_app::{
+    AppDeclaration, SetupContext, SetupKey, SetupModule, Surface, SurfaceKey,
+};
+use neutron_story::{
+    ButtonStory, IconStory, StoryContainer, default_example_window_size, example_failure,
+    example_http_client_module, example_theme_source, story_preferences_key,
+    story_preferences_module, with_example_window_defaults,
+};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
-actions!(tiles_story, [Quit]);
+neutron_components_app::include_identity!();
 
 const TILES_DOCK_AREA: DockAreaTab = DockAreaTab {
     id: "story-tiles",
@@ -133,15 +140,6 @@ impl Render for ContainerPanel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         self.panel.view()
     }
-}
-
-actions!(workspace, [Open, CloseWindow]);
-
-pub fn init(cx: &mut App) {
-    cx.on_action(|_action: &Open, _cx: &mut App| {});
-
-    neutron_components::init(cx);
-    neutron_story::init(cx);
 }
 
 pub struct StoryTiles {
@@ -346,73 +344,10 @@ impl StoryTiles {
 
         DockItem::tiles(panels, bounds, dock_area, window, cx)
     }
-
-    pub fn new_local(cx: &mut App) -> Task<anyhow::Result<WindowHandle<Root>>> {
-        let mut window_size = size(px(1600.0), px(1200.0));
-        if let Some(display) = cx.primary_display() {
-            let display_size = display.bounds().size;
-            window_size.width = window_size.width.min(display_size.width * 0.85);
-            window_size.height = window_size.height.min(display_size.height * 0.85);
-        }
-        let window_bounds = Bounds::centered(None, window_size, cx);
-
-        cx.spawn(async move |cx| {
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(window_bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(9.0), px(9.0))),
-                }),
-                window_min_size: Some(gpui::Size {
-                    width: px(640.),
-                    height: px(480.),
-                }),
-                kind: WindowKind::Normal,
-                #[cfg(target_os = "linux")]
-                window_background: gpui::WindowBackgroundAppearance::Transparent,
-                #[cfg(target_os = "linux")]
-                window_decorations: Some(gpui::WindowDecorations::Client),
-                ..Default::default()
-            };
-
-            let window = cx.open_window(options, |window, cx| {
-                let tiles_view = cx.new(|cx| Self::new(window, cx));
-                cx.new(|cx| Root::new(tiles_view, window, cx))
-            })?;
-
-            window
-                .update(cx, |_, window, _| {
-                    window.activate_window();
-                    window.set_window_title("Story Tiles");
-                })
-                .expect("failed to update window");
-
-            Ok(window)
-        })
-    }
-}
-
-pub fn open_new(
-    cx: &mut App,
-    init: impl FnOnce(&mut Root, &mut Window, &mut Context<Root>) + 'static + Send,
-) -> Task<()> {
-    let task: Task<std::result::Result<WindowHandle<Root>, anyhow::Error>> =
-        StoryTiles::new_local(cx);
-    cx.spawn(async move |cx| {
-        if let Some(root) = task.await.ok() {
-            root.update(cx, |workspace, window, cx| init(workspace, window, cx))
-                .expect("failed to init workspace");
-        }
-    })
 }
 
 impl Render for StoryTiles {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .font_family(cx.theme().font_family.clone())
             .relative()
@@ -421,38 +356,55 @@ impl Render for StoryTiles {
             .flex_col()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(TitleBar::new().child(div().flex().items_center().child("Story Tiles")))
             .child(self.dock_area.clone())
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
-
-    app.run(move |cx| {
-        neutron_components::init(cx);
-        neutron_story::init(cx);
-        ContainerPanel::init(cx);
-
-        cx.on_action(quit);
-
-        cx.set_menus(vec![Menu {
-            name: "GPUI App".into(),
-            items: vec![MenuItem::action("Quit", Quit)],
-            disabled: false,
-        }]);
-        cx.activate(true);
-
-        open_new(cx, |_, _, _| {
-            // do something
-        })
-        .detach();
-    });
+fn build_story_tiles(_args: &(), window: &mut Window, cx: &mut App) -> Entity<StoryTiles> {
+    cx.new(|cx| StoryTiles::new(window, cx))
 }
 
-fn quit(_: &Quit, cx: &mut App) {
-    cx.quit();
+fn primary_surface() -> Surface<StoryTiles, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), build_story_tiles).title("Story Tiles"),
+        default_example_window_size(),
+    )
+    .min_size(size(px(640.0), px(480.0)))
+}
+
+/// Registers the `ContainerPanel` and `StoryContainer` panel/restore factories
+/// and the `AppState` global, matching the deleted `init()`'s registration
+/// order: `AppState` before any panel factory that reads it.
+fn init_panels_setup(cx: &mut SetupContext<'_>) -> anyhow::Result<()> {
+    neutron_story::init_app_state(cx.app());
+    neutron_story::init_panels(cx.app());
+    ContainerPanel::init(cx.app());
+    Ok(())
+}
+
+/// The `tiles` example's `DesktopApp` declaration. Zero-sized: `AppShell`
+/// never creates or retains an application object.
+struct TilesExampleApp;
+
+impl DesktopApp for TilesExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .setup(SetupModule::new(
+                SetupKey::new("tiles-example.panels"),
+                init_panels_setup,
+            ))
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<TilesExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("tiles example", error),
+    }
 }

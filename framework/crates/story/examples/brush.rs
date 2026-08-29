@@ -10,7 +10,14 @@ use neutron_components::{
     slider::{Slider, SliderState},
     v_flex,
 };
-use neutron_components_assets::Assets;
+use neutron_components_app::prelude::*;
+use neutron_components_app::{AppDeclaration, Surface, SurfaceKey};
+use neutron_story::{
+    default_example_window_size, example_failure, example_http_client_module, example_theme_source,
+    focus_example, story_preferences_key, story_preferences_module, with_example_window_defaults,
+};
+
+neutron_components_app::include_identity!();
 
 pub struct BrushStory {
     focus_handle: gpui::FocusHandle,
@@ -436,8 +443,14 @@ impl Example {
         Self { root }
     }
 
-    fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
+    fn view(_args: &(), window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
+    }
+}
+
+impl Focusable for Example {
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.root.read(cx).focus_handle(cx)
     }
 }
 
@@ -447,13 +460,34 @@ impl Render for Example {
     }
 }
 
-fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+fn primary_surface() -> Surface<Example, ()> {
+    with_example_window_defaults(
+        Surface::new(SurfaceKey::primary(), Example::view)
+            .title("Brush Example")
+            .after_open(focus_example::<Example>),
+        default_example_window_size(),
+    )
+}
 
-    app.run(move |cx| {
-        neutron_story::init(cx);
-        cx.activate(true);
+/// The `brush` example's `DesktopApp` declaration. Zero-sized: `AppShell`
+/// never creates or retains an application object.
+struct BrushExampleApp;
 
-        neutron_story::create_new_window("Brush Example", Example::view, cx);
-    });
+impl DesktopApp for BrushExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .initial_activation(InitialActivation::Forced)
+            .theme(example_theme_source())
+            .settings_store::<neutron_story::StoryUiPreferences>(story_preferences_key())
+            .setup(example_http_client_module())
+            .setup(story_preferences_module())
+            .primary_surface(primary_surface())
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    match AppShell::run::<BrushExampleApp>() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => example_failure("brush example", error),
+    }
 }

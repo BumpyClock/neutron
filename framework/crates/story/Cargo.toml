@@ -5,6 +5,11 @@ rust-version = "1.95.0"
 publish = false
 edition.workspace = true
 
+[package.metadata.gpui-app]
+app_id = "com.neutron-components.story"
+display_name = "Neutron Story"
+categories = ["Development"]
+
 [features]
 inspector = ["neutron-components/inspector"]
 
@@ -28,6 +33,7 @@ itertools = "0.14.0"
 lsp-types.workspace = true
 rand = "0.8"
 regex = "1"
+rust-embed.workspace = true
 serde = "1"
 serde_json = "1"
 smol.workspace = true
@@ -37,6 +43,9 @@ tree-sitter-navi = "0.2.2"
 unindent = "0.2.3"
 rust-i18n.workspace = true
 dirs = "6.0.0"
+
+[build-dependencies]
+neutron-components-manifest.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

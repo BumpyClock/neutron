@@ -54,35 +54,50 @@ fn validate_trace(scenario: Scenario, profile: Option<ValidationProfile>) -> Exi
 }
 
 fn run_scenario(scenario: Scenario) -> ExitCode {
+    // `main` constructs this run's one canonical `Protocol` and hands it off
+    // (see `scenarios::install_launch_protocol`) for the scenario's own
+    // launch parser to take (see `scenarios::parse_core`) and use for
+    // `scenario_started` onward, through its own tail. `protocol` here keeps
+    // a clone of that same instance/sequence -- `Protocol` is a cheap `Arc`
+    // handle -- purely as an emergency fallback: if a fault escapes a
+    // scenario's own tail entirely (for example, a panic in that tail's own
+    // cleanup, outside anything `catch_run` wraps, instead of one `catch_run`
+    // itself catches), this still gets a terminal record to stdout on the
+    // same stream instead of a second, independent one.
     let protocol = Protocol::stdout(scenario);
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        scenarios::run(scenario, protocol.clone())
-    }));
+    if let Err(error) = scenarios::install_launch_protocol(protocol.clone()) {
+        eprintln!("conformance protocol handoff install failed: {error:#}");
+        return ExitCode::from(1);
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| scenarios::run(scenario)));
 
-    let (terminal, diagnostic) = match result {
-        Ok(Ok(scenarios::ScenarioOutcome::Passed)) => (TerminalOutcome::Passed, None),
+    match result {
+        Ok(Ok(scenarios::ScenarioOutcome::Passed)) => {
+            ExitCode::from(TerminalOutcome::Passed.exit_code())
+        }
         Ok(Ok(scenarios::ScenarioOutcome::ExpectedStartupFailure)) => {
-            (TerminalOutcome::ExpectedStartupFailure, None)
+            ExitCode::from(TerminalOutcome::ExpectedStartupFailure.exit_code())
         }
         Ok(Err(error)) => {
-            let message = format!("conformance scenario failed: {error:#}");
-            (TerminalOutcome::Failed(message.clone()), Some(message))
+            eprintln!("conformance scenario failed: {error:#}");
+            ExitCode::from(1)
         }
         Err(panic) => {
             let message = format!("conformance scenario panicked: {}", panic_message(panic));
-            (TerminalOutcome::Panicked(message.clone()), Some(message))
+            let terminal = TerminalOutcome::Panicked(message.clone());
+            let exit_code = terminal.exit_code();
+            // A no-op if the scenario's own tail already wrote the terminal
+            // record through this same `Protocol` instance -- `terminal()`
+            // ignores a repeated attempt -- so this never produces a second
+            // sequence-1 stream.
+            if let Err(error) = protocol.terminal(terminal) {
+                eprintln!("conformance protocol terminal write failed: {error:#}");
+                return ExitCode::from(1);
+            }
+            eprintln!("{message}");
+            ExitCode::from(exit_code)
         }
-    };
-
-    let exit_code = terminal.exit_code();
-    if let Err(error) = protocol.terminal(terminal) {
-        eprintln!("conformance protocol terminal write failed: {error:#}");
-        return ExitCode::from(1);
     }
-    if let Some(diagnostic) = diagnostic {
-        eprintln!("{diagnostic}");
-    }
-    ExitCode::from(exit_code)
 }
 
 fn panic_message(panic: Box<dyn Any + Send + 'static>) -> String {

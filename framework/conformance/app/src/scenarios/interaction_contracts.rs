@@ -1,22 +1,53 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use anyhow::{Context as _, ensure};
-use gpui::{
+use neutron_components::button::{Button, Toggle};
+use neutron_components::input::{Input, InputState, SelectAll};
+use neutron_components::v_flex;
+use neutron_components_app::gpui::{
     AccessibleAction, App, AppContext as _, Context, DevicePixels, Entity, EntityInputHandler as _,
-    Focusable as _, IntoElement, ParentElement as _, Render, Role, Toggled, Window, px, size,
+    Focusable as _, Global, IntoElement, ParentElement as _, Render, Role, Toggled, Window, px,
+    size,
 };
-use neutron_components::{
-    button::{Button, Toggle},
-    input::{Input, InputState, SelectAll},
-    v_flex,
+use neutron_components_app::{
+    AppDeclaration, AppEvent, DesktopApp, ExitPolicy, LaunchDecision, LaunchSpec, ProcessLaunch,
+    Shell as _, Surface, SurfaceKey,
 };
-use neutron_components_app::{AppShell, AppShellExt as _, ExitPolicy};
 use serde_json::json;
 
-use super::{ScenarioOutcome, ScenarioState, finish_normal_run, observe_app_event};
-use crate::native_window::open_native_window_with_root;
+use crate::cli::Scenario;
 use crate::protocol::Protocol;
+use crate::scenarios::{
+    self, ConformanceGlobal, Handoff, ScenarioLaunch, ScenarioOutcome, ScenarioState, catch_run,
+    finish_normal_run, observe_app_event,
+};
+
+static TAIL: Handoff<ScenarioLaunch> = Handoff::new();
+
+struct InteractionContractsApp;
+
+impl DesktopApp for InteractionContractsApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(crate::APP_IDENTITY)
+            .exit_policy(ExitPolicy::Explicit)
+            .on_event(on_event)
+            .launch(
+                LaunchSpec::new(parse)
+                    .before_primary(before_primary)
+                    .primary_surface(
+                        Surface::new(SurfaceKey::primary(), build_fixture)
+                            .title("Interaction Contracts")
+                            .after_open(after_open),
+                    ),
+            )
+    }
+}
+
+fn parse(process: &ProcessLaunch) -> anyhow::Result<LaunchDecision<ScenarioLaunch>> {
+    scenarios::expect_scenario(process, Scenario::InteractionContracts)?;
+    let (protocol, state) = scenarios::parse_core(Scenario::InteractionContracts, "explicit")?;
+    let launch = ScenarioLaunch { protocol, state };
+    TAIL.install(launch.clone())?;
+    Ok(LaunchDecision::Run(launch))
+}
 
 struct InteractionFixture {
     first: Entity<InputState>,
@@ -42,135 +73,141 @@ impl Render for InteractionFixture {
     }
 }
 
-pub(super) fn run(protocol: Protocol) -> anyhow::Result<ScenarioOutcome> {
-    let state = ScenarioState::default();
-    let event_protocol = protocol.clone();
-    let event_state = state.clone();
-    let startup_protocol = protocol.clone();
-    let startup_state = state.clone();
+/// The global `after_first_presentation` reads: the conformance protocol/state
+/// plus the fixture entity `after_open` observed, so the presentation
+/// continuation can reach `first`/`second` without a declaration hook that
+/// would need to capture them.
+#[derive(Clone)]
+struct InteractionGlobal {
+    protocol: Protocol,
+    state: ScenarioState,
+    fixture: Entity<InteractionFixture>,
+}
 
-    let result = AppShell::builder(crate::APP_IDENTITY)
-        .shell_preferences()
-        .exit_policy(ExitPolicy::Explicit)
-        .on_event(move |event, _cx| {
-            observe_app_event(&event_protocol, &event_state, event);
-            Ok(())
-        })
-        .start(move |_, cx| {
-            neutron_components::init(cx);
-            startup_state.emit(&startup_protocol, "startup_transaction_started", json!({}));
-            let fields = Rc::new(RefCell::new(None));
-            let fields_for_root = fields.clone();
-            let presentation_protocol = startup_protocol.clone();
-            let presentation_state = startup_state.clone();
+impl Global for InteractionGlobal {}
 
-            open_native_window_with_root(
-                cx,
-                startup_protocol,
-                startup_state,
-                "interaction-contracts",
-                "Interaction Contracts",
-                move |window, cx| {
-                    let first = cx.new(|cx| {
-                        InputState::new(window, cx)
-                            .multi_line(false)
-                            .default_value("alpha")
-                    });
-                    let second = cx.new(|cx| {
-                        InputState::new(window, cx)
-                            .multi_line(false)
-                            .default_value("second")
-                    });
-                    fields_for_root.replace(Some((first.clone(), second.clone())));
-                    cx.new(|_| InteractionFixture { first, second })
-                },
-                move |window, cx| {
-                    let Some((first, second)) = fields.borrow_mut().take() else {
+fn build_fixture(
+    _args: &ScenarioLaunch,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<InteractionFixture> {
+    cx.new(|cx| {
+        let first = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(false)
+                .default_value("alpha")
+        });
+        let second = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(false)
+                .default_value("second")
+        });
+        InteractionFixture { first, second }
+    })
+}
+
+fn before_primary(value: &ScenarioLaunch, cx: &mut App) -> anyhow::Result<()> {
+    value
+        .state
+        .emit(&value.protocol, "startup_transaction_started", json!({}));
+    cx.set_global(ConformanceGlobal {
+        protocol: value.protocol.clone(),
+        state: value.state.clone(),
+    });
+    Ok(())
+}
+
+fn on_event(event: &AppEvent, cx: &mut App) -> anyhow::Result<()> {
+    // `try_global`, not `global`: a framework failure before `before_primary`
+    // ran can still dispatch a shutdown event through this hook, and that
+    // earlier failure must not compound into a panic here.
+    let Some(global) = cx.try_global::<ConformanceGlobal>() else {
+        return Ok(());
+    };
+    observe_app_event(&global.protocol, &global.state, event);
+    Ok(())
+}
+
+fn after_open(content: &Entity<InteractionFixture>, window: &mut Window, cx: &mut App) {
+    let conformance = cx.global::<ConformanceGlobal>().clone();
+    cx.set_global(InteractionGlobal {
+        protocol: conformance.protocol.clone(),
+        state: conformance.state.clone(),
+        fixture: content.clone(),
+    });
+
+    crate::native_window::observe_native_window(
+        window,
+        cx,
+        &conformance.protocol,
+        &conformance.state,
+        "interaction-contracts",
+        "Interaction Contracts",
+        after_first_presentation,
+    );
+}
+
+fn after_first_presentation(window: &mut Window, cx: &mut App) {
+    let global = cx.global::<InteractionGlobal>().clone();
+    let (first, second) = {
+        let fixture = global.fixture.read(cx);
+        (fixture.first.clone(), fixture.second.clone())
+    };
+
+    if let Err(error) = prepare_focus_text(window, cx, &first, &second) {
+        fail(
+            window,
+            cx,
+            &global.protocol,
+            &global.state,
+            &format!("focus preparation failed: {error:#}"),
+        );
+        return;
+    }
+
+    window.refresh();
+    window.on_next_frame(move |window, _cx| {
+        window.on_next_frame(move |window, cx| {
+            window.dispatch_action(Box::new(SelectAll), cx);
+            window.refresh();
+            window.on_next_frame(move |window, cx| {
+                if let Err(error) =
+                    verify_interactions(window, cx, &global.protocol, &first, &second)
+                {
+                    fail(
+                        window,
+                        cx,
+                        &global.protocol,
+                        &global.state,
+                        &format!("interaction verification failed: {error:#}"),
+                    );
+                    return;
+                }
+
+                window.set_a11y_active_for_test(true);
+                window.refresh();
+                window.on_next_frame(move |window, cx| {
+                    if let Err(error) = verify_accessibility(window, &global.protocol) {
                         fail(
                             window,
                             cx,
-                            &presentation_protocol,
-                            &presentation_state,
-                            "interaction fields were unavailable after presentation",
-                        );
-                        return;
-                    };
-                    if let Err(error) = prepare_focus_text(window, cx, &first, &second) {
-                        fail(
-                            window,
-                            cx,
-                            &presentation_protocol,
-                            &presentation_state,
-                            &format!("focus preparation failed: {error:#}"),
+                            &global.protocol,
+                            &global.state,
+                            &format!("accessibility verification failed: {error:#}"),
                         );
                         return;
                     }
-
-                    window.refresh();
-                    window.on_next_frame(move |window, _cx| {
-                        let verification_protocol = presentation_protocol.clone();
-                        let verification_state = presentation_state.clone();
-                        window.on_next_frame(move |window, cx| {
-                            window.dispatch_action(Box::new(SelectAll), cx);
-                            window.refresh();
-                            let selection_protocol = verification_protocol.clone();
-                            let selection_state = verification_state.clone();
-                            window.on_next_frame(move |window, cx| {
-                                if let Err(error) = verify_interactions(
-                                    window,
-                                    cx,
-                                    &selection_protocol,
-                                    &first,
-                                    &second,
-                                ) {
-                                    fail(
-                                        window,
-                                        cx,
-                                        &selection_protocol,
-                                        &selection_state,
-                                        &format!("interaction verification failed: {error:#}"),
-                                    );
-                                    return;
-                                }
-
-                                window.set_a11y_active_for_test(true);
-                                window.refresh();
-                                let accessibility_protocol = selection_protocol.clone();
-                                let accessibility_state = selection_state.clone();
-                                window.on_next_frame(move |window, cx| {
-                                    if let Err(error) =
-                                        verify_accessibility(window, &accessibility_protocol)
-                                    {
-                                        fail(
-                                            window,
-                                            cx,
-                                            &accessibility_protocol,
-                                            &accessibility_state,
-                                            &format!(
-                                                "accessibility verification failed: {error:#}"
-                                            ),
-                                        );
-                                        return;
-                                    }
-                                    window.set_a11y_active_for_test(false);
-                                    accessibility_state.emit(
-                                        &accessibility_protocol,
-                                        "quit_requested",
-                                        json!({"source": "interaction_contracts_verified"}),
-                                    );
-                                    cx.request_quit();
-                                });
-                            });
-                        });
-                        window.refresh();
-                    });
-                },
-            )?;
-            Ok(())
-        })
-        .run();
-
-    finish_normal_run(protocol, state, result)
+                    window.set_a11y_active_for_test(false);
+                    global.state.emit(
+                        &global.protocol,
+                        "quit_requested",
+                        json!({"source": "interaction_contracts_verified"}),
+                    );
+                    cx.request_quit();
+                });
+            });
+        });
+    });
 }
 
 fn prepare_focus_text(
@@ -365,4 +402,25 @@ fn fail(
         json!({"reason": failure}),
     );
     cx.request_quit();
+}
+
+pub(crate) fn run() -> anyhow::Result<ScenarioOutcome> {
+    let (tail, result) = scenarios::recover_tail(&TAIL, catch_run::<InteractionContractsApp>())?;
+
+    match result {
+        Ok(result) => finish_normal_run(&tail.protocol, &tail.state, result),
+        Err(panic) => scenarios::finish_panicked(&tail.protocol, panic),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_rejects_a_mismatched_scenario_selection() {
+        let process = ProcessLaunch::new(vec!["--scenario".into(), "lifecycle-clean".into()], None);
+
+        assert!(parse(&process).is_err());
+    }
 }

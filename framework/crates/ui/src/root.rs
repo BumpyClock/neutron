@@ -12,7 +12,7 @@ use crate::{
 use gpui::{
     AnyView, App, AppContext, Context, DefiniteLength, Entity, FocusHandle, InteractiveElement,
     IntoElement, KeyBinding, ParentElement as _, Render, StyleRefinement, Styled, Subscription,
-    WeakFocusHandle, Window, actions, div, prelude::FluentBuilder as _,
+    WeakEntity, WeakFocusHandle, Window, actions, div, prelude::FluentBuilder as _,
 };
 use std::{any::TypeId, rc::Rc};
 
@@ -40,6 +40,10 @@ pub struct Root {
     app_menu_bar: Option<Entity<AppMenuBar>>,
     view: AnyView,
     style: StyleRefinement,
+    /// Renders the sheet, dialog, and notification layers in a render lease
+    /// separate from `Root`'s own, so their builder closures can safely call
+    /// back into `Root` (see [`RootLayerHost`]).
+    layer_host: Entity<RootLayerHost>,
 }
 
 #[derive(Clone)]
@@ -60,6 +64,16 @@ pub(crate) struct ActiveDialog {
     /// The previous focused handle before opening the Dialog.
     previous_focused_handle: Option<WeakFocusHandle>,
     builder: Rc<dyn Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static>,
+    /// The built dialog's `should_defer_close(cx)` outcome, cached by
+    /// `RootLayerHost::render_dialog_layer` the last time it actually built
+    /// this dialog from `builder`. `Root::close_dialog` reads this instead of
+    /// invoking `builder` itself, because `builder` is public API that may
+    /// call back into `Root` (directly or via a `WindowExt` helper), which
+    /// would double-lease-panic if invoked while `Root` is already leased for
+    /// `close_dialog`'s own `&mut self`. `None` until the dialog has been
+    /// rendered at least once (see [`Root::close_dialog`] for the documented
+    /// fallback).
+    cached_should_defer_close: Option<bool>,
 }
 
 impl ActiveDialog {
@@ -75,6 +89,7 @@ impl ActiveDialog {
             focus_handle,
             previous_focused_handle,
             builder: Rc::new(builder),
+            cached_should_defer_close: None,
         }
     }
 }
@@ -85,6 +100,7 @@ impl Root {
         let appearance_subscription = cx.observe_window_appearance(window, |root, window, cx| {
             root.on_window_appearance_changed(window, cx)
         });
+        let root = cx.entity().downgrade();
 
         Self {
             active_sheet: None,
@@ -97,6 +113,7 @@ impl Root {
             app_menu_bar: None,
             view: view.into(),
             style: StyleRefinement::default(),
+            layer_host: cx.new(|cx| RootLayerHost::new(root, cx)),
         }
     }
 
@@ -136,132 +153,6 @@ impl Root {
             .expect("The window root view should be of type `ui::Root`.")
             .unwrap()
             .read(cx)
-    }
-
-    // Render Notification layer.
-    pub fn render_notification_layer(
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<impl IntoElement + use<>> {
-        let root = window.root::<Root>()??;
-
-        let active_sheet_placement = root.read(cx).active_sheet.clone().map(|d| d.placement);
-
-        let sheet_size = root.read(cx).sheet_size;
-        let (mt, mr, mb, ml) = match active_sheet_placement {
-            Some(Placement::Top) => (sheet_size, None, None, None),
-            Some(Placement::Right) => (None, sheet_size, None, None),
-            Some(Placement::Bottom) => (None, None, sheet_size, None),
-            Some(Placement::Left) => (None, None, None, sheet_size),
-            _ => (None, None, None, None),
-        };
-
-        let placement = cx.theme().notification.placement;
-
-        Some(
-            div()
-                .absolute()
-                .when(matches!(placement, Anchor::TopRight), |this| {
-                    this.top_0().right_0()
-                })
-                .when(matches!(placement, Anchor::TopLeft), |this| {
-                    this.top_0().left_0()
-                })
-                .when(matches!(placement, Anchor::TopCenter), |this| {
-                    this.top_0().mx_auto()
-                })
-                .when(matches!(placement, Anchor::BottomRight), |this| {
-                    this.bottom_0().right_0()
-                })
-                .when(matches!(placement, Anchor::BottomLeft), |this| {
-                    this.bottom_0().left_0()
-                })
-                .when(matches!(placement, Anchor::BottomCenter), |this| {
-                    this.bottom_0().mx_auto()
-                })
-                .when_some(mt, |this, offset| this.mt(offset))
-                .when_some(mr, |this, offset| this.mr(offset))
-                .when_some(mb, |this, offset| this.mb(offset))
-                .when_some(ml, |this, offset| this.ml(offset))
-                .child(root.read(cx).notification.clone()),
-        )
-    }
-
-    /// Render the Sheet layer.
-    pub fn render_sheet_layer(
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<impl IntoElement + use<>> {
-        let root = window.root::<Root>()??;
-
-        if let Some(active_sheet) = root.read(cx).active_sheet.clone() {
-            let mut sheet = Sheet::new(window, cx);
-            sheet = (active_sheet.builder)(sheet, window, cx);
-            sheet.focus_handle = active_sheet.focus_handle.clone();
-            sheet.placement = active_sheet.placement;
-            sheet.closing = active_sheet.closing;
-
-            let size = sheet.size;
-
-            return Some(
-                div()
-                    .relative()
-                    .child(sheet)
-                    .on_prepaint(move |_, _, cx| root.update(cx, |r, _| r.sheet_size = Some(size))),
-            );
-        }
-
-        None
-    }
-
-    /// Render the Dialog layer.
-    pub fn render_dialog_layer(
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Option<impl IntoElement + use<>> {
-        let root = window.root::<Root>()??;
-
-        let active_dialogs = root.read(cx).active_dialogs.clone();
-
-        if active_dialogs.is_empty() {
-            return None;
-        }
-
-        let mut show_overlay_ix = None;
-
-        let mut dialogs = active_dialogs
-            .iter()
-            .enumerate()
-            .map(|(i, active_dialog)| {
-                let mut dialog = Dialog::new(window, cx);
-
-                dialog = (active_dialog.builder)(dialog, window, cx);
-
-                // Give the dialog the focus handle, because `dialog` is a temporary value, is not possible to
-                // keep the focus handle in the dialog.
-                //
-                // So we keep the focus handle in the `active_dialog`, this is owned by the `Root`.
-                dialog.focus_handle = active_dialog.focus_handle.clone();
-
-                dialog.id = active_dialog.id;
-                dialog.layer_ix = i;
-                dialog.closing = active_dialog.closing;
-                // Find the dialog which one needs to show overlay.
-                if dialog.has_overlay() {
-                    show_overlay_ix = Some(i);
-                }
-
-                dialog
-            })
-            .collect::<Vec<_>>();
-
-        if let Some(ix) = show_overlay_ix {
-            if let Some(dialog) = dialogs.get_mut(ix) {
-                dialog.overlay_visible = true;
-            }
-        }
-
-        Some(div().children(dialogs))
     }
 
     pub fn open_dialog<F>(&mut self, build: F, window: &mut Window, cx: &mut Context<'_, Root>)
@@ -321,11 +212,22 @@ impl Root {
             .and_then(|h| h.upgrade());
         let dialog_id = active_dialog.id;
 
-        let should_defer_close = {
-            let mut dialog = Dialog::new(window, cx);
-            dialog = (active_dialog.builder)(dialog, window, cx);
-            dialog.should_defer_close(cx)
-        };
+        // Read the cached outcome instead of invoking `active_dialog.builder`
+        // here: `builder` is public API that may call back into `Root`
+        // (`Root::read`/`Root::update`, or a `WindowExt` helper), which would
+        // double-lease-panic because `Root` is already leased for this
+        // `close_dialog(&mut self, ..)` call. `RootLayerHost` computes and
+        // writes this cache back in its own, separate render lease.
+        let should_defer_close = active_dialog.cached_should_defer_close.unwrap_or_else(|| {
+            // The dialog was never actually rendered (e.g. it was opened and
+            // closed again before the next frame), so there is no cached,
+            // builder-derived value yet. Fall back to what `Dialog::new()`'s
+            // own defaults resolve to before any builder customization
+            // (`animate: true`, `defer_close: false`), respecting
+            // reduced-motion: this is the best available guess without
+            // invoking the (potentially Root-reentrant) builder closure.
+            !crate::animation::reduced_motion(cx)
+        });
 
         if !should_defer_close {
             self.finalize_dialog_close(dialog_id, restore_focus, window, cx);
@@ -593,8 +495,234 @@ impl Render for Root {
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .refine_style(&self.style)
-                .child(view),
+                .child(view)
+                // `layer_host` is a *sibling* of `view` here, never an
+                // ancestor of it (or vice versa). This is deliberate modal
+                // isolation: GPUI dispatches an action by walking up from the
+                // currently focused element through its own ancestors only,
+                // so while a dialog/sheet holds focus, actions handled there
+                // never bubble into app content's `on_action` handlers (and
+                // app content's actions never leak into the dialog/sheet
+                // either). No generic action-forwarding is needed or wanted
+                // between the two; see
+                // `focused_dialog_actions_do_not_bubble_into_app_content`.
+                .child(self.layer_host.clone()),
         )
+    }
+}
+
+/// Renders the sheet, dialog, and notification layers on behalf of [`Root`].
+///
+/// This lives in its own entity, rather than being inlined into
+/// `Root::render`, so that sheet/dialog builder closures keep their original
+/// contract: they may call `Root::read`, `Root::update`, or a `WindowExt`
+/// helper (all of which look up and lease the `Root` entity). `Root`'s own
+/// render lease is released before GPUI renders any child entity in its
+/// returned tree, so by the time this host's `render` runs and invokes a
+/// builder closure, re-entering `Root` no longer double-lease-panics.
+struct RootLayerHost {
+    root: WeakEntity<Root>,
+    // Root's own re-render already rebuilds this host unconditionally (it is
+    // an ordinary, non-cached child), but we also observe `Root` directly so
+    // a layer refresh does not silently depend on that implementation detail.
+    _root_observation: Subscription,
+}
+
+impl RootLayerHost {
+    fn new(root: WeakEntity<Root>, cx: &mut Context<Self>) -> Self {
+        let root_entity = root
+            .upgrade()
+            .expect("Root must be alive while constructing its own layer host");
+
+        Self {
+            _root_observation: cx.observe(&root_entity, |_, _, cx| cx.notify()),
+            root,
+        }
+    }
+
+    // Render the Notification layer.
+    fn render_notification_layer(
+        &self,
+        active_sheet_placement: Option<Placement>,
+        sheet_size: Option<DefiniteLength>,
+        notification: Entity<NotificationList>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let (mt, mr, mb, ml) = match active_sheet_placement {
+            Some(Placement::Top) => (sheet_size, None, None, None),
+            Some(Placement::Right) => (None, sheet_size, None, None),
+            Some(Placement::Bottom) => (None, None, sheet_size, None),
+            Some(Placement::Left) => (None, None, None, sheet_size),
+            _ => (None, None, None, None),
+        };
+
+        let placement = cx.theme().notification.placement;
+
+        div()
+            .absolute()
+            .when(matches!(placement, Anchor::TopRight), |this| {
+                this.top_0().right_0()
+            })
+            .when(matches!(placement, Anchor::TopLeft), |this| {
+                this.top_0().left_0()
+            })
+            .when(matches!(placement, Anchor::TopCenter), |this| {
+                this.top_0().mx_auto()
+            })
+            .when(matches!(placement, Anchor::BottomRight), |this| {
+                this.bottom_0().right_0()
+            })
+            .when(matches!(placement, Anchor::BottomLeft), |this| {
+                this.bottom_0().left_0()
+            })
+            .when(matches!(placement, Anchor::BottomCenter), |this| {
+                this.bottom_0().mx_auto()
+            })
+            .when_some(mt, |this, offset| this.mt(offset))
+            .when_some(mr, |this, offset| this.mr(offset))
+            .when_some(mb, |this, offset| this.mb(offset))
+            .when_some(ml, |this, offset| this.ml(offset))
+            .child(notification)
+    }
+
+    /// Render the Sheet layer.
+    fn render_sheet_layer(
+        &self,
+        active_sheet: ActiveSheet,
+        root: Entity<Root>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let mut sheet = Sheet::new(window, cx);
+        sheet = (active_sheet.builder)(sheet, window, cx);
+        sheet.focus_handle = active_sheet.focus_handle.clone();
+        sheet.placement = active_sheet.placement;
+        sheet.closing = active_sheet.closing;
+
+        let size = sheet.size;
+
+        div()
+            .relative()
+            .child(sheet)
+            .on_prepaint(move |_, _, cx| root.update(cx, |r, _| r.sheet_size = Some(size)))
+    }
+
+    /// Render the Dialog layer.
+    fn render_dialog_layer(
+        &self,
+        active_dialogs: Vec<ActiveDialog>,
+        root: Entity<Root>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let mut show_overlay_ix = None;
+
+        let mut dialogs = active_dialogs
+            .iter()
+            .enumerate()
+            .map(|(i, active_dialog)| {
+                let mut dialog = Dialog::new(window, cx);
+
+                dialog = (active_dialog.builder)(dialog, window, cx);
+
+                // Give the dialog the focus handle, because `dialog` is a temporary value, is not possible to
+                // keep the focus handle in the dialog.
+                //
+                // So we keep the focus handle in the `active_dialog`, this is owned by the `Root`.
+                dialog.focus_handle = active_dialog.focus_handle.clone();
+
+                dialog.id = active_dialog.id;
+                dialog.layer_ix = i;
+                dialog.closing = active_dialog.closing;
+                // Find the dialog which one needs to show overlay.
+                if dialog.has_overlay() {
+                    show_overlay_ix = Some(i);
+                }
+
+                dialog
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(ix) = show_overlay_ix {
+            if let Some(dialog) = dialogs.get_mut(ix) {
+                dialog.overlay_visible = true;
+            }
+        }
+
+        // Snapshot each dialog's `should_defer_close(cx)` outcome now, right
+        // after building it from `active_dialog.builder`, so `Root::close_dialog`
+        // can later read it back without invoking that (public, potentially
+        // Root-reentrant) builder itself. Written back to `Root` in
+        // `on_prepaint` (a later, separate pass), matching `render_sheet_layer`'s
+        // write-back pattern rather than mutating `Root` synchronously mid-render.
+        let should_defer_closes: Vec<(u64, bool)> = dialogs
+            .iter()
+            .map(|dialog| (dialog.id, dialog.should_defer_close(cx)))
+            .collect();
+
+        div().children(dialogs).on_prepaint(move |_, _, cx| {
+            root.update(cx, |root, _| {
+                for (id, should_defer_close) in &should_defer_closes {
+                    if let Some(active_dialog) =
+                        root.active_dialogs.iter_mut().find(|d| d.id == *id)
+                        && active_dialog.cached_should_defer_close != Some(*should_defer_close)
+                    {
+                        active_dialog.cached_should_defer_close = Some(*should_defer_close);
+                    }
+                }
+            });
+        })
+    }
+}
+
+impl Render for RootLayerHost {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(root) = self.root.upgrade() else {
+            return div();
+        };
+
+        // Snapshot the layer state and drop the borrow before invoking any
+        // builder closure below: builders are public API and may call back
+        // into `Root` (directly via `Root::read`/`Root::update`, or via a
+        // `WindowExt` helper), which would double-lease-panic if `root` were
+        // still read-borrowed here.
+        let (active_sheet, active_dialogs, sheet_size, notification) = {
+            let root = root.read(cx);
+            (
+                root.active_sheet.clone(),
+                root.active_dialogs.clone(),
+                root.sheet_size,
+                root.notification.clone(),
+            )
+        };
+
+        let active_sheet_placement = active_sheet.as_ref().map(|sheet| sheet.placement);
+
+        let sheet_layer = active_sheet
+            .map(|active_sheet| self.render_sheet_layer(active_sheet, root.clone(), window, cx));
+
+        let dialog_layer = (!active_dialogs.is_empty())
+            .then(|| self.render_dialog_layer(active_dialogs, root.clone(), window, cx));
+
+        let notification_layer =
+            self.render_notification_layer(active_sheet_placement, sheet_size, notification, cx);
+
+        // This host is mounted as an ordinary sibling of `view` inside
+        // `Root`'s own div, not inside a flex/absolute layout of its own. Its
+        // root element must therefore be taken out of flow and stretched to
+        // `Root`'s full size itself: otherwise it lays out as an in-flow
+        // block after `view` (auto-sized, positioned wherever the flow left
+        // off), and the sheet/dialog/notification children's `.absolute()`
+        // styling resolves against *that* wrong, near-zero-size box instead
+        // of the window.
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .children(sheet_layer)
+            .children(dialog_layer)
+            .child(notification_layer)
     }
 }
 
@@ -628,6 +756,31 @@ mod tests {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             self.0.set(self.0.get() + 1);
             div().size_full()
+        }
+    }
+
+    gpui::actions!(root_layer_isolation_tests, [ProbeAction]);
+
+    /// App content used only to prove that an action handled while a
+    /// dialog/sheet is focused does not bubble into it (see
+    /// `focused_dialog_actions_do_not_bubble_into_app_content`). Tracks its
+    /// own `FocusHandle` so the test can focus it directly for a positive
+    /// control (proving the action wiring actually fires) before proving it
+    /// does *not* fire while a dialog holds focus instead.
+    struct ActionProbeContent {
+        action_count: Rc<Cell<usize>>,
+        focus_handle: FocusHandle,
+    }
+
+    impl Render for ActionProbeContent {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let action_count = self.action_count.clone();
+            div()
+                .size_full()
+                .track_focus(&self.focus_handle)
+                .on_action(cx.listener(move |_, _: &ProbeAction, _, _| {
+                    action_count.set(action_count.get() + 1);
+                }))
         }
     }
 
@@ -819,5 +972,275 @@ mod tests {
             root.finalize_dialog_close(second.id, Some(original_focus.clone()), window, cx);
             assert!(original_focus.is_focused(window));
         });
+    }
+
+    /// Root's own `render` must paint the sheet layer: the window content here
+    /// is `Empty` and never calls a `render_*_layer` helper, so a "sheet-content"
+    /// selector can only appear on screen if `Root::render` composed it itself.
+    #[gpui::test]
+    fn root_renders_sheet_layer_without_content_owned_helper(cx: &mut TestAppContext) {
+        let (window, mut cx, _) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_sheet_at(
+                Placement::Right,
+                |sheet, _, _| sheet.child(div().debug_selector(|| "sheet-content".to_string())),
+                window,
+                cx,
+            );
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(
+            cx.debug_bounds("sheet-content").is_some(),
+            "Root::render should paint the sheet layer itself"
+        );
+    }
+
+    /// Root's own `render` must paint the dialog layer: the window content here
+    /// is `Empty` and never calls a `render_*_layer` helper, so a "dialog-content"
+    /// selector can only appear on screen if `Root::render` composed it itself.
+    #[gpui::test]
+    fn root_renders_dialog_layer_without_content_owned_helper(cx: &mut TestAppContext) {
+        let (window, mut cx, _) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_dialog(
+                |dialog, _, _| dialog.child(div().debug_selector(|| "dialog-content".to_string())),
+                window,
+                cx,
+            );
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(
+            cx.debug_bounds("dialog-content").is_some(),
+            "Root::render should paint the dialog layer itself"
+        );
+    }
+
+    /// Root's own `render` must paint the notification layer: the window content
+    /// here is `Empty` and never calls a `render_*_layer` helper, so a
+    /// "notification-content" selector can only appear on screen if
+    /// `Root::render` composed it itself.
+    #[gpui::test]
+    fn root_renders_notification_layer_without_content_owned_helper(cx: &mut TestAppContext) {
+        let (window, mut cx, _) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        root.update_in(&mut cx, |root, window, cx| {
+            let note = Notification::new().message("hello").content(|_, _, _| {
+                div()
+                    .debug_selector(|| "notification-content".to_string())
+                    .into_any_element()
+            });
+            root.push_notification(note, window, cx);
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(
+            cx.debug_bounds("notification-content").is_some(),
+            "Root::render should paint the notification layer itself"
+        );
+    }
+
+    /// Regression test for the old builder-closure contract: a dialog builder
+    /// must be able to call back into `Root` (here via the `WindowExt`
+    /// helpers, which internally do `Root::read`/`Root::update`) without a
+    /// double-lease panic. The layer host renders dialogs in a lease separate
+    /// from `Root`'s own, so this must draw successfully.
+    #[gpui::test]
+    fn dialog_builder_can_read_and_update_root_without_double_lease_panic(cx: &mut TestAppContext) {
+        use crate::WindowExt;
+
+        let (window, mut cx, _) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+        let observed_active = Rc::new(Cell::new(false));
+        let observed_active_for_builder = observed_active.clone();
+
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_dialog(
+                move |dialog, window, cx| {
+                    // Calls back into `Root` from inside the builder closure,
+                    // matching the pre-refactor contract. Would panic with
+                    // "cannot read Root while it is already being updated" if
+                    // this ran while Root's own render lease were still held.
+                    observed_active_for_builder.set(window.has_active_dialog(cx));
+                    dialog.child(div().debug_selector(|| "dialog-builder-probe".to_string()))
+                },
+                window,
+                cx,
+            );
+        });
+
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        assert!(
+            observed_active.get(),
+            "dialog builder should observe its own dialog as active via `Root::read`"
+        );
+        assert!(
+            cx.debug_bounds("dialog-builder-probe").is_some(),
+            "dialog should still render after the builder called back into Root"
+        );
+    }
+
+    /// Regression test for `Root::close_dialog`'s builder-invocation contract:
+    /// closing a dialog before it has ever been rendered (so `RootLayerHost`
+    /// has not yet built it, and there is no cached `should_defer_close`) must
+    /// not fall back to invoking the dialog's builder closure inline. If it
+    /// did, a builder that calls back into `Root` — a supported contract, see
+    /// `dialog_builder_can_read_and_update_root_without_double_lease_panic` —
+    /// would double-lease-panic here, because `Root` is already leased for
+    /// this `close_dialog(&mut self, ..)` call itself. Passing (not
+    /// panicking) is the assertion.
+    #[gpui::test]
+    fn close_dialog_before_first_render_does_not_panic_on_reentrant_builder(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::WindowExt;
+
+        let (window, mut cx, _) = root_window(cx);
+        let root = window.root(&mut cx).unwrap();
+
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_dialog(
+                |dialog, window, cx| {
+                    // Would panic with "cannot read Root while it is already
+                    // being updated" if `close_dialog` invoked this builder
+                    // synchronously instead of reading a cached value.
+                    let _ = window.has_active_dialog(cx);
+                    dialog
+                },
+                window,
+                cx,
+            );
+
+            // Closed before any `window.draw(cx)`, so `RootLayerHost` has
+            // never built this dialog and there is no cached
+            // `should_defer_close` yet.
+            root.close_dialog(window, cx);
+        });
+    }
+
+    /// Regression test for the layer host's containing-block geometry: with
+    /// full-height content already filling `Root` (so a naively in-flow,
+    /// auto-sized layer host would be pushed off-screen below it), a
+    /// `TopRight`-anchored notification must still land near the window's
+    /// top-right corner rather than wherever the host's own (wrong) box
+    /// ended up.
+    #[gpui::test]
+    fn notification_layer_anchors_to_window_not_flow_position(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let content = cx.new(|_| LayoutProbe);
+                cx.new(|cx| Root::new(content, window, cx))
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(size(px(800.), px(600.)));
+
+        let root = window.root(&mut cx).unwrap();
+        root.update_in(&mut cx, |root, window, cx| {
+            // Default notification placement is `Anchor::TopRight`.
+            let note = Notification::new().message("hello").content(|_, _, _| {
+                div()
+                    .debug_selector(|| "top-right-notification".to_string())
+                    .into_any_element()
+            });
+            root.push_notification(note, window, cx);
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let bounds = cx
+            .debug_bounds("top-right-notification")
+            .expect("notification content should be captured");
+
+        // The debug-selected div sits inside the notification card, so check
+        // proximity to the window's right/top edges rather than the div's own
+        // (card-width-dependent) left edge.
+        let right_edge = bounds.origin.x + bounds.size.width;
+        assert!(
+            right_edge > px(700.) && right_edge <= px(800.),
+            "notification should anchor near the window's right edge, got right_edge={:?}",
+            right_edge
+        );
+        assert!(
+            bounds.origin.y >= px(0.) && bounds.origin.y < px(150.),
+            "notification should anchor near the window's top edge, got y={:?}",
+            bounds.origin.y
+        );
+    }
+
+    /// `layer_host` is mounted as a sibling of `view`, not an ancestor of it.
+    /// This pins down that this is deliberate modal isolation: an action
+    /// handled while a dialog holds focus must not bubble into app content's
+    /// own `on_action` handlers, because content is never on the focused
+    /// element's ancestor path.
+    ///
+    /// Non-vacuous: a positive control focuses content directly and
+    /// dispatches first, proving the action wiring actually fires (so the
+    /// later "stays at 1" assertion couldn't trivially pass because the
+    /// wiring was broken). Only then is a dialog opened (which takes focus)
+    /// and the same action dispatched again, asserting the count does not
+    /// increase.
+    #[gpui::test]
+    fn focused_dialog_actions_do_not_bubble_into_app_content(cx: &mut TestAppContext) {
+        let action_count = Rc::new(Cell::new(0));
+        let content_focus_handle = Rc::new(RefCell::new(None));
+        let content_focus_handle_for_window = content_focus_handle.clone();
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), {
+                let action_count = action_count.clone();
+                move |window, cx| {
+                    let content = cx.new(|cx| {
+                        let focus_handle = cx.focus_handle();
+                        content_focus_handle_for_window.replace(Some(focus_handle.clone()));
+                        ActionProbeContent {
+                            action_count,
+                            focus_handle,
+                        }
+                    });
+                    cx.new(|cx| Root::new(content, window, cx))
+                }
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let content_focus_handle = content_focus_handle.borrow_mut().take().unwrap();
+
+        // Positive control: with content itself focused, the action must
+        // reach it. This proves `ActionProbeContent`'s `on_action` wiring
+        // works at all, so the later "count does not increase" assertion is
+        // meaningful rather than trivially true.
+        cx.update(|window, cx| content_focus_handle.focus(window, cx));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.dispatch_action(ProbeAction);
+        cx.run_until_parked();
+        assert_eq!(
+            action_count.get(),
+            1,
+            "action should reach focused app content directly (positive control)"
+        );
+
+        let root = window.root(&mut cx).unwrap();
+        root.update_in(&mut cx, |root, window, cx| {
+            root.open_dialog(|dialog, _, _| dialog, window, cx);
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.dispatch_action(ProbeAction);
+        cx.run_until_parked();
+
+        assert_eq!(
+            action_count.get(),
+            1,
+            "an action dispatched while a dialog is focused must not bubble into app content"
+        );
     }
 }

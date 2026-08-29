@@ -1,6 +1,6 @@
 use super::*;
 use crate::error::AppClosed;
-use crate::handles::{AppShellExt as _, ShellState};
+use crate::handles::ShellState;
 use crate::lifecycle::OpenRequest;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -39,14 +39,17 @@ fn pending_label(event: &AppEvent) -> Option<&str> {
 }
 
 #[derive(Default)]
-struct RecordingPlugin {
+struct RecordingModule {
     log: Arc<Mutex<Vec<String>>>,
 }
 
-impl crate::plugin::sealed::Sealed for RecordingPlugin {}
-
-impl AppPlugin for RecordingPlugin {
-    fn init(&mut self, _cx: &mut App, _shell: &ShellSeed) -> Result<(), AppShellError> {
+impl crate::module::RuntimeModule for RecordingModule {
+    fn init(
+        &mut self,
+        _cx: &mut App,
+        _info: &AppInfo,
+        _proxy: &crate::handles::AppProxy,
+    ) -> Result<(), AppShellError> {
         Ok(())
     }
 
@@ -54,7 +57,7 @@ impl AppPlugin for RecordingPlugin {
         self.log
             .lock()
             .expect("pending-event test log poisoned")
-            .push(format!("plugin:{}", event.name()));
+            .push(format!("module:{}", event.name()));
         Ok(())
     }
 
@@ -62,22 +65,22 @@ impl AppPlugin for RecordingPlugin {
         self.log
             .lock()
             .expect("pending-event test log poisoned")
-            .push("plugin:shutdown".to_owned());
+            .push("module:shutdown".to_owned());
     }
 }
 
-fn test_boot(
+fn test_startup(
     pending: Arc<PendingEvents>,
     log: Arc<Mutex<Vec<String>>>,
     quit_on_pending: Option<usize>,
     error_on_pending: Option<usize>,
-) -> Boot {
+) -> Startup {
     let pending_count = Arc::new(AtomicUsize::new(0));
-    let handler_count = Arc::clone(&pending_count);
-    let handler_log = Arc::clone(&log);
+    let observer_count = Arc::clone(&pending_count);
+    let observer_log = Arc::clone(&log);
     let error_log = Arc::clone(&log);
 
-    Boot {
+    Startup {
         app_info: AppInfo::new(
             identity(),
             AppPaths::new("pending-event-tests", PathLayout::PlatformDefault)
@@ -86,20 +89,20 @@ fn test_boot(
         ),
         liveness: Liveness::new(ExitPolicy::Explicit, InitialActivation::Regular),
         initial_activation: InitialActivation::Regular,
-        plugins: vec![Box::new(RecordingPlugin {
+        modules: vec![Box::new(RecordingModule {
             log: Arc::clone(&log),
         })],
-        handlers: vec![Box::new(move |event, cx| {
+        observers: vec![Box::new(move |event, cx| {
             let Some(label) = pending_label(event) else {
-                handler_log
+                observer_log
                     .lock()
                     .expect("pending-event test log poisoned")
-                    .push(format!("handler:{}", event.name()));
+                    .push(format!("observer:{}", event.name()));
                 return Ok(());
             };
 
-            let ordinal = handler_count.fetch_add(1, Ordering::SeqCst) + 1;
-            handler_log
+            let ordinal = observer_count.fetch_add(1, Ordering::SeqCst) + 1;
+            observer_log
                 .lock()
                 .expect("pending-event test log poisoned")
                 .push(format!("pending:{label}"));
@@ -107,13 +110,12 @@ fn test_boot(
                 handles::request_quit(cx);
             }
             if error_on_pending == Some(ordinal) {
-                return Err(anyhow::anyhow!("pending event {ordinal} failed").into());
+                anyhow::bail!("pending event {ordinal} failed");
             }
             Ok(())
         })],
         pending,
-        state: HashMap::new(),
-        launch: LaunchRequest::default(),
+        launch: Rc::new(LaunchRuntime::unit(None)),
         start: None,
         error_reporter: Box::new(move |error, _cx| {
             error_log
@@ -121,9 +123,12 @@ fn test_boot(
                 .expect("pending-event test log poisoned")
                 .push(format!(
                     "error:{}",
-                    error.event().unwrap_or("unknown lifecycle event")
+                    error
+                        .event()
+                        .map_or("unknown lifecycle event", crate::lifecycle::AppEvent::name)
                 ));
         }),
+        app_shutdown: None,
     }
 }
 
@@ -132,12 +137,13 @@ struct RunResult {
     pending_events: Vec<String>,
     shutdown_requested: usize,
     will_exit: usize,
-    plugin_shutdown: usize,
+    module_shutdown: usize,
     errors: Vec<String>,
     queue_len: usize,
     proxy_closed: bool,
-    drain_phase: bool,
-    activation_phase: bool,
+    /// Whether startup reached its stable idle state: the drain completed and
+    /// activation ran without a shutdown boundary interrupting either.
+    reached_stable_idle: bool,
 }
 
 fn run_pending_events(
@@ -146,6 +152,8 @@ fn run_pending_events(
     quit_on_pending: Option<usize>,
     error_on_pending: Option<usize>,
 ) -> (Arc<PendingEvents>, Arc<Mutex<Vec<String>>>, RunResult) {
+    use crate::runtime::Shell;
+
     let pending = Arc::new(PendingEvents::default());
     for label in labels {
         pending
@@ -153,28 +161,28 @@ fn run_pending_events(
             .expect("pre-ready events are accepted");
     }
     let log = Arc::new(Mutex::new(Vec::new()));
-    let boot = test_boot(
+    let startup = test_startup(
         Arc::clone(&pending),
         Arc::clone(&log),
         quit_on_pending,
         error_on_pending,
     );
 
-    cx.update(|app| boot.run(app))
+    cx.update(|app| startup.run(app))
         .expect("pending-event shutdown is not a startup failure");
 
-    let (shutdown_boundary, proxy_closed, drain_phase, activation_phase) = cx.update(|app| {
+    let (shutdown_boundary, proxy_closed) = cx.update(|app| {
         let state = app.global::<ShellState>();
-        (
-            state.is_shutdown_requested(),
-            app.app_proxy().is_closed(),
-            state.phases().is_complete(Phase::DrainQueue),
-            state.phases().is_complete(Phase::Activation),
-        )
+        (state.is_shutdown_requested(), app.app_proxy().is_closed())
     });
+    // Startup only reaches activation and the stable-idle evaluation when no
+    // shutdown boundary interrupted the drain, and it only leaves the queue
+    // empty *and open* in that case.
+    let reached_stable_idle = !shutdown_boundary && !pending.is_closed();
     if shutdown_boundary {
-        // Boot::run is invoked directly in this unit seam, outside Platform::run.
-        // End the test app to invoke the registered platform-quit observers.
+        // Startup::run is invoked directly in this unit seam, outside
+        // Platform::run. End the test app to invoke the registered
+        // platform-quit observers.
         cx.quit();
     }
 
@@ -191,15 +199,15 @@ fn run_pending_events(
     let queue_len = pending.len();
     let shutdown_requested = entries
         .iter()
-        .filter(|entry| entry.as_str() == "handler:shutdown_requested")
+        .filter(|entry| entry.as_str() == "observer:shutdown_requested")
         .count();
     let will_exit = entries
         .iter()
-        .filter(|entry| entry.as_str() == "handler:will_exit")
+        .filter(|entry| entry.as_str() == "observer:will_exit")
         .count();
-    let plugin_shutdown = entries
+    let module_shutdown = entries
         .iter()
-        .filter(|entry| entry.as_str() == "plugin:shutdown")
+        .filter(|entry| entry.as_str() == "module:shutdown")
         .count();
 
     (
@@ -209,12 +217,11 @@ fn run_pending_events(
             pending_events,
             shutdown_requested,
             will_exit,
-            plugin_shutdown,
+            module_shutdown,
             errors,
             queue_len,
             proxy_closed,
-            drain_phase,
-            activation_phase,
+            reached_stable_idle,
         },
     )
 }
@@ -229,12 +236,11 @@ fn first_pending_event_shutdown_stops_delivery(cx: &mut gpui::TestAppContext) {
             pending_events: vec!["first".to_owned()],
             shutdown_requested: 1,
             will_exit: 1,
-            plugin_shutdown: 1,
+            module_shutdown: 1,
             errors: Vec::new(),
             queue_len: 0,
             proxy_closed: true,
-            drain_phase: false,
-            activation_phase: false,
+            reached_stable_idle: false,
         }
     );
 }
@@ -246,10 +252,9 @@ fn later_pending_event_shutdown_preserves_fifo_prefix(cx: &mut gpui::TestAppCont
     assert_eq!(result.pending_events, ["first", "second"]);
     assert_eq!(result.shutdown_requested, 1);
     assert_eq!(result.will_exit, 1);
-    assert_eq!(result.plugin_shutdown, 1);
+    assert_eq!(result.module_shutdown, 1);
     assert_eq!(result.queue_len, 0);
-    assert!(!result.drain_phase);
-    assert!(!result.activation_phase);
+    assert!(!result.reached_stable_idle);
 }
 
 #[gpui::test]
@@ -281,20 +286,20 @@ fn event_after_started_shutdown_is_rejected_before_proxy_publication(
         .push(pending_event("early"))
         .expect("pre-ready event is accepted");
     let log = Arc::new(Mutex::new(Vec::new()));
-    let mut boot = test_boot(Arc::clone(&pending), Arc::clone(&log), None, None);
-    let handler_log = Arc::clone(&log);
-    boot.handlers = vec![Box::new(move |event, cx| {
-        handler_log
+    let mut startup = test_startup(Arc::clone(&pending), Arc::clone(&log), None, None);
+    let observer_log = Arc::clone(&log);
+    startup.observers = vec![Box::new(move |event, cx| {
+        observer_log
             .lock()
             .expect("pending-event test log poisoned")
-            .push(format!("handler:{}", event.name()));
-        if matches!(event, AppEvent::Started(_)) {
+            .push(format!("observer:{}", event.name()));
+        if matches!(event, AppEvent::Started) {
             handles::request_quit(cx);
         }
         Ok(())
     })];
 
-    cx.update(|app| boot.run(app))
+    cx.update(|app| startup.run(app))
         .expect("Started-triggered quit is not a startup failure");
     assert!(pending.proxy.get().is_none());
     assert!(pending.is_empty());
@@ -305,21 +310,21 @@ fn event_after_started_shutdown_is_rejected_before_proxy_publication(
     assert_eq!(
         entries
             .iter()
-            .filter(|entry| entry.as_str() == "handler:shutdown_requested")
+            .filter(|entry| entry.as_str() == "observer:shutdown_requested")
             .count(),
         1
     );
     assert_eq!(
         entries
             .iter()
-            .filter(|entry| entry.as_str() == "handler:will_exit")
+            .filter(|entry| entry.as_str() == "observer:will_exit")
             .count(),
         1
     );
     assert_eq!(
         entries
             .iter()
-            .filter(|entry| entry.as_str() == "plugin:shutdown")
+            .filter(|entry| entry.as_str() == "module:shutdown")
             .count(),
         1
     );
@@ -333,11 +338,10 @@ fn normal_pending_drain_is_fifo_and_activates(cx: &mut gpui::TestAppContext) {
     assert_eq!(result.pending_events, ["first", "second", "third"]);
     assert_eq!(result.shutdown_requested, 0);
     assert_eq!(result.will_exit, 0);
-    assert_eq!(result.plugin_shutdown, 0);
+    assert_eq!(result.module_shutdown, 0);
     assert_eq!(result.queue_len, 0);
     assert!(!result.proxy_closed);
-    assert!(result.drain_phase);
-    assert!(result.activation_phase);
+    assert!(result.reached_stable_idle);
 }
 
 #[gpui::test]
@@ -348,8 +352,7 @@ fn handler_error_is_reported_before_later_shutdown_stops_queue(cx: &mut gpui::Te
     assert_eq!(result.errors, ["error:open_requested"]);
     assert_eq!(result.shutdown_requested, 1);
     assert_eq!(result.will_exit, 1);
-    assert_eq!(result.plugin_shutdown, 1);
+    assert_eq!(result.module_shutdown, 1);
     assert_eq!(result.queue_len, 0);
-    assert!(!result.drain_phase);
-    assert!(!result.activation_phase);
+    assert!(!result.reached_stable_idle);
 }

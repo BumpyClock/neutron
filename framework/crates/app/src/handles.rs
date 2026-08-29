@@ -9,9 +9,8 @@
 //!
 //! Callbacks always receive a raw `&mut gpui::App`; there is no context wrapper.
 
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -20,11 +19,11 @@ use neutron_components_manifest::schema::IdentityRef;
 use neutron_components_storage::AppPaths;
 
 use crate::capabilities::PlatformCapabilities;
+use crate::declaration::LaunchRuntime;
 use crate::error::{AppClosed, RuntimeError};
 use crate::lifecycle::{AppEvent, OpenRequest, ShutdownReason};
 use crate::liveness::{Liveness, ShellHold};
-use crate::phases::PhaseTracker;
-use crate::plugin::{AppPlugin, EventHandler};
+use crate::module::{EventHandler, RuntimeModules};
 
 /// Immutable application identity, resolved paths, and capability snapshot.
 ///
@@ -241,6 +240,12 @@ impl PendingEvents {
         queue.events.clear();
     }
 
+    /// Whether the queue stopped accepting events at the shutdown boundary.
+    #[cfg(test)]
+    pub(crate) fn is_closed(&self) -> bool {
+        self.queue.lock().expect("pending queue poisoned").closed
+    }
+
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.queue
@@ -276,6 +281,18 @@ enum Readiness {
 }
 
 impl Readiness {
+    /// The quit a module or start hook deferred, without consuming it.
+    ///
+    /// Read-only on purpose: [`Readiness::finish_start`] publishes readiness as
+    /// a side effect, so the startup sequence cannot use it to *ask* whether a
+    /// quit is pending before the primary surface exists.
+    fn deferred_quit(&self) -> Option<ShutdownReason> {
+        match self {
+            Self::Starting { deferred_quit } => *deferred_quit,
+            Self::Ready | Self::Failed => None,
+        }
+    }
+
     fn defer_quit(&mut self, reason: ShutdownReason) -> bool {
         let Self::Starting { deferred_quit } = self else {
             return false;
@@ -299,65 +316,87 @@ impl Readiness {
 
 type ErrorReporter = Box<dyn Fn(&RuntimeError, &mut App)>;
 
+/// The declaration's single application shutdown hook.
+///
+/// `FnOnce` encodes the exactly-once contract in the type: the hook is moved out
+/// of the global when it runs, so no teardown path can run it twice.
+pub(crate) type AppShutdownHook = Box<dyn FnOnce(&mut App) -> anyhow::Result<()>>;
+
 /// Main-thread shell state. A GPUI [`gpui::Global`]; intentionally not `Send`.
-pub struct ShellState {
+pub(crate) struct ShellState {
     app_info: AppInfo,
     proxy: AppProxy,
     liveness: Liveness,
-    plugins: Vec<Box<dyn AppPlugin>>,
-    handlers: Vec<EventHandler>,
-    phases: PhaseTracker,
+    modules: RuntimeModules,
+    observers: Vec<EventHandler>,
     pending: Arc<PendingEvents>,
-    state: HashMap<TypeId, Box<dyn Any>>,
     subscriptions: Vec<gpui::Subscription>,
     readiness: Readiness,
     error_reporter: Option<ErrorReporter>,
     reporting_error: bool,
+    /// The declaration's application shutdown hook, taken when it runs.
+    app_shutdown: Option<AppShutdownHook>,
+    /// Whether the application startup transaction has begun.
+    ///
+    /// Set immediately before the common start phase runs — including when no
+    /// start hook is registered — and never cleared. It is the precondition for
+    /// [`run_app_shutdown`]: an application only tears down if it was given the
+    /// chance to build. A framework, module, or setup failure *before*
+    /// this point leaves nothing application-owned to unwind.
+    app_start_entered: bool,
     /// Re-entrancy guard for `deliver_event`.
     delivery: crate::lifecycle::ReentrantQueue,
     /// The reason to attribute if the next idle evaluation triggers an exit.
     /// Set by the window-close observer (which fires before a window-manager
-    /// plugin drops the window's hold), consumed by `evaluate_exit`.
+    /// module drops the window's hold), consumed by `evaluate_exit`.
     pending_exit_reason: Option<ShutdownReason>,
     shutdown_requested: bool,
     will_exit_done: bool,
+    /// The declaration's retained launch runtime, including the immutable
+    /// typed launch value and the primary opener (issues #3/#6/#29). Set once
+    /// via [`set_launch_runtime`] right after this global is installed, and
+    /// never published through a public accessor: [`restore_primary_on_reopen`]
+    /// is its only reader. `None` in a test harness that installs this global
+    /// directly without a declared launch runtime, which is the correct no-op
+    /// (nothing to restore).
+    launch_runtime: Option<Rc<LaunchRuntime>>,
 }
 
 impl gpui::Global for ShellState {}
 
 impl ShellState {
-    /// Number of live plugins (for diagnostics/tests).
-    pub fn plugin_count(&self) -> usize {
-        self.plugins.len()
+    /// Whether readiness has been published (`finish_start` has run).
+    #[cfg(test)]
+    pub(crate) fn is_ready(&self) -> bool {
+        matches!(self.readiness, Readiness::Ready)
     }
 
-    /// The recorded phase progress.
-    pub fn phases(&self) -> &PhaseTracker {
-        &self.phases
+    /// The live liveness-lease counter, for asserting that a hold is held.
+    #[cfg(test)]
+    pub(crate) fn holds(&self) -> usize {
+        self.liveness
+            .holds_arc()
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) fn is_shutdown_requested(&self) -> bool {
         self.shutdown_requested
     }
 
-    pub(crate) fn record_phase(&mut self, phase: crate::phases::Phase) {
-        self.phases.complete(phase);
+    /// Move the runtime modules out for a `&mut App` re-entrant call (init).
+    pub(crate) fn take_modules(&mut self) -> RuntimeModules {
+        std::mem::take(&mut self.modules)
     }
 
-    /// Move plugins out for a `&mut App` re-entrant call (init).
-    pub(crate) fn take_plugins(&mut self) -> Vec<Box<dyn AppPlugin>> {
-        std::mem::take(&mut self.plugins)
-    }
-
-    /// Restore plugins taken by [`ShellState::take_plugins`].
-    pub(crate) fn restore_plugins(&mut self, plugins: Vec<Box<dyn AppPlugin>>) {
-        self.plugins = plugins;
+    /// Restore modules taken by [`ShellState::take_modules`].
+    pub(crate) fn restore_modules(&mut self, modules: RuntimeModules) {
+        self.modules = modules;
     }
 }
 
 /// A lightweight, cloneable handle for taking liveness leases and driving quit.
 #[derive(Clone)]
-pub struct ShellHandle {
+pub(crate) struct ShellHandle {
     proxy: AppProxy,
     holds: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -370,21 +409,20 @@ impl ShellHandle {
     }
 
     /// The cross-thread proxy.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn proxy(&self) -> AppProxy {
         self.proxy.clone()
     }
 }
 
 /// Extension trait exposing shell services on the raw `gpui::App`.
-pub trait AppShellExt {
+pub(crate) trait AppShellExt {
     /// Immutable app identity/paths/capabilities.
     fn app_info(&self) -> &AppInfo;
     /// A cross-thread dispatch proxy.
     fn app_proxy(&self) -> AppProxy;
     /// A handle for liveness leases and quit.
     fn shell(&self) -> ShellHandle;
-    /// Typed pre-platform state registered via `AppShellBuilder::state`.
-    fn app_state<T: 'static>(&self) -> Option<&T>;
     /// Route a quit through the single shutdown path.
     fn request_quit(&mut self);
 }
@@ -406,13 +444,6 @@ impl AppShellExt for App {
         }
     }
 
-    fn app_state<T: 'static>(&self) -> Option<&T> {
-        self.global::<ShellState>()
-            .state
-            .get(&TypeId::of::<T>())
-            .and_then(|b| b.downcast_ref::<T>())
-    }
-
     fn request_quit(&mut self) {
         request_quit(self);
     }
@@ -421,19 +452,18 @@ impl AppShellExt for App {
 /// Install the shell global. Wires the cross-thread proxy to the app's
 /// [`MainThreadPoster`]; no poll loop — posts wake the main run loop directly.
 ///
-/// Called during the `CoreServices` phase with the constructed `AppInfo` and the
-/// plugins/handlers/state accumulated by the builder.
+/// Called once core services come up, with the constructed `AppInfo` and the
+/// runtime modules and lifecycle observers the declaration lowered.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install(
     cx: &mut App,
     app_info: AppInfo,
     liveness: Liveness,
-    plugins: Vec<Box<dyn AppPlugin>>,
-    handlers: Vec<EventHandler>,
+    modules: RuntimeModules,
+    observers: Vec<EventHandler>,
     pending: Arc<PendingEvents>,
-    state: HashMap<TypeId, Box<dyn Any>>,
-    phases: PhaseTracker,
     error_reporter: ErrorReporter,
+    app_shutdown: Option<AppShutdownHook>,
 ) -> AppProxy {
     let proxy = AppProxy::new(cx);
 
@@ -441,23 +471,32 @@ pub(crate) fn install(
         app_info,
         proxy: proxy.clone(),
         liveness,
-        plugins,
-        handlers,
-        phases,
+        modules,
+        observers,
         pending,
-        state,
         subscriptions: Vec::new(),
         readiness: Readiness::Starting {
             deferred_quit: None,
         },
         error_reporter: Some(error_reporter),
         reporting_error: false,
+        app_shutdown,
+        app_start_entered: false,
         delivery: crate::lifecycle::ReentrantQueue::new(),
         pending_exit_reason: None,
         shutdown_requested: false,
         will_exit_done: false,
+        launch_runtime: None,
     });
     proxy
+}
+
+/// Retain the launch runtime for the running shell's lifetime (issues
+/// #3/#6/#29): the same immutable typed launch value and primary opener stay
+/// reachable for a later `Reopened` restore. Called once, immediately after
+/// [`install`], before any observer can run.
+pub(crate) fn set_launch_runtime(cx: &mut App, runtime: Rc<LaunchRuntime>) {
+    cx.global_mut::<ShellState>().launch_runtime = Some(runtime);
 }
 
 /// Register lifecycle observers (window-closed, app-quit) after readiness.
@@ -465,7 +504,7 @@ pub(crate) fn register_observers(cx: &mut App) {
     let window_closed = cx.on_window_closed(|app| {
         if app.windows().is_empty() {
             // Record the reason now. The actual exit may only happen on a later
-            // tick, after a window-manager plugin's reconcile drops the closed
+            // tick, after the window module's reconcile drops the closed
             // window's liveness hold — this observer runs before that. Recording
             // it lets the eventual `evaluate_exit` attribute the exit to
             // LastWindowClosed instead of the generic Requested, and avoids a
@@ -485,13 +524,20 @@ pub(crate) fn register_observers(cx: &mut App) {
     st.subscriptions.push(app_quit);
 }
 
-/// Deliver `event` to every plugin then every app event handler.
+/// Deliver `event` to every runtime module then every declared observer.
 ///
-/// Re-entrancy-safe: a delivery moves plugins/handlers out of the global for the
+/// Re-entrancy-safe: a delivery moves modules/observers out of the global for the
 /// pass, so a callback that itself delivers an event (e.g. `request_quit()` from
 /// a `Started` handler emitting `ShutdownRequested`) would otherwise hit empty
 /// subscriber lists. Such nested events are buffered and drained after the
 /// current pass, in order (see [`crate::lifecycle::ReentrantQueue`]).
+///
+/// This is the one delivery path for `AppEvent::Reopened`, reached both by a
+/// live platform reopen and by one queued before readiness: both route through
+/// [`PendingEvents`], whose drain (`drain_pending`, and the post-ready dispatch
+/// in [`PendingEvents::push`]) calls this function for every event it pops.
+/// [`restore_primary_on_reopen`] runs here, before `deliver_one`, so it always
+/// runs before any module or observer sees `Reopened` (issues #3/#6/#29).
 pub(crate) fn deliver_event(cx: &mut App, event: &AppEvent) {
     if !cx.has_global::<ShellState>() {
         return;
@@ -503,6 +549,9 @@ pub(crate) fn deliver_event(cx: &mut App, event: &AppEvent) {
     }
     let mut current = event.clone();
     loop {
+        if matches!(current, AppEvent::Reopened) {
+            restore_primary_on_reopen(cx);
+        }
         deliver_one(cx, &current);
         match cx.global_mut::<ShellState>().delivery.take_next() {
             Some(next) => current = next,
@@ -511,35 +560,76 @@ pub(crate) fn deliver_event(cx: &mut App, event: &AppEvent) {
     }
 }
 
-/// Deliver a single event to plugins then handlers, moving them out of the
-/// global for the call (so they can receive `&mut App`) and restoring them.
-/// Handler errors are logged, not fatal.
+/// Before any `Reopened` observer runs: if no declared surface is currently
+/// live, reopen the primary with the shell's retained launch value (issues
+/// #3/#6/#29). Otherwise a no-op — an application with a live primary,
+/// auxiliary, Settings, or About surface already has something open, and one
+/// is never created when any of them is live.
+///
+/// A restore failure is caught and reported nonfatally through
+/// [`RuntimeError::lifecycle`] rather than propagated: this runs long after
+/// startup completed, so misclassifying it as a startup failure (which would
+/// tear the whole shell down) would be wrong. [`LaunchRuntime::open_primary`]
+/// returns the underlying failure undecorated (no `AppShellError::Startup`
+/// wrapper), so the reported error's source chain names the real cause
+/// directly instead of a startup-classified wrapper that only ever applied
+/// to the initial-startup caller. Reopened is still delivered to observers
+/// afterward either way.
+///
+/// A no-op once shutdown has begun: `PendingEvents::close` already discards a
+/// `Reopened` queued after that boundary, but one already buffered by the
+/// [`crate::lifecycle::ReentrantQueue`] ahead of a same-pass `request_quit`
+/// could still reach here after `shutdown_requested` is set, and recreating a
+/// window while teardown is already underway would fight it. Observers still
+/// receive `Reopened` in that case; only the restore attempt is skipped.
+fn restore_primary_on_reopen(cx: &mut App) {
+    if cx.global::<ShellState>().shutdown_requested {
+        return;
+    }
+    let Some(runtime) = cx.global::<ShellState>().launch_runtime.clone() else {
+        return;
+    };
+    if crate::windows::any_declared_surface_live(cx) {
+        return;
+    }
+    if let Err(error) = runtime.open_primary(cx) {
+        report_error(cx, RuntimeError::lifecycle(AppEvent::Reopened, error));
+    }
+}
+
+/// Deliver a single event to the runtime modules then the declared observers,
+/// moving them out of the global for the call (so they can receive `&mut App`)
+/// and restoring them. Their errors are reported, not fatal.
 fn deliver_one(cx: &mut App, event: &AppEvent) {
-    let (mut plugins, mut handlers) = {
+    let (mut modules, mut observers) = {
         let st = cx.global_mut::<ShellState>();
         (
-            std::mem::take(&mut st.plugins),
-            std::mem::take(&mut st.handlers),
+            std::mem::take(&mut st.modules),
+            std::mem::take(&mut st.observers),
         )
     };
 
-    let mut errors = Vec::new();
-    for plugin in &mut plugins {
-        if let Err(err) = plugin.on_event(event, cx) {
-            errors.push(err);
+    let mut module_errors = Vec::new();
+    for module in &mut modules {
+        if let Err(err) = module.on_event(event, cx) {
+            module_errors.push((module.id(), err));
         }
     }
-    for handler in &mut handlers {
-        if let Err(err) = handler(event, cx) {
-            errors.push(err);
+    let mut observer_errors = Vec::new();
+    for observer in &mut observers {
+        if let Err(err) = observer(event, cx) {
+            observer_errors.push(err);
         }
     }
 
     let st = cx.global_mut::<ShellState>();
-    st.plugins = plugins;
-    st.handlers = handlers;
-    for error in errors {
-        report_error(cx, RuntimeError::lifecycle(event.name(), error));
+    st.modules = modules;
+    st.observers = observers;
+    for (module, error) in module_errors {
+        report_error(cx, RuntimeError::module(module, error));
+    }
+    for error in observer_errors {
+        report_error(cx, RuntimeError::lifecycle(event.clone(), error));
     }
 }
 
@@ -570,6 +660,28 @@ pub(crate) fn report_error(cx: &mut App, error: RuntimeError) {
         log::error!("{error}");
         cx.global_mut::<ShellState>().reporting_error = false;
     }
+}
+
+/// The quit a module `init` or the common start hook deferred, if any.
+///
+/// Non-mutating: unlike [`finish_start`], asking does not publish readiness, so
+/// the startup sequence can skip the launch hook and the primary surface
+/// without marking the shell ready before a surface exists.
+pub(crate) fn deferred_quit(cx: &App) -> Option<ShutdownReason> {
+    if !cx.has_global::<ShellState>() {
+        return None;
+    }
+    cx.global::<ShellState>().readiness.deferred_quit()
+}
+
+/// Mark the application startup transaction as begun.
+///
+/// Called by the startup sequence immediately before the common start phase,
+/// whether or not a start hook is registered. From this point on the
+/// application owns state that a failure must unwind, so every later teardown
+/// runs the declared application shutdown hook.
+pub(crate) fn enter_app_start(cx: &mut App) {
+    cx.global_mut::<ShellState>().app_start_entered = true;
 }
 
 /// Complete the transactional startup state and return any deferred quit.
@@ -625,7 +737,7 @@ pub(crate) fn drain_pending(cx: &mut App) -> PendingDrain {
 /// If an exit is triggered, it is attributed to any `pending_exit_reason`
 /// recorded by the window-close observer (consumed here), else
 /// [`ShutdownReason::Requested`]. This makes attribution robust to the ordering
-/// between this observer and a window-manager plugin's hold-drop: the reason is
+/// between this observer and the window module's hold-drop: the reason is
 /// recorded on close and consumed by whichever evaluation actually exits.
 pub(crate) fn evaluate_exit(cx: &mut App) {
     if !cx.has_global::<ShellState>() {
@@ -719,16 +831,42 @@ fn run_will_exit(cx: &mut App) {
         );
     }
     deliver_event(cx, &AppEvent::WillExit);
-    shutdown_plugins(cx);
+    run_app_shutdown(cx);
+    shutdown_modules(cx);
 }
 
-/// Shut plugins down in reverse init order.
-fn shutdown_plugins(cx: &mut App) {
-    let mut plugins = std::mem::take(&mut cx.global_mut::<ShellState>().plugins);
-    for plugin in plugins.iter_mut().rev() {
-        plugin.shutdown(cx);
+/// Run the declaration's application shutdown hook, at most once.
+///
+/// Skipped entirely unless the application startup transaction began (see
+/// [`enter_app_start`]). A framework, module, or setup failure *before*
+/// the common start phase means the application never ran a line of its own
+/// composition code, so calling its shutdown hook would ask it to tear down
+/// state it never built.
+///
+/// Otherwise it runs between `WillExit` and reverse module shutdown: the
+/// application tears down while every framework module it was built on is still
+/// live, and the modules then tear down under it. A failure is nonfatal by
+/// definition — the process is already exiting — so it is reported as
+/// [`RuntimeError::shutdown`] and teardown continues.
+fn run_app_shutdown(cx: &mut App) {
+    if !cx.global::<ShellState>().app_start_entered {
+        return;
     }
-    // Plugins are done; they are not restored.
+    let Some(hook) = cx.global_mut::<ShellState>().app_shutdown.take() else {
+        return;
+    };
+    if let Err(error) = hook(cx) {
+        report_error(cx, RuntimeError::shutdown(error));
+    }
+}
+
+/// Shut the runtime modules down in reverse init order.
+fn shutdown_modules(cx: &mut App) {
+    let mut modules = std::mem::take(&mut cx.global_mut::<ShellState>().modules);
+    for module in modules.iter_mut().rev() {
+        module.shutdown(cx);
+    }
+    // The modules are done; they are not restored.
 }
 
 /// Convenience for early listeners that need to synthesize an `OpenRequest`.
@@ -948,5 +1086,297 @@ mod tests {
         assert!(pending.is_empty());
         assert_eq!(pending.push(AppEvent::Reopened), Err(AppClosed));
         assert!(pending.proxy.get().is_none());
+    }
+
+    // ------------------------------------------------------- reopen restore
+    // Regression coverage for the retained-`LaunchRuntime` primary-restore
+    // contract (issues #3/#6/#29). `deliver_event` is the single internal
+    // delivery path both a live platform `on_reopen` callback and a reopen
+    // queued before readiness funnel through (via `PendingEvents`/
+    // `drain_pending`); the headless test backend cannot trigger the platform
+    // callback itself, so these tests call `deliver_event` directly.
+
+    /// A typed primary content view carrying a `u32` marker value, so a
+    /// recreated primary can be distinguished from a fresh/default-built one.
+    struct Marker {
+        value: u32,
+    }
+
+    impl gpui::Render for Marker {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            gpui::div()
+        }
+    }
+
+    fn build_marker(value: &u32, _window: &mut gpui::Window, cx: &mut App) -> gpui::Entity<Marker> {
+        use gpui::AppContext as _;
+        cx.new(|_| Marker { value: *value })
+    }
+
+    fn parse_marker(
+        _process: &crate::declaration::ProcessLaunch,
+    ) -> anyhow::Result<crate::declaration::LaunchDecision<u32>> {
+        Ok(crate::declaration::LaunchDecision::Run(42))
+    }
+
+    /// A retained runtime for a declaration with exactly one typed primary,
+    /// carrying the marker value `42`.
+    fn marker_runtime() -> Rc<LaunchRuntime> {
+        use crate::declaration::{AppDeclaration, LaunchSpec, PreparedLaunch, Surface, SurfaceKey};
+
+        let prepared = AppDeclaration::new(crate::declaration::tests::identity())
+            .launch(LaunchSpec::new(parse_marker).primary_surface(Surface::new(
+                SurfaceKey::<Marker, u32>::primary(),
+                build_marker,
+            )))
+            .prepare_launch(&crate::declaration::ProcessLaunch::empty())
+            .expect("the marker parser succeeds");
+        let PreparedLaunch::Run(runtime) = prepared else {
+            panic!("the marker parser always runs");
+        };
+        Rc::new(runtime)
+    }
+
+    /// Install the shell global and the window manager, retaining `runtime`
+    /// and registering `observers` — mirroring `Startup::run`'s own sequence
+    /// (`install`, then the launch runtime is retained, before any surface
+    /// opens). Declares the marker primary surface unless `declare_primary`
+    /// is false (used to exercise a restore failure).
+    fn install_marker_shell(
+        cx: &mut App,
+        namespace: &'static str,
+        runtime: &Rc<LaunchRuntime>,
+        declare_primary: bool,
+        observers: Vec<EventHandler>,
+        error_reporter: Box<dyn Fn(&RuntimeError, &mut App)>,
+    ) -> (AppInfo, AppProxy) {
+        use crate::declaration::{DeclaredSurface, Surface, SurfaceKey, SurfaceRole};
+        use crate::liveness::{ExitPolicy, InitialActivation};
+        use crate::module::RuntimeModule as _;
+        use crate::windows::{WindowsModule, declared_surface_module};
+        use neutron_components_storage::PathLayout;
+
+        neutron_components::init(cx);
+        let info = AppInfo::new(
+            crate::declaration::tests::identity(),
+            AppPaths::new(namespace, PathLayout::PlatformDefault).expect("test paths resolve"),
+            PlatformCapabilities::detect(),
+        );
+        let proxy = install(
+            cx,
+            info.clone(),
+            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Vec::new(),
+            observers,
+            Arc::new(PendingEvents::default()),
+            error_reporter,
+            None,
+        );
+        set_launch_runtime(cx, Rc::clone(runtime));
+        WindowsModule::new()
+            .init(cx, &info, &proxy)
+            .expect("the window manager initializes");
+        if declare_primary {
+            declared_surface_module(DeclaredSurface::erase(
+                Surface::new(SurfaceKey::<Marker, u32>::primary(), build_marker),
+                SurfaceRole::Primary,
+            ))
+            .init(cx, &info, &proxy)
+            .expect("the primary surface installs");
+        }
+        (info, proxy)
+    }
+
+    #[gpui::test]
+    fn reopen_restores_the_primary_from_the_retained_launch_value(cx: &mut TestAppContext) {
+        use crate::declaration::SurfaceKey;
+        use crate::windows::{SurfaceOpen, WindowManager, open_surface};
+
+        let runtime = marker_runtime();
+        let observed_window_count_on_reopen = Arc::new(Mutex::new(None));
+        let observer = Arc::clone(&observed_window_count_on_reopen);
+        let observers: Vec<EventHandler> = vec![Box::new(move |event, cx| {
+            if matches!(event, AppEvent::Reopened) {
+                *observer.lock().expect("observer log poisoned") =
+                    Some(cx.global::<WindowManager>().window_count());
+            }
+            Ok(())
+        })];
+
+        cx.update(|cx| {
+            install_marker_shell(
+                cx,
+                "appshell-reopen-restore-tests",
+                &runtime,
+                true,
+                observers,
+                Box::new(|_, _| {}),
+            );
+
+            let SurfaceOpen::Created(handle) =
+                open_surface(cx, SurfaceKey::<Marker, u32>::primary(), &42)
+                    .expect("the primary opens")
+            else {
+                panic!("the first open creates the primary");
+            };
+            assert_eq!(
+                cx.global::<WindowManager>().window_count(),
+                1,
+                "the initial primary opens once",
+            );
+            handle.close(cx).expect("close the primary");
+        });
+
+        cx.update(|cx| {
+            assert!(
+                !crate::windows::any_declared_surface_live(cx),
+                "close reconciliation completed before Reopened is delivered",
+            );
+
+            deliver_event(cx, &AppEvent::Reopened);
+
+            assert_eq!(
+                cx.global::<WindowManager>().window_count(),
+                1,
+                "Reopened recreates the primary",
+            );
+            assert_eq!(
+                *observed_window_count_on_reopen
+                    .lock()
+                    .expect("observer log poisoned"),
+                Some(1),
+                "the primary already exists by the time the Reopened observer runs",
+            );
+
+            let SurfaceOpen::Reused(reopened) =
+                open_surface(cx, SurfaceKey::<Marker, u32>::primary(), &0)
+                    .expect("the recreated primary is live")
+            else {
+                panic!("this probe reuses the recreated primary");
+            };
+            assert_eq!(
+                reopened.content().read(cx).value,
+                42,
+                "the recreated primary was rebuilt from the same retained launch value",
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn reopen_does_not_create_a_primary_while_another_declared_surface_is_live(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::declaration::{DeclaredSurface, Surface, SurfaceKey, SurfaceRole};
+        use crate::module::RuntimeModule as _;
+        use crate::windows::{SurfaceOpen, WindowManager, declared_surface_module, open_surface};
+
+        let runtime = marker_runtime();
+
+        cx.update(|cx| {
+            let (info, proxy) = install_marker_shell(
+                cx,
+                "appshell-reopen-restore-aux-tests",
+                &runtime,
+                true,
+                Vec::new(),
+                Box::new(|_, _| {}),
+            );
+            declared_surface_module(DeclaredSurface::erase(
+                Surface::new(SurfaceKey::<Marker, u32>::new("aux"), build_marker),
+                SurfaceRole::Auxiliary,
+            ))
+            .init(cx, &info, &proxy)
+            .expect("the auxiliary surface installs");
+
+            let SurfaceOpen::Created(primary) =
+                open_surface(cx, SurfaceKey::<Marker, u32>::primary(), &42)
+                    .expect("the primary opens")
+            else {
+                panic!("the first open creates the primary");
+            };
+            open_surface(cx, SurfaceKey::<Marker, u32>::new("aux"), &7)
+                .expect("the auxiliary surface opens");
+            primary.close(cx).expect("close the primary");
+        });
+
+        cx.update(|cx| {
+            assert!(
+                crate::windows::any_declared_surface_live(cx),
+                "the auxiliary surface is still live",
+            );
+
+            deliver_event(cx, &AppEvent::Reopened);
+
+            assert_eq!(
+                cx.global::<WindowManager>().window_count(),
+                1,
+                "Reopened does not create a primary while another declared \
+                 surface remains live",
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn a_failed_primary_restore_is_reported_and_reopened_still_reaches_observers(
+        cx: &mut TestAppContext,
+    ) {
+        let runtime = marker_runtime();
+        let errors: Arc<Mutex<Vec<(crate::error::RuntimeOperation, Option<AppEvent>, String)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let error_log = Arc::clone(&errors);
+        let observed_reopened = Arc::new(Mutex::new(false));
+        let observer = Arc::clone(&observed_reopened);
+        let observers: Vec<EventHandler> = vec![Box::new(move |event, _cx| {
+            if matches!(event, AppEvent::Reopened) {
+                *observer.lock().expect("observer log poisoned") = true;
+            }
+            Ok(())
+        })];
+
+        cx.update(|cx| {
+            // The primary surface is deliberately never declared, so the
+            // retained runtime's restore attempt fails.
+            install_marker_shell(
+                cx,
+                "appshell-reopen-restore-failure-tests",
+                &runtime,
+                false,
+                observers,
+                Box::new(move |error, _cx| {
+                    error_log.lock().expect("error log poisoned").push((
+                        error.operation(),
+                        error.event().cloned(),
+                        error.source_error().to_string(),
+                    ));
+                }),
+            );
+
+            deliver_event(cx, &AppEvent::Reopened);
+        });
+
+        assert!(
+            *observed_reopened.lock().expect("observer log poisoned"),
+            "Reopened still reaches observers after a failed restore",
+        );
+        let errors = errors.lock().expect("error log poisoned");
+        assert_eq!(
+            errors.len(),
+            1,
+            "the failed restore is reported exactly once: {errors:?}"
+        );
+        assert_eq!(errors[0].0, crate::error::RuntimeOperation::Lifecycle);
+        assert!(
+            matches!(errors[0].1, Some(AppEvent::Reopened)),
+            "the report carries the Reopened lifecycle context: {errors:?}",
+        );
+        assert_eq!(
+            errors[0].2, "surface `primary` is not declared",
+            "the report's source is the precise undeclared-surface cause, \
+             not an `AppShellError::Startup` wrapper's generic message: {errors:?}",
+        );
     }
 }

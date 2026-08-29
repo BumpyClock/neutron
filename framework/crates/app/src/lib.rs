@@ -1,28 +1,29 @@
 //! Application shell for neutron-components apps.
 //!
-//! `AppShell` is a thin builder over a sealed plugin/phase mechanism. Builder
-//! methods record intent; a central sequencer ([`phases`]) fixes the startup and
-//! reverse-shutdown order. Lifecycle is an event stream ([`lifecycle::AppEvent`])
-//! with early platform-listener registration and queue-until-ready delivery;
-//! liveness is hold/release leases ([`liveness`]); thread affinity is explicit
-//! ([`AppInfo`]/[`AppProxy`] are `Send + Sync`, main-thread state is a GPUI
-//! global reached via [`AppShellExt`]).
+//! Applications declare themselves as a type implementing [`DesktopApp`],
+//! building an opaque [`AppDeclaration`] from [`AppDeclaration::new`], and run
+//! it with [`AppShell::run`]. Lifecycle is an event stream ([`AppEvent`]) with
+//! early platform-listener registration and queue-until-ready delivery;
+//! liveness is hold/release leases ([`ShellHold`]); thread affinity is
+//! explicit ([`AppInfo`]/[`AppProxy`] are `Send + Sync`, main-thread state is
+//! reached through the [`Shell`] runtime trait).
 //!
 //! See `docs/learned/app-platform-plan.md` §3 for the reviewed contracts.
 
-pub mod capabilities;
+mod capabilities;
 pub mod commands;
-mod defaults;
-pub mod error;
-pub mod handles;
-pub mod lifecycle;
-pub mod liveness;
-pub mod phases;
-pub mod plugin;
-pub mod settings;
-pub mod shell;
-pub mod theme;
-pub mod windows;
+mod declaration;
+mod error;
+mod handles;
+mod lifecycle;
+mod liveness;
+mod module;
+mod runtime;
+mod settings;
+mod setup;
+mod shell;
+mod theme;
+mod windows;
 
 // Framework re-exports so app crates depend on one thing.
 pub use gpui;
@@ -36,49 +37,56 @@ pub use neutron_components_manifest::schema::{AppIdentity, IdentityRef};
 // Storage types used directly in the shell API.
 pub use neutron_components_storage::{AppPaths, PathLayout};
 
-// Core surface.
-pub use capabilities::{Capability, PlatformCapabilities};
-pub use error::{
-    AppClosed, AppShellError, BuilderConfigurationError, MenuConfiguration, RuntimeError,
-    RuntimeOperation, StartupHook,
+// Declaration and runtime value types.
+pub use capabilities::{
+    Capability, PlatformCapabilities, PlatformCapability, UnsupportedCapability,
 };
-pub use handles::{AppInfo, AppProxy, AppShellExt, ShellHandle, ShellState};
-pub use lifecycle::{AppEvent, LaunchRequest, OpenRequest, ShutdownReason};
-pub use liveness::{ExitPolicy, InitialActivation, ShellHold};
-pub use phases::Phase;
-pub use plugin::{AppPlugin, BuildContext, ShellSeed};
-pub use shell::{AppShell, AppShellBuilder, EnvironmentPolicy, LoggingPolicy, PlatformRunner};
-
-// Service surface.
+pub use commands::standard::DesktopPlatform;
 pub use commands::{
-    ABOUT_COMMAND_ID, About, AppCommandsExt, AppMenusExt, Command, CommandError, CommandId,
-    CommandRegistry, CommandScope, MenuPlacement, MenuPlan, MenuSection, MenusPlugin,
-    OPEN_SETTINGS_COMMAND_ID, OpenSettings, QUIT_COMMAND_ID, StandardMenus, THEME_SECTION,
-    menus_invalidate,
+    Command, CommandBinding, CommandError, CommandFault, CommandId, CommandLabel, Commands, Menu,
+    MenuBar, MenuKey, MenuLabel, MenuNode, MenuOutline, MenuOutlineEntry, MenuSectionKey,
 };
+pub use declaration::{
+    AdvancedHooks, AppDeclaration, DeclarationError, DeclarationErrors, DesktopApp, LaunchDecision,
+    LaunchSpec, ProcessLaunch, SetupKey, SetupModule, Surface, SurfaceKey,
+};
+pub use error::{AppClosed, AppShellError, RuntimeError, RuntimeOperation};
+pub use handles::{AppInfo, AppProxy};
+pub use lifecycle::{AppEvent, OpenRequest, ShutdownReason};
+pub use liveness::{ExitPolicy, InitialActivation, ShellHold};
+pub use runtime::Shell;
 pub use settings::{
-    AppSettings, FutureVersionPolicy, SettingsExt, SettingsPlugin, ShellPreferences,
-    ShellPreferencesPlugin, StoreKey, ThemeMode, shell_preferences, update_shell_preferences,
+    AppSettings, FutureVersionPolicy, Settings, SettingsError, ShellPreferences, StoreKey,
+    ThemeMode, shell_preferences, update_shell_preferences,
 };
-pub use theme::{ThemePlugin, ThemeSelection, ThemeSource};
+pub use setup::SetupContext;
+pub use shell::{AppShell, EnvironmentPolicy, LoggingPolicy};
+pub use theme::{
+    SwitchTheme, SwitchThemeMode, ThemeAsset, ThemeAssetSource, ThemeMenuGroup, ThemeMenuItem,
+    ThemeSelection, ThemeSource, on_theme_registry_changed, theme_menu_items,
+};
 pub use windows::{
-    AppWindowsExt, OpenedWindow, OverlaySpec, RootPolicy, Singleton, WindowError, WindowKey,
-    WindowManager, WindowSpec, WindowsPlugin,
+    OverlaySpec, RawWindow, SurfaceHandle, SurfaceOpen, WindowError, WindowKey, WindowSize,
 };
+
+/// Headless test entry points, exercising the same declared execution path as
+/// [`AppShell::run`].
+#[cfg(feature = "test-support")]
+pub mod testing {
+    pub use crate::declaration::run::testing::{run, run_with};
+}
 
 /// Common imports for application entry points: `use neutron_components_app::prelude::*;`.
 pub mod prelude {
-    pub use crate::commands::{AppCommandsExt, AppMenusExt, MenuPlan, StandardMenus};
+    pub use crate::commands::{Command, Commands, MenuBar};
     pub use crate::error::{AppClosed, AppShellError, RuntimeError, RuntimeOperation};
-    pub use crate::handles::{AppInfo, AppProxy, AppShellExt, ShellHandle};
-    pub use crate::lifecycle::{AppEvent, LaunchRequest, OpenRequest, ShutdownReason};
+    pub use crate::handles::{AppInfo, AppProxy};
+    pub use crate::lifecycle::{AppEvent, OpenRequest, ShutdownReason};
     pub use crate::liveness::{ExitPolicy, InitialActivation, ShellHold};
-    pub use crate::settings::{AppSettings, SettingsExt, StoreKey};
-    pub use crate::shell::{AppShell, EnvironmentPolicy, LoggingPolicy, PlatformRunner};
+    pub use crate::runtime::Shell;
+    pub use crate::settings::{AppSettings, Settings, StoreKey};
+    pub use crate::shell::{AppShell, EnvironmentPolicy, LoggingPolicy};
     pub use crate::theme::ThemeSource;
-    pub use crate::windows::{
-        AppWindowsExt, RootPolicy, Singleton, WindowError, WindowKey, WindowManager, WindowSpec,
-    };
-    pub use crate::{IdentityRef, PathLayout};
+    pub use crate::{DesktopApp, IdentityRef, PathLayout};
     pub use gpui::App;
 }

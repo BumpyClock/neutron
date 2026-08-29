@@ -33,6 +33,77 @@ impl Capability {
     }
 }
 
+/// A typed identifier for one field of [`PlatformCapabilities`].
+///
+/// Used with [`PlatformCapabilities::get`] and [`PlatformCapabilities::require`]
+/// so callers can look up a capability by value instead of naming a struct
+/// field, and so [`UnsupportedCapability`] can report which capability failed
+/// without a string identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PlatformCapability {
+    /// Click-through overlay surfaces (`open_overlay_surface`).
+    OverlaySurface,
+    /// System tray / status-item icon.
+    Tray,
+    /// Right-click dock menu (macOS) / jump list (Windows).
+    DockMenu,
+    /// OS credential store (keychain / libsecret / credential manager).
+    CredentialStore,
+    /// Registering the app as a handler for custom URL schemes.
+    UrlSchemes,
+    /// Restoring a window to an exact previous position.
+    PreciseWindowPositioning,
+}
+
+impl std::fmt::Display for PlatformCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::OverlaySurface => "overlay_surface",
+            Self::Tray => "tray",
+            Self::DockMenu => "dock_menu",
+            Self::CredentialStore => "credential_store",
+            Self::UrlSchemes => "url_schemes",
+            Self::PreciseWindowPositioning => "precise_window_positioning",
+        })
+    }
+}
+
+/// A requested [`PlatformCapability`] is not supported in this process.
+///
+/// Carries the typed capability alongside the same static reason reported by
+/// [`PlatformCapabilities::detect`], so callers can match on the capability
+/// without parsing the reason string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnsupportedCapability {
+    capability: PlatformCapability,
+    reason: &'static str,
+}
+
+impl UnsupportedCapability {
+    /// The capability that was requested and found unsupported.
+    pub const fn capability(&self) -> PlatformCapability {
+        self.capability
+    }
+
+    /// Human-readable, stable-ish explanation for logs and diagnostics.
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+}
+
+impl std::fmt::Display for UnsupportedCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "platform capability `{}` is unsupported: {}",
+            self.capability, self.reason
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedCapability {}
+
 /// A snapshot of platform capabilities relevant to app-shell features.
 ///
 /// Cloned into [`crate::AppInfo`] so background threads can inspect it before
@@ -83,6 +154,38 @@ impl PlatformCapabilities {
             ),
             url_schemes: url_schemes(),
             precise_window_positioning: precise_window_positioning(),
+        }
+    }
+
+    /// Look up one capability by its typed identifier.
+    ///
+    /// Reads the same field [`Self::detect`] populated for `capability`, so
+    /// the two never disagree on the reported [`Capability`] value.
+    pub const fn get(&self, capability: PlatformCapability) -> Capability {
+        match capability {
+            PlatformCapability::OverlaySurface => self.overlay_surface,
+            PlatformCapability::Tray => self.tray,
+            PlatformCapability::DockMenu => self.dock_menu,
+            PlatformCapability::CredentialStore => self.credential_store,
+            PlatformCapability::UrlSchemes => self.url_schemes,
+            PlatformCapability::PreciseWindowPositioning => self.precise_window_positioning,
+        }
+    }
+
+    /// Require that `capability` is supported, or report why it is not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnsupportedCapability`] carrying `capability` and the same
+    /// static reason returned by [`Self::get`] when the capability is
+    /// [`Capability::Unsupported`].
+    pub const fn require(
+        &self,
+        capability: PlatformCapability,
+    ) -> Result<(), UnsupportedCapability> {
+        match self.get(capability) {
+            Capability::Supported => Ok(()),
+            Capability::Unsupported { reason } => Err(UnsupportedCapability { capability, reason }),
         }
     }
 }
@@ -160,5 +263,83 @@ mod tests {
             Capability::Unsupported { reason } => assert_eq!(reason, "nope"),
             Capability::Supported => panic!("expected unsupported"),
         }
+    }
+
+    /// Regression: `get` must read the exact field `detect` populated for
+    /// each [`PlatformCapability`], so a typed lookup can never disagree with
+    /// the corresponding public struct field.
+    #[test]
+    fn get_matches_detect_field_for_every_capability() {
+        let caps = PlatformCapabilities::detect();
+        assert_eq!(
+            caps.get(PlatformCapability::OverlaySurface),
+            caps.overlay_surface
+        );
+        assert_eq!(caps.get(PlatformCapability::Tray), caps.tray);
+        assert_eq!(caps.get(PlatformCapability::DockMenu), caps.dock_menu);
+        assert_eq!(
+            caps.get(PlatformCapability::CredentialStore),
+            caps.credential_store
+        );
+        assert_eq!(caps.get(PlatformCapability::UrlSchemes), caps.url_schemes);
+        assert_eq!(
+            caps.get(PlatformCapability::PreciseWindowPositioning),
+            caps.precise_window_positioning
+        );
+    }
+
+    /// Regression: `require` on an unsupported capability must report the
+    /// same typed capability that was requested and the same reason `get`
+    /// would return, not a mismatched or generic value.
+    #[test]
+    fn require_reports_the_requested_capability_and_matching_reason() {
+        let caps = PlatformCapabilities::detect();
+
+        // `tray` is unsupported on every target today, so this exercises the
+        // error path deterministically regardless of build platform.
+        let Capability::Unsupported {
+            reason: expected_reason,
+        } = caps.get(PlatformCapability::Tray)
+        else {
+            panic!("expected tray to be unsupported");
+        };
+
+        let error = caps
+            .require(PlatformCapability::Tray)
+            .expect_err("tray must be reported as unsupported");
+        assert_eq!(error.capability(), PlatformCapability::Tray);
+        assert_eq!(error.reason(), expected_reason);
+    }
+
+    /// Regression: `require` on a supported capability must not fabricate an
+    /// `UnsupportedCapability`, otherwise callers gating on it would always
+    /// fail closed even when the platform reports support. Uses a fixed
+    /// fixture rather than `detect()` so the assertion runs deterministically
+    /// on every OS instead of being skippable (e.g. on Linux, where
+    /// `overlay_surface` is unsupported).
+    #[test]
+    fn require_succeeds_when_capability_is_supported() {
+        let caps = PlatformCapabilities {
+            overlay_surface: Capability::Supported,
+            tray: Capability::unsupported("fixture"),
+            dock_menu: Capability::unsupported("fixture"),
+            credential_store: Capability::unsupported("fixture"),
+            url_schemes: Capability::unsupported("fixture"),
+            precise_window_positioning: Capability::unsupported("fixture"),
+        };
+        assert!(caps.require(PlatformCapability::OverlaySurface).is_ok());
+    }
+
+    /// Regression: `UnsupportedCapability`'s `Display` must name the capability
+    /// so logs are actionable without inspecting the struct directly.
+    #[test]
+    fn unsupported_capability_display_names_the_capability() {
+        let error = UnsupportedCapability {
+            capability: PlatformCapability::CredentialStore,
+            reason: "deferred",
+        };
+        let rendered = error.to_string();
+        assert!(rendered.contains("credential_store"));
+        assert!(rendered.contains("deferred"));
     }
 }

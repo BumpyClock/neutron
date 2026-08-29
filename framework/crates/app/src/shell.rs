@@ -1,14 +1,18 @@
-//! The `AppShell` builder and phase-driven `run` (plan §3).
+//! The application entry point and the direct runtime plan it executes.
 //!
-//! Builder methods only *record intent*; [`AppShellBuilder::run`] executes the
-//! fixed phase order from [`crate::phases`]. Work that must happen before the
-//! GPUI event loop (path resolution, env/logging policy, `before_platform`,
-//! plugin `configure`) runs in `Preflight`; everything else runs inside the run
-//! closure with a raw `&mut gpui::App`.
+//! [`AppDeclaration`](crate::declaration::AppDeclaration) lowers itself into
+//! one [`RuntimePlan`]: finalized identity, assets, process policies, liveness
+//! and activation, the ordered runtime modules, the lifecycle
+//! observers/reporter/shutdown hook, the typed [`LaunchRuntime`], and the
+//! platform runner. [`RuntimePlan::run`] is the single startup implementation.
+//!
+//! Work that must happen before the GPUI event loop (path resolution,
+//! env/logging policy, the declared `prepare` hook, module `prepare`) runs
+//! first; everything after platform construction runs inside the run closure
+//! with a raw `&mut gpui::App` ([`Startup::run`]).
 
-use std::any::{Any, TypeId};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use gpui::{App, Application, AssetSource, QuitMode, SharedString};
@@ -16,20 +20,26 @@ use neutron_components_manifest::schema::IdentityRef;
 use neutron_components_storage::{AppPaths, PathLayout};
 
 use crate::capabilities::PlatformCapabilities;
-use crate::error::{
-    AppShellError, BuilderConfigurationError, MenuConfiguration, RuntimeError, StartupHook,
-};
-use crate::handles::{self, AppInfo, PendingEvents};
-use crate::lifecycle::{AppEvent, LaunchRequest};
+use crate::declaration::LaunchRuntime;
+use crate::error::{AppShellError, RuntimeError};
+use crate::handles::{self, AppInfo, AppShutdownHook, PendingEvents};
+use crate::lifecycle::AppEvent;
 use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
-use crate::phases::{Phase, PhaseTracker};
-use crate::plugin::{AppPlugin, BuildContext, EventHandler, ShellSeed};
+use crate::module::{EventHandler, RuntimeModules};
 
-type StartCallback = Box<dyn FnOnce(&LaunchRequest, &mut App) -> anyhow::Result<()> + 'static>;
-type ErrorReporter = Box<dyn Fn(&RuntimeError, &mut App) + 'static>;
+/// The declared common start hook, boxed for the plan.
+pub(crate) type StartCallback = Box<dyn FnOnce(&mut App) -> anyhow::Result<()> + 'static>;
+/// The declared observer of nonfatal runtime errors, boxed for the plan.
+pub(crate) type ErrorReporter = Box<dyn Fn(&RuntimeError, &mut App) + 'static>;
+/// The declared preparation hook, run once [`AppInfo`] exists (identity, paths,
+/// capabilities resolved) and before module `prepare`. Still no GPUI.
+pub(crate) type PrepareHook = Box<dyn FnOnce(&AppInfo) -> Result<(), AppShellError> + 'static>;
+/// The declared GPUI [`Application`] customization.
+pub(crate) type ConfigureApplication =
+    Box<dyn FnOnce(Application) -> Result<Application, AppShellError> + 'static>;
 
 /// Process-global environment policy (plan §3 — explicit, never a silent
-/// default). Applied once in `Preflight`.
+/// default). Applied once before the platform is constructed.
 #[non_exhaustive]
 pub enum EnvironmentPolicy {
     /// Inherit the launching environment unchanged (default; safe for a library).
@@ -40,8 +50,9 @@ pub enum EnvironmentPolicy {
     /// (desktop launchers) inherit a minimal `PATH` that omits entries a login
     /// shell would add (`/opt/homebrew/bin`, version-manager shims, …), so tools
     /// the app shells out to cannot be found. This policy runs the login shell
-    /// once during `Preflight` and copies its environment into the current
-    /// process — the established desktop-app fix (used by Tauri and others).
+    /// once before the platform exists and copies its environment into the
+    /// current process — the established desktop-app fix (used by Tauri and
+    /// others).
     ///
     /// # Soundness precondition (the caller's obligation)
     ///
@@ -66,12 +77,13 @@ pub enum EnvironmentPolicy {
 }
 
 // There is deliberately no `Custom(vars)` variant: `std::env::set_var` is
-// unsafe (UB with concurrent environment access on Unix), and this builder
-// cannot know whether the caller already spawned threads. The one env mutation
-// the shell performs — `LoginShell` above — is a single vetted repair carrying an
+// unsafe (UB with concurrent environment access on Unix), and the shell cannot
+// know whether the caller already spawned threads. The one env mutation the
+// shell performs — `LoginShell` above — is a single vetted repair carrying an
 // explicit caller precondition, not an open-ended "set these vars" hook. Apps
-// that need arbitrary environment changes must do so in their own `main()` before
-// constructing the shell, where the safety obligation is visibly theirs.
+// that need arbitrary environment changes must do so in their own `main()`
+// before declaring the application, where the safety obligation is visibly
+// theirs.
 
 /// Process-global logging policy (plan §3). The library must not seize the
 /// process logger by default.
@@ -79,19 +91,26 @@ pub enum EnvironmentPolicy {
 pub enum LoggingPolicy {
     /// The application (or its harness) owns logging. Default.
     External,
-    /// Run an app-provided initializer with resolved paths during `Preflight`.
-    Configure(Box<dyn FnOnce(&AppPaths)>),
+    /// Run an app-provided initializer with resolved paths, before the platform.
+    ///
+    /// The initializer is a non-capturing `fn` pointer: logging setup is a
+    /// process-global side effect, so it must not smuggle in application state.
+    /// A failure aborts startup as [`AppShellError::Preparation`] rather than
+    /// being logged and swallowed — the logger the message would go to is
+    /// exactly what failed to initialize.
+    Configure(fn(&AppPaths) -> anyhow::Result<()>),
 }
 
-/// Selects the GPUI platform backend. Injected for testing.
+/// Selects the GPUI platform backend. Injected for testing; never public.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PlatformRunner {
+pub(crate) struct PlatformRunner {
     kind: RunnerKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunnerKind {
     Native,
+    #[cfg(feature = "test-support")]
     Headless,
     #[cfg(test)]
     Failing,
@@ -99,21 +118,22 @@ enum RunnerKind {
 
 impl PlatformRunner {
     /// The real platform for the current OS.
-    pub fn native() -> Self {
+    pub(crate) fn native() -> Self {
         Self {
             kind: RunnerKind::Native,
         }
     }
 
     /// A headless platform, for bootstrap/lifecycle tests.
-    pub fn headless() -> Self {
+    #[cfg(feature = "test-support")]
+    pub(crate) fn headless() -> Self {
         Self {
             kind: RunnerKind::Headless,
         }
     }
 
     #[cfg(test)]
-    fn failing() -> Self {
+    pub(crate) fn failing() -> Self {
         Self {
             kind: RunnerKind::Failing,
         }
@@ -122,6 +142,7 @@ impl PlatformRunner {
     fn build(self) -> Result<Application, AppShellError> {
         match self.kind {
             RunnerKind::Native => gpui_platform::try_application().map_err(AppShellError::Platform),
+            #[cfg(feature = "test-support")]
             RunnerKind::Headless => gpui_platform::try_headless().map_err(AppShellError::Platform),
             #[cfg(test)]
             RunnerKind::Failing => Err(AppShellError::Platform(anyhow::anyhow!(
@@ -137,242 +158,55 @@ impl Default for PlatformRunner {
     }
 }
 
-/// Entry point: `AppShell::builder(APP_IDENTITY)`.
+/// The application's entry point.
 pub struct AppShell;
 
 impl AppShell {
-    /// Start building an application shell from the compiled-in identity.
+    /// Run the application declared by `A`.
     ///
-    /// `identity` is the `APP_IDENTITY` produced by `include_identity!()`.
-    pub fn builder(identity: IdentityRef) -> AppShellBuilder {
-        AppShellBuilder::new(identity)
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::Declaration`] for a malformed declaration,
+    /// [`AppShellError::Launch`] for a launch-parse failure, and whatever the
+    /// startup path reports thereafter.
+    pub fn run<A: crate::declaration::DesktopApp>() -> Result<(), AppShellError> {
+        crate::declaration::run::run::<A>()
     }
 }
 
-/// Accumulates configuration; [`AppShellBuilder::run`] executes it.
-pub struct AppShellBuilder {
-    identity: IdentityRef,
-    assets: Vec<Arc<dyn AssetSource>>,
-    path_layout: PathLayout,
-    environment: EnvironmentPolicy,
-    logging: LoggingPolicy,
-    initial_activation: InitialActivation,
-    exit_policy: ExitPolicy,
-    configure_app: Option<Box<dyn FnOnce(Application) -> Result<Application, AppShellError>>>,
-    before_platform: Vec<Box<dyn FnOnce() -> Result<(), AppShellError>>>,
-    state: HashMap<TypeId, Box<dyn Any>>,
-    plugins: Vec<Box<dyn AppPlugin>>,
-    handlers: Vec<EventHandler>,
-    start: Option<StartCallback>,
-    startup_hook: Option<StartupHook>,
-    configuration_error: Option<BuilderConfigurationError>,
-    error_reporter: Option<ErrorReporter>,
-    shell_preferences_installed: bool,
-    menu_configuration: Option<MenuConfiguration>,
-    runner: PlatformRunner,
+/// One validated declaration, finalized into everything startup needs.
+///
+/// Private and inert: it holds resolved values, not intent, and
+/// [`AppDeclaration::lower`](crate::declaration::AppDeclaration) is its only
+/// constructor. There is no generic module-injection seam on it — an
+/// application contributes runtime modules only through the declaration
+/// vocabulary that owns them.
+pub(crate) struct RuntimePlan {
+    pub(crate) identity: IdentityRef,
+    /// Asset sources in resolution order; the first to resolve a path wins.
+    pub(crate) assets: Vec<Arc<dyn AssetSource>>,
+    pub(crate) path_layout: PathLayout,
+    pub(crate) environment: EnvironmentPolicy,
+    pub(crate) logging: LoggingPolicy,
+    pub(crate) initial_activation: InitialActivation,
+    pub(crate) exit_policy: ExitPolicy,
+    pub(crate) prepare: Option<PrepareHook>,
+    pub(crate) configure_application: Option<ConfigureApplication>,
+    /// Runtime modules in init order; shutdown runs them in reverse.
+    pub(crate) modules: RuntimeModules,
+    /// Declared lifecycle observers, delivered after every module.
+    pub(crate) observers: Vec<EventHandler>,
+    pub(crate) start: Option<StartCallback>,
+    pub(crate) error_reporter: Option<ErrorReporter>,
+    pub(crate) app_shutdown: Option<AppShutdownHook>,
+    /// The prepared typed launch: `before_primary` and the primary opener.
+    pub(crate) launch: LaunchRuntime,
+    pub(crate) runner: PlatformRunner,
 }
 
-impl AppShellBuilder {
-    fn new(identity: IdentityRef) -> Self {
-        Self {
-            identity,
-            assets: Vec::new(),
-            path_layout: PathLayout::PlatformDefault,
-            environment: EnvironmentPolicy::Inherit,
-            logging: LoggingPolicy::External,
-            initial_activation: InitialActivation::Regular,
-            exit_policy: ExitPolicy::WhenIdle,
-            configure_app: None,
-            before_platform: Vec::new(),
-            state: HashMap::new(),
-            // Window management is the only always-present app service.
-            // Shell preferences are installed only by consumers.
-            plugins: vec![Box::new(crate::windows::WindowsPlugin::new())],
-            handlers: Vec::new(),
-            start: None,
-            startup_hook: None,
-            configuration_error: None,
-            error_reporter: None,
-            shell_preferences_installed: false,
-            menu_configuration: None,
-            runner: PlatformRunner::native(),
-        }
-    }
-
-    /// Append an asset source. Sources are tried in registration order; the
-    /// first to resolve a path wins (no silent last-writer-wins).
-    pub fn assets(mut self, source: impl AssetSource) -> Self {
-        self.assets.push(Arc::new(source));
-        self
-    }
-
-    /// Choose the on-disk directory layout (default [`PathLayout::PlatformDefault`]).
-    pub fn path_layout(mut self, layout: PathLayout) -> Self {
-        self.path_layout = layout;
-        self
-    }
-
-    /// Set the environment policy (default [`EnvironmentPolicy::Inherit`]).
-    pub fn environment(mut self, policy: EnvironmentPolicy) -> Self {
-        self.environment = policy;
-        self
-    }
-
-    /// Set the logging policy (default [`LoggingPolicy::External`]).
-    pub fn logging(mut self, policy: LoggingPolicy) -> Self {
-        self.logging = policy;
-        self
-    }
-
-    /// Set the initial-activation policy. Use [`InitialActivation::Passive`] for
-    /// tray-first apps (default [`InitialActivation::Regular`]).
-    pub fn initial_activation(mut self, activation: InitialActivation) -> Self {
-        self.initial_activation = activation;
-        self
-    }
-
-    /// Set the exit policy. Use [`ExitPolicy::Explicit`] for apps that outlive
-    /// their windows (default [`ExitPolicy::WhenIdle`]).
-    pub fn exit_policy(mut self, policy: ExitPolicy) -> Self {
-        self.exit_policy = policy;
-        self
-    }
-
-    /// Customize the GPUI [`Application`] before it runs (e.g. HTTP client).
-    pub fn configure_application(
-        mut self,
-        f: impl FnOnce(Application) -> Result<Application, AppShellError> + 'static,
-    ) -> Self {
-        self.configure_app = Some(Box::new(f));
-        self
-    }
-
-    /// Register a stateless side effect to run before the platform starts. Runs
-    /// on the main thread with no GPUI and no windows.
-    pub fn before_platform(
-        mut self,
-        f: impl FnOnce() -> Result<(), AppShellError> + 'static,
-    ) -> Self {
-        self.before_platform.push(Box::new(f));
-        self
-    }
-
-    /// Register typed state prepared before the platform exists (e.g. audio
-    /// bootstrap). Retrieve it later via `cx.app_state::<T>()`.
-    pub fn state<T: 'static>(mut self, value: T) -> Self {
-        self.state.insert(TypeId::of::<T>(), Box::new(value));
-        self
-    }
-
-    /// Install an internal plugin. Order is preserved for init; shutdown runs in
-    /// reverse.
-    pub fn plugin(mut self, plugin: impl AppPlugin) -> Self {
-        self.plugins.push(Box::new(plugin));
-        self
-    }
-
-    pub(crate) fn ensure_shell_preferences(mut self) -> Self {
-        if !self.shell_preferences_installed {
-            self.plugins
-                .push(Box::new(crate::settings::ShellPreferencesPlugin::new()));
-            self.shell_preferences_installed = true;
-        }
-        self
-    }
-
-    pub(crate) fn register_menu_configuration(mut self, configuration: MenuConfiguration) -> Self {
-        if let Some(first) = self.menu_configuration {
-            self.configuration_error
-                .get_or_insert(BuilderConfigurationError::DuplicateMenus {
-                    first,
-                    second: configuration,
-                });
-        } else {
-            self.menu_configuration = Some(configuration);
-        }
-        self
-    }
-
-    /// Run fallible application composition after shell services initialize and
-    /// before the app becomes ready.
-    ///
-    /// Only one `start`/`on_launch` callback may be registered. A duplicate is
-    /// returned as [`AppShellError::Configuration`] from [`Self::run`] before
-    /// platform construction.
-    pub fn start(
-        self,
-        start: impl FnOnce(&LaunchRequest, &mut App) -> anyhow::Result<()> + 'static,
-    ) -> Self {
-        self.register_start(StartupHook::Start, Box::new(start))
-    }
-
-    fn register_start(mut self, hook: StartupHook, start: StartCallback) -> Self {
-        if let Some(first) = self.startup_hook {
-            self.configuration_error
-                .get_or_insert(BuilderConfigurationError::DuplicateStartup {
-                    first,
-                    second: hook,
-                });
-        } else {
-            self.startup_hook = Some(hook);
-            self.start = Some(start);
-        }
-        self
-    }
-
-    /// Handle every lifecycle [`AppEvent`].
-    pub fn on_event(
-        mut self,
-        mut handler: impl FnMut(&AppEvent, &mut App) -> Result<(), AppShellError> + 'static,
-    ) -> Self {
-        self.handlers
-            .push(Box::new(move |event, cx| handler(event, cx)));
-        self
-    }
-
-    /// Compatibility sugar for the transactional [`Self::start`] slot.
-    ///
-    /// Unlike the old `Started` event sugar, failures are fatal and the callback
-    /// runs before `Started` observers, queued events, and activation.
-    pub fn on_launch(
-        self,
-        mut f: impl FnMut(&mut App) -> Result<(), AppShellError> + 'static,
-    ) -> Self {
-        self.register_start(
-            StartupHook::OnLaunch,
-            Box::new(move |_launch, cx| f(cx).map_err(anyhow::Error::new)),
-        )
-    }
-
-    /// Observe nonfatal runtime errors. The default reporter logs each error.
-    pub fn on_error(mut self, reporter: impl Fn(&RuntimeError, &mut App) + 'static) -> Self {
-        self.error_reporter = Some(Box::new(reporter));
-        self
-    }
-
-    /// Sugar over `on_event(Reopened)`.
-    pub fn on_reopen(
-        self,
-        mut f: impl FnMut(&mut App) -> Result<(), AppShellError> + 'static,
-    ) -> Self {
-        self.on_event(move |event, cx| {
-            if matches!(event, AppEvent::Reopened) {
-                f(cx)
-            } else {
-                Ok(())
-            }
-        })
-    }
-
-    /// Inject the platform runner (default native). Use
-    /// [`PlatformRunner::headless`] in tests.
-    pub fn runner(mut self, runner: PlatformRunner) -> Self {
-        self.runner = runner;
-        self
-    }
-
-    /// Execute the shell: run the fixed phase sequence, then the GPUI event loop.
-    pub fn run(self) -> Result<(), AppShellError> {
+impl RuntimePlan {
+    /// Execute the plan: process policies, the platform, then the GPUI loop.
+    pub(crate) fn run(self) -> Result<(), AppShellError> {
         let Self {
             identity,
             assets,
@@ -381,46 +215,39 @@ impl AppShellBuilder {
             logging,
             initial_activation,
             exit_policy,
-            configure_app,
-            before_platform,
-            state,
-            mut plugins,
-            handlers,
+            prepare,
+            configure_application,
+            mut modules,
+            observers,
             start,
-            configuration_error,
             error_reporter,
-            shell_preferences_installed: _,
-            menu_configuration: _,
-            startup_hook: _,
+            app_shutdown,
+            launch,
             runner,
         } = self;
 
-        // ---- Preflight (no GPUI) ----
-        if let Some(error) = configuration_error {
-            return Err(AppShellError::Configuration(error));
-        }
+        // ---- Before the platform (no GPUI) ----
         validate_identity(&identity)?;
         let paths =
             AppPaths::new(identity.data_namespace, path_layout).map_err(AppShellError::Paths)?;
         apply_environment(environment);
-        apply_logging(logging, &paths);
-        for hook in before_platform {
-            hook()?;
-        }
+        apply_logging(logging, &paths)?;
         let capabilities = PlatformCapabilities::detect();
         let app_info = AppInfo::new(identity, paths, capabilities);
 
-        // Plugin configure() sees identity/paths/capabilities before GPUI exists.
-        for plugin in &mut plugins {
-            let mut ctx = BuildContext { info: &app_info };
-            plugin.configure(&mut ctx);
+        // The declared preparation hook sees resolved identity/paths/
+        // capabilities; module `prepare` below observes any process state it
+        // established.
+        if let Some(prepare) = prepare {
+            prepare(&app_info)?;
+        }
+        for module in &mut modules {
+            module.prepare(&app_info);
         }
 
-        let launch = LaunchRequest::from_env();
-
-        // ---- ConfigureApp ----
+        // ---- The GPUI application ----
         let mut application = runner.build()?.with_assets(ChainedAssets::new(assets));
-        if let Some(configure) = configure_app {
+        if let Some(configure) = configure_application {
             application = configure(application)?;
         }
         // Quit mode is shell-owned and not customizable: liveness is the single
@@ -429,7 +256,7 @@ impl AppShellBuilder {
         // platform auto-quit and bypass the lifecycle/teardown path.
         application = application.with_quit_mode(QuitMode::Explicit);
 
-        // ---- EarlyListeners ----
+        // ---- Early platform listeners ----
         let pending = Arc::new(PendingEvents::default());
         {
             let pending = Arc::clone(&pending);
@@ -447,19 +274,25 @@ impl AppShellBuilder {
             });
         }
 
-        // ---- run: the remaining phases execute on the main thread ----
+        // ---- The main-thread startup sequence ----
         let error_cell: Arc<Mutex<Option<AppShellError>>> = Arc::new(Mutex::new(None));
         let liveness = Liveness::new(exit_policy, initial_activation);
-        let boot = Boot {
+        // Retained for the running shell's lifetime (issues #3/#6/#29):
+        // `Startup` uses it for the initial primary open, and a clone is
+        // stashed on `ShellState` (see `handles::set_launch_runtime`) so a
+        // later `Reopened` can restore the primary from the same immutable
+        // typed launch value, without ever publishing it through a public
+        // global.
+        let startup = Startup {
             app_info,
             liveness,
             initial_activation,
-            plugins,
-            handlers,
+            modules,
+            observers,
             pending,
-            state,
-            launch,
+            launch: Rc::new(launch),
             start,
+            app_shutdown,
             error_reporter: error_reporter.unwrap_or_else(|| {
                 Box::new(|error, _cx| {
                     log::error!("{error}");
@@ -468,9 +301,10 @@ impl AppShellBuilder {
         };
         let error_slot = Arc::clone(&error_cell);
         application.run(move |cx| {
-            if let Err(err) = boot.run(cx) {
-                // Boot already completed fatal teardown. Retain its error until
-                // the application loop returns, then surface it to the caller.
+            if let Err(err) = startup.run(cx) {
+                // Startup already completed fatal teardown. Retain its error
+                // until the application loop returns, then surface it to the
+                // caller.
                 log::error!("app shell startup failed: {err}");
                 *error_slot.lock().expect("error cell poisoned") = Some(err);
                 cx.quit();
@@ -484,80 +318,72 @@ impl AppShellBuilder {
     }
 }
 
-/// Everything moved into the run closure to execute the post-`ConfigureApp`
-/// phases on the main thread.
-struct Boot {
+/// Everything moved into the run closure to execute the post-platform startup
+/// sequence on the main thread.
+struct Startup {
     app_info: AppInfo,
     liveness: Liveness,
     initial_activation: InitialActivation,
-    plugins: Vec<Box<dyn AppPlugin>>,
-    handlers: Vec<EventHandler>,
+    modules: RuntimeModules,
+    observers: Vec<EventHandler>,
     pending: Arc<PendingEvents>,
-    state: HashMap<TypeId, Box<dyn Any>>,
-    launch: LaunchRequest,
+    launch: Rc<LaunchRuntime>,
     start: Option<StartCallback>,
+    app_shutdown: Option<AppShutdownHook>,
     error_reporter: ErrorReporter,
 }
 
-impl Boot {
+impl Startup {
     fn run(self, cx: &mut App) -> Result<(), AppShellError> {
         let Self {
             app_info,
             liveness,
             initial_activation,
-            mut plugins,
-            handlers,
+            mut modules,
+            observers,
             pending,
-            state,
             launch,
             start,
+            app_shutdown,
             error_reporter,
         } = self;
 
-        let mut phases = PhaseTracker::new();
-        phases.complete(Phase::Preflight);
-        phases.complete(Phase::ConfigureApp);
-        phases.complete(Phase::EarlyListeners);
-
-        // ComponentInit
+        // Component library globals, exactly once.
         neutron_components::init(cx);
-        phases.complete(Phase::ComponentInit);
 
-        // CoreServices: install the global (moves plugins/handlers/state in) and
+        // Core services: install the global (moves modules/observers in) and
         // start the cross-thread drain loop.
         let proxy = handles::install(
             cx,
             app_info.clone(),
             liveness,
-            std::mem::take(&mut plugins),
-            handlers,
+            std::mem::take(&mut modules),
+            observers,
             Arc::clone(&pending),
-            state,
-            phases,
             error_reporter,
+            app_shutdown,
         );
-        cx.global_mut::<crate::handles::ShellState>()
-            .record_phase(Phase::CoreServices);
+        // Retain the launch runtime on the shell global before any observer
+        // can run, so a `Reopened` delivered from this point on can already
+        // restore the primary (issues #3/#6/#29).
+        handles::set_launch_runtime(cx, Rc::clone(&launch));
 
         // Install lifecycle observers (incl. the `on_app_quit` teardown hook)
-        // immediately, BEFORE any application-controlled handler (plugin init,
-        // `Started`/`on_launch`) can run. Otherwise a `request_quit()` from an
-        // `on_launch` handler would terminate before the quit observer exists,
-        // skipping WillExit, reverse plugin shutdown, proxy close, and flush.
+        // immediately, BEFORE any application-controlled handler (module init,
+        // `Started`/`start`) can run. Otherwise a `request_quit()` from a
+        // `start` handler would terminate before the quit observer exists,
+        // skipping WillExit, reverse module shutdown, proxy close, and flush.
         handles::register_observers(cx);
 
-        // PluginInit: initialize plugins with the shell seed. A failure here is
-        // fatal (required service); it aborts startup, unwinding the already-
-        // initialized prefix in reverse (the documented shutdown contract).
-        let seed = ShellSeed {
-            info: app_info,
-            proxy: proxy.clone(),
-        };
-        let mut installed = cx.global_mut::<crate::handles::ShellState>().take_plugins();
+        // Initialize the runtime modules in declaration order. A failure here
+        // is fatal (required service); it aborts startup, unwinding the
+        // already-initialized prefix in reverse (the documented shutdown
+        // contract).
+        let mut installed = cx.global_mut::<crate::handles::ShellState>().take_modules();
         let mut initialized = 0usize;
         let mut init_error = None;
-        for plugin in &mut installed {
-            match plugin.init(cx, &seed) {
+        for module in &mut installed {
+            match module.init(cx, &app_info, &proxy) {
                 Ok(()) => initialized += 1,
                 Err(err) => {
                     init_error = Some(err);
@@ -566,30 +392,48 @@ impl Boot {
             }
         }
         if let Some(err) = init_error {
-            // The failing plugin never completed init and is not shut down; the
+            // The failing module never completed init and is not shut down; the
             // successfully-initialized prefix is torn down in reverse order.
             installed.truncate(initialized);
             cx.global_mut::<crate::handles::ShellState>()
-                .restore_plugins(installed);
+                .restore_modules(installed);
             handles::fail_startup(cx);
             return Err(err);
         }
         cx.global_mut::<crate::handles::ShellState>()
-            .restore_plugins(installed);
-        cx.global_mut::<crate::handles::ShellState>()
-            .record_phase(Phase::PluginInit);
+            .restore_modules(installed);
 
-        // Start: the one fatal application-owned composition transaction.
+        // The one fatal application-owned composition transaction. The
+        // transaction is entered before the hook runs — and even when none is
+        // declared — so every teardown from here on runs the application
+        // shutdown hook, including a failure inside `start` itself.
+        handles::enter_app_start(cx);
         if let Some(start) = start
-            && let Err(source) = start(&launch, cx)
+            && let Err(source) = start(cx)
         {
             handles::fail_startup(cx);
             return Err(AppShellError::Startup(source));
         }
-        cx.global_mut::<crate::handles::ShellState>()
-            .record_phase(Phase::Start);
 
-        // A quit requested during plugin init/start is deferred so a later
+        // The typed launch hook and the primary surface, between the common
+        // start hook and readiness. Both are skipped when a quit was already
+        // deferred by module `init` or by `start` — asked through the
+        // read-only `deferred_quit`, because `finish_start` would publish
+        // readiness before any surface exists.
+        if handles::deferred_quit(cx).is_none() {
+            launch
+                .before_primary(cx)
+                .inspect_err(|_| handles::fail_startup(cx))?;
+            // The launch hook itself may have requested quit.
+            if handles::deferred_quit(cx).is_none() {
+                launch
+                    .open_primary(cx)
+                    .map_err(AppShellError::Startup)
+                    .inspect_err(|_| handles::fail_startup(cx))?;
+            }
+        }
+
+        // A quit requested during module init/start is deferred so a later
         // startup error wins. Successful startup now performs normal shutdown,
         // without publishing readiness events or activating.
         if let Some(reason) = handles::finish_start(cx) {
@@ -598,8 +442,8 @@ impl Boot {
             return Ok(());
         }
 
-        // DrainQueue: deliver Started, enable post-ready delivery, drain buffer.
-        handles::deliver_event(cx, &AppEvent::Started(launch));
+        // Deliver Started, enable post-ready delivery, drain the buffer.
+        handles::deliver_event(cx, &AppEvent::Started);
         if cx
             .global::<crate::handles::ShellState>()
             .is_shutdown_requested()
@@ -617,8 +461,6 @@ impl Boot {
         {
             return Ok(());
         }
-        cx.global_mut::<crate::handles::ShellState>()
-            .record_phase(Phase::DrainQueue);
 
         // Activation.
         if cx
@@ -636,8 +478,6 @@ impl Boot {
         {
             return Ok(());
         }
-        cx.global_mut::<crate::handles::ShellState>()
-            .record_phase(Phase::Activation);
 
         // Startup has reached its stable state. Evaluate exit once so an app
         // that launched genuinely idle (no windows opened during `Started`, no
@@ -666,10 +506,14 @@ fn activation_force(activation: InitialActivation) -> Option<bool> {
 
 fn validate_identity(identity: &IdentityRef) -> Result<(), AppShellError> {
     if identity.app_id.is_empty() {
-        return Err(AppShellError::Identity("app_id is empty".into()));
+        return Err(AppShellError::Preparation(anyhow::anyhow!(
+            "app_id is empty"
+        )));
     }
     if identity.data_namespace.is_empty() {
-        return Err(AppShellError::Identity("data_namespace is empty".into()));
+        return Err(AppShellError::Preparation(anyhow::anyhow!(
+            "data_namespace is empty"
+        )));
     }
     Ok(())
 }
@@ -706,10 +550,10 @@ fn apply_login_shell() {
     );
 }
 
-fn apply_logging(policy: LoggingPolicy, paths: &AppPaths) {
+fn apply_logging(policy: LoggingPolicy, paths: &AppPaths) -> Result<(), AppShellError> {
     match policy {
-        LoggingPolicy::External => {}
-        LoggingPolicy::Configure(init) => init(paths),
+        LoggingPolicy::External => Ok(()),
+        LoggingPolicy::Configure(init) => init(paths).map_err(AppShellError::Preparation),
     }
 }
 
@@ -756,12 +600,47 @@ impl AssetSource for ChainedAssets {
 }
 
 #[cfg(test)]
+impl RuntimePlan {
+    /// Load `path` through the lowered asset sources, honoring first-match-wins.
+    ///
+    /// Lets the declaration tests assert asset precedence without a platform.
+    pub(crate) fn load_asset(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        ChainedAssets::new(self.assets.clone()).load(path)
+    }
+
+    /// The concrete type names of the lowered runtime modules, in init order.
+    pub(crate) fn module_names(&self) -> Vec<&'static str> {
+        self.modules
+            .iter()
+            .map(|module| module.type_name())
+            .collect()
+    }
+
+    /// The environment policy as a stable test label.
+    pub(crate) fn environment_name(&self) -> &'static str {
+        match self.environment {
+            EnvironmentPolicy::Inherit => "inherit",
+            EnvironmentPolicy::LoginShell => "login-shell",
+        }
+    }
+
+    /// The logging policy as a stable test label.
+    pub(crate) fn logging_name(&self) -> &'static str {
+        match self.logging {
+            LoggingPolicy::External => "external",
+            LoggingPolicy::Configure(_) => "configure",
+        }
+    }
+}
+
+#[cfg(test)]
 #[path = "shell_pending_tests.rs"]
 mod pending_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::module::RuntimeModule;
 
     enum AssetOutcome {
         Bytes(&'static [u8]),
@@ -806,23 +685,37 @@ mod tests {
         }
     }
 
-    struct RecordingPlugin {
+    struct RecordingModule {
         name: &'static str,
         fail_init: bool,
         log: Arc<Mutex<Vec<String>>>,
     }
 
-    impl crate::plugin::sealed::Sealed for RecordingPlugin {}
+    impl RuntimeModule for RecordingModule {
+        fn id(&self) -> &'static str {
+            self.name
+        }
 
-    impl AppPlugin for RecordingPlugin {
-        fn init(&mut self, _cx: &mut App, _shell: &ShellSeed) -> Result<(), AppShellError> {
+        fn prepare(&mut self, _info: &AppInfo) {
             self.log
                 .lock()
-                .expect("recording plugin log poisoned")
+                .expect("recording module log poisoned")
+                .push(format!("{}:prepare", self.name));
+        }
+
+        fn init(
+            &mut self,
+            _cx: &mut App,
+            _info: &AppInfo,
+            _proxy: &crate::handles::AppProxy,
+        ) -> Result<(), AppShellError> {
+            self.log
+                .lock()
+                .expect("recording module log poisoned")
                 .push(format!("{}:init", self.name));
             if self.fail_init {
-                return Err(AppShellError::Service {
-                    service: self.name,
+                return Err(AppShellError::Module {
+                    module: self.name,
                     source: anyhow::anyhow!("{} failed", self.name),
                 });
             }
@@ -832,7 +725,7 @@ mod tests {
         fn on_event(&mut self, event: &AppEvent, _cx: &mut App) -> Result<(), AppShellError> {
             self.log
                 .lock()
-                .expect("recording plugin log poisoned")
+                .expect("recording module log poisoned")
                 .push(format!("{}:{}", self.name, event.name()));
             Ok(())
         }
@@ -840,77 +733,73 @@ mod tests {
         fn shutdown(&mut self, _cx: &mut App) {
             self.log
                 .lock()
-                .expect("recording plugin log poisoned")
+                .expect("recording module log poisoned")
                 .push(format!("{}:shutdown", self.name));
         }
     }
 
-    fn recording_plugin(
+    fn recording_module(
         name: &'static str,
         fail_init: bool,
         log: Arc<Mutex<Vec<String>>>,
-    ) -> Box<dyn AppPlugin> {
-        Box::new(RecordingPlugin {
+    ) -> Box<dyn RuntimeModule> {
+        Box::new(RecordingModule {
             name,
             fail_init,
             log,
         })
     }
 
-    fn recording_handler(log: Arc<Mutex<Vec<String>>>, quit_on_started: bool) -> EventHandler {
+    fn recording_observer(log: Arc<Mutex<Vec<String>>>, quit_on_started: bool) -> EventHandler {
         Box::new(move |event, cx| {
             log.lock()
-                .expect("recording handler log poisoned")
-                .push(format!("handler:{}", event.name()));
-            if quit_on_started && matches!(event, AppEvent::Started(_)) {
+                .expect("recording observer log poisoned")
+                .push(format!("observer:{}", event.name()));
+            if quit_on_started && matches!(event, AppEvent::Started) {
                 handles::request_quit(cx);
             }
             Ok(())
         })
     }
 
-    fn test_boot(
-        plugins: Vec<Box<dyn AppPlugin>>,
+    fn test_startup(
+        modules: RuntimeModules,
         pending: Arc<PendingEvents>,
         start: Option<StartCallback>,
         log: Arc<Mutex<Vec<String>>>,
-    ) -> Boot {
-        Boot {
+    ) -> Startup {
+        Startup {
             app_info: AppInfo::new(
                 identity(),
-                AppPaths::new("appshell-boot-tests", PathLayout::PlatformDefault)
+                AppPaths::new("appshell-startup-tests", PathLayout::PlatformDefault)
                     .expect("test paths resolve"),
                 PlatformCapabilities::detect(),
             ),
             liveness: Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
             initial_activation: InitialActivation::Passive,
-            plugins,
-            handlers: vec![recording_handler(log, false)],
+            modules,
+            observers: vec![recording_observer(log, false)],
             pending,
-            state: HashMap::new(),
-            launch: LaunchRequest::default(),
+            launch: Rc::new(LaunchRuntime::unit(None)),
             start,
             error_reporter: Box::new(|_, _| {}),
+            app_shutdown: None,
         }
     }
 
-    fn assert_shutdown_rejects_proxy(cx: &mut gpui::TestAppContext, expected_last: Phase) {
+    fn assert_shutdown_rejects_proxy(cx: &mut gpui::TestAppContext) {
         use crate::error::AppClosed;
-        use crate::handles::{AppShellExt, ShellState};
+        use crate::runtime::Shell;
 
         cx.update(|app| {
             let proxy = app.app_proxy();
             assert!(proxy.is_closed());
             assert_eq!(proxy.dispatch(|_| {}), Err(AppClosed));
-            assert_eq!(
-                app.global::<ShellState>().phases().last(),
-                Some(expected_last)
-            );
         });
     }
 
     #[gpui::test]
-    fn plugin_init_failure_unwinds_initialized_prefix_without_readiness(
+    fn module_init_failure_unwinds_initialized_prefix_without_readiness(
         cx: &mut gpui::TestAppContext,
     ) {
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -918,38 +807,38 @@ mod tests {
         pending
             .push(AppEvent::Reopened)
             .expect("pre-ready event is accepted");
-        let boot = test_boot(
+        let startup = test_startup(
             vec![
-                recording_plugin("first", false, Arc::clone(&log)),
-                recording_plugin("second", false, Arc::clone(&log)),
-                recording_plugin("broken", true, Arc::clone(&log)),
+                recording_module("first", false, Arc::clone(&log)),
+                recording_module("second", false, Arc::clone(&log)),
+                recording_module("broken", true, Arc::clone(&log)),
             ],
             Arc::clone(&pending),
             None,
             Arc::clone(&log),
         );
 
-        let result = cx.update(|app| boot.run(app));
+        let result = cx.update(|app| startup.run(app));
 
         assert!(matches!(
             result,
-            Err(AppShellError::Service {
-                service: "broken",
+            Err(AppShellError::Module {
+                module: "broken",
                 ..
             })
         ));
         assert_eq!(
-            *log.lock().expect("recording plugin log poisoned"),
+            *log.lock().expect("recording module log poisoned"),
             vec![
                 "first:init",
                 "second:init",
                 "broken:init",
                 "first:shutdown_requested",
                 "second:shutdown_requested",
-                "handler:shutdown_requested",
+                "observer:shutdown_requested",
                 "first:will_exit",
                 "second:will_exit",
-                "handler:will_exit",
+                "observer:will_exit",
                 "second:shutdown",
                 "first:shutdown",
             ]
@@ -958,48 +847,48 @@ mod tests {
             pending.is_empty(),
             "fatal startup clears queued launch events"
         );
-        assert_shutdown_rejects_proxy(cx, Phase::CoreServices);
+        assert_shutdown_rejects_proxy(cx);
     }
 
     #[gpui::test]
-    fn start_failure_unwinds_plugins_without_publishing_readiness(cx: &mut gpui::TestAppContext) {
+    fn start_failure_unwinds_modules_without_publishing_readiness(cx: &mut gpui::TestAppContext) {
         let log = Arc::new(Mutex::new(Vec::new()));
         let pending = Arc::new(PendingEvents::default());
         pending
             .push(AppEvent::Reopened)
             .expect("pre-ready event is accepted");
         let start_log = Arc::clone(&log);
-        let boot = test_boot(
+        let startup = test_startup(
             vec![
-                recording_plugin("first", false, Arc::clone(&log)),
-                recording_plugin("second", false, Arc::clone(&log)),
+                recording_module("first", false, Arc::clone(&log)),
+                recording_module("second", false, Arc::clone(&log)),
             ],
             Arc::clone(&pending),
-            Some(Box::new(move |_, _| {
+            Some(Box::new(move |_| {
                 start_log
                     .lock()
-                    .expect("recording plugin log poisoned")
+                    .expect("recording module log poisoned")
                     .push("start".to_string());
                 Err(anyhow::anyhow!("start failed"))
             })),
             Arc::clone(&log),
         );
 
-        let result = cx.update(|app| boot.run(app));
+        let result = cx.update(|app| startup.run(app));
 
         assert!(matches!(result, Err(AppShellError::Startup(_))));
         assert_eq!(
-            *log.lock().expect("recording plugin log poisoned"),
+            *log.lock().expect("recording module log poisoned"),
             vec![
                 "first:init",
                 "second:init",
                 "start",
                 "first:shutdown_requested",
                 "second:shutdown_requested",
-                "handler:shutdown_requested",
+                "observer:shutdown_requested",
                 "first:will_exit",
                 "second:will_exit",
-                "handler:will_exit",
+                "observer:will_exit",
                 "second:shutdown",
                 "first:shutdown",
             ]
@@ -1008,43 +897,44 @@ mod tests {
             pending.is_empty(),
             "fatal startup clears queued launch events"
         );
-        assert_shutdown_rejects_proxy(cx, Phase::PluginInit);
+        assert_shutdown_rejects_proxy(cx);
     }
 
     #[gpui::test]
     fn successful_quit_during_start_returns_ok_without_readiness(cx: &mut gpui::TestAppContext) {
-        use crate::handles::AppShellExt;
+        use crate::runtime::Shell;
 
         let log = Arc::new(Mutex::new(Vec::new()));
         let pending = Arc::new(PendingEvents::default());
         pending
             .push(AppEvent::Reopened)
             .expect("pre-ready event is accepted");
-        let boot = test_boot(
-            vec![recording_plugin("first", false, Arc::clone(&log))],
+        let startup = test_startup(
+            vec![recording_module("first", false, Arc::clone(&log))],
             Arc::clone(&pending),
-            Some(Box::new(|_, cx| {
+            Some(Box::new(|cx| {
                 cx.request_quit();
                 Ok(())
             })),
             Arc::clone(&log),
         );
 
-        let result = cx.update(|app| boot.run(app));
+        let result = cx.update(|app| startup.run(app));
 
         assert!(result.is_ok(), "a successful startup quit is not fatal");
         assert!(
             pending.is_empty(),
             "a startup quit clears queued launch events"
         );
-        let events = log.lock().expect("recording plugin log poisoned");
+        let events = log.lock().expect("recording module log poisoned");
         assert!(
             !events
                 .iter()
                 .any(|event| event.ends_with(":started") || event.ends_with(":reopened")),
             "a startup quit does not publish readiness or drain queued events: {events:?}"
         );
-        assert_shutdown_rejects_proxy(cx, Phase::Start);
+        drop(events);
+        assert_shutdown_rejects_proxy(cx);
     }
 
     #[gpui::test]
@@ -1054,23 +944,23 @@ mod tests {
         pending
             .push(AppEvent::Reopened)
             .expect("pre-ready event is accepted");
-        let mut boot = test_boot(
-            vec![recording_plugin("first", false, Arc::clone(&log))],
+        let mut startup = test_startup(
+            vec![recording_module("first", false, Arc::clone(&log))],
             Arc::clone(&pending),
             None,
             Arc::clone(&log),
         );
-        boot.handlers = vec![recording_handler(Arc::clone(&log), true)];
+        startup.observers = vec![recording_observer(Arc::clone(&log), true)];
 
-        let result = cx.update(|app| boot.run(app));
+        let result = cx.update(|app| startup.run(app));
 
         assert!(result.is_ok(), "Started-triggered quit is not fatal");
-        let events = log.lock().expect("recording plugin log poisoned");
+        let events = log.lock().expect("recording module log poisoned");
         assert!(events.iter().any(|event| event == "first:started"));
         assert!(
             events
                 .iter()
-                .any(|event| event == "handler:shutdown_requested"),
+                .any(|event| event == "observer:shutdown_requested"),
             "Started-triggered quit must enter the normal shutdown path: {events:?}"
         );
         assert!(
@@ -1086,19 +976,603 @@ mod tests {
             pending.proxy.get().is_none(),
             "shutdown must not enable post-ready event delivery"
         );
-        assert_shutdown_rejects_proxy(cx, Phase::Start);
+        assert_shutdown_rejects_proxy(cx);
     }
 
-    #[test]
-    fn default_environment_policy_is_inherit() {
-        let builder = AppShellBuilder::new(identity());
-        assert!(matches!(builder.environment, EnvironmentPolicy::Inherit));
+    // ---------------------------------------------------------------- declared
+    // The whole declared sequence: runtime modules, common start, deferred-quit
+    // check, `before_primary`, deferred-quit check, typed primary open,
+    // `finish_start`, `Started`, drain, activation.
+
+    /// A startup on the declared path, recording every observable step in `log`.
+    fn declared_startup(
+        log: &Arc<Mutex<Vec<String>>>,
+        launch: LaunchRuntime,
+        quit_during_start: bool,
+    ) -> Startup {
+        let start_log = Arc::clone(log);
+        let mut startup = test_startup(
+            vec![recording_module("setup", false, Arc::clone(log))],
+            Arc::new(PendingEvents::default()),
+            Some(Box::new(move |cx| {
+                start_log
+                    .lock()
+                    .expect("declared startup log poisoned")
+                    .push("start".to_string());
+                if quit_during_start {
+                    handles::request_quit(cx);
+                }
+                Ok(())
+            })),
+            Arc::clone(log),
+        );
+        startup.launch = Rc::new(launch);
+        startup
     }
 
-    #[test]
-    fn environment_setter_records_login_shell() {
-        let builder = AppShellBuilder::new(identity()).environment(EnvironmentPolicy::LoginShell);
-        assert!(matches!(builder.environment, EnvironmentPolicy::LoginShell));
+    /// The launch runtime a declaration with `spec` prepares, with no primary.
+    fn launch_runtime(spec: crate::declaration::LaunchSpec<()>) -> LaunchRuntime {
+        let prepared = crate::declaration::AppDeclaration::new(identity())
+            .launch(spec)
+            .prepare_launch(&crate::declaration::ProcessLaunch::empty())
+            .expect("the test parser succeeds");
+        match prepared {
+            crate::declaration::PreparedLaunch::Run(runtime) => runtime,
+            crate::declaration::PreparedLaunch::ExitSuccess { .. } => {
+                panic!("the test parser always runs")
+            }
+        }
+    }
+
+    thread_local! {
+        /// Declared hooks are non-capturing `fn` pointers, and every test runs
+        /// on its own thread, so a thread-local recorder is isolated per test.
+        static DECLARED_STEPS: Mutex<Vec<String>> = const { Mutex::new(Vec::new()) };
+    }
+
+    fn record_declared(step: &str) {
+        DECLARED_STEPS.with(|steps| {
+            steps
+                .lock()
+                .expect("declared step recorder poisoned")
+                .push(step.to_string());
+        });
+    }
+
+    fn declared_steps() -> Vec<String> {
+        DECLARED_STEPS.with(|steps| {
+            steps
+                .lock()
+                .expect("declared step recorder poisoned")
+                .clone()
+        })
+    }
+
+    fn parse_unit(
+        _process: &crate::declaration::ProcessLaunch,
+    ) -> anyhow::Result<crate::declaration::LaunchDecision<()>> {
+        Ok(crate::declaration::LaunchDecision::Run(()))
+    }
+
+    fn recording_before_primary(_value: &(), _cx: &mut App) -> anyhow::Result<()> {
+        record_declared("before_primary");
+        Ok(())
+    }
+
+    /// A surface that is never installed, so opening it is a typed
+    /// `UndeclaredSurface` fault: the probe for "the primary open was reached".
+    fn uninstalled_primary() -> crate::declaration::LaunchSpec<()> {
+        crate::declaration::LaunchSpec::new(parse_unit)
+            .before_primary(recording_before_primary)
+            .primary_surface(crate::declaration::Surface::new(
+                crate::declaration::SurfaceKey::<ProbeView, ()>::primary(),
+                |_args: &(), _window: &mut gpui::Window, cx: &mut App| {
+                    use gpui::AppContext as _;
+                    cx.new(|_| ProbeView)
+                },
+            ))
+    }
+
+    struct ProbeView;
+
+    impl gpui::Render for ProbeView {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            gpui::div()
+        }
+    }
+
+    #[gpui::test]
+    fn the_declared_path_runs_start_then_before_primary_then_started(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let launch = launch_runtime(
+            crate::declaration::LaunchSpec::new(parse_unit).before_primary(|_value, cx| {
+                record_declared("before_primary");
+                // Installed, but readiness is published only once the primary
+                // surface exists: `finish_start` must not have run yet.
+                assert!(
+                    !cx.global::<crate::handles::ShellState>().is_ready(),
+                    "`finish_start` must not publish readiness before the primary opens",
+                );
+                Ok(())
+            }),
+        );
+        let mut startup = declared_startup(&log, launch, false);
+        startup.observers = vec![recording_observer(Arc::clone(&log), false)];
+
+        cx.update(|app| startup.run(app))
+            .expect("the declared startup succeeds");
+
+        let events = log.lock().expect("declared startup log poisoned");
+        let order: Vec<&str> = events.iter().map(String::as_str).collect();
+        let start = order.iter().position(|step| *step == "start");
+        let started = order.iter().position(|step| *step == "setup:started");
+        assert_eq!(order.first(), Some(&"setup:init"), "{order:?}");
+        assert!(start < started, "start precedes Started: {order:?}");
+        assert_eq!(declared_steps(), vec!["before_primary"]);
+    }
+
+    #[gpui::test]
+    fn the_typed_primary_opens_after_before_primary_and_before_readiness(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+
+        let error = cx
+            .update(|app| startup.run(app))
+            .expect_err("the primary surface is never installed");
+
+        assert!(
+            matches!(&error, AppShellError::Startup(source)
+                if source.to_string().contains("primary")),
+            "a failed primary open is a startup failure: {error:?}",
+        );
+        assert_eq!(
+            declared_steps(),
+            vec!["before_primary"],
+            "the primary opens only after `before_primary`",
+        );
+        let events = log.lock().expect("declared startup log poisoned");
+        assert!(
+            !events.iter().any(|step| step.ends_with(":started")),
+            "`finish_start` must not run before the primary opens: {events:?}",
+        );
+    }
+
+    #[gpui::test]
+    fn a_quit_deferred_during_start_suppresses_before_primary_and_the_primary(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let startup = declared_startup(&log, launch_runtime(uninstalled_primary()), true);
+
+        let result = cx.update(|app| startup.run(app));
+
+        assert!(result.is_ok(), "a deferred quit is not a startup failure");
+        assert!(
+            declared_steps().is_empty(),
+            "a deferred quit suppresses `before_primary` and the primary open",
+        );
+        let events = log.lock().expect("declared startup log poisoned");
+        assert!(
+            !events.iter().any(|step| step.ends_with(":started")),
+            "a deferred quit never publishes readiness: {events:?}",
+        );
+    }
+
+    #[gpui::test]
+    fn a_quit_deferred_by_a_module_suppresses_before_primary_and_the_primary(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        startup.modules = vec![Box::new(QuittingModule)];
+
+        let result = cx.update(|app| startup.run(app));
+
+        assert!(result.is_ok(), "a deferred quit is not a startup failure");
+        assert!(
+            declared_steps().is_empty(),
+            "a quit deferred before start still suppresses the launch steps",
+        );
+    }
+
+    struct QuittingModule;
+
+    impl RuntimeModule for QuittingModule {
+        fn init(
+            &mut self,
+            cx: &mut App,
+            _info: &AppInfo,
+            _proxy: &crate::handles::AppProxy,
+        ) -> Result<(), AppShellError> {
+            handles::request_quit(cx);
+            Ok(())
+        }
+    }
+
+    #[gpui::test]
+    fn a_failing_event_observer_never_stops_the_later_ones(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), true);
+        let first = Arc::clone(&log);
+        let second = Arc::clone(&log);
+        // What the declared lifecycle hooks lower to: repeatable observers,
+        // each nonfatal, delivered in declaration order.
+        startup.observers = vec![
+            Box::new(move |event, _cx| {
+                first
+                    .lock()
+                    .expect("declared startup log poisoned")
+                    .push(format!("first:{}", event.name()));
+                anyhow::bail!("observer failed")
+            }),
+            Box::new(move |event, _cx| {
+                second
+                    .lock()
+                    .expect("declared startup log poisoned")
+                    .push(format!("second:{}", event.name()));
+                Ok(())
+            }),
+        ];
+        let reported = Arc::clone(&log);
+        startup.error_reporter = Box::new(move |error, _cx| {
+            assert_eq!(error.operation(), crate::error::RuntimeOperation::Lifecycle);
+            assert_eq!(error.module_id(), None);
+            reported
+                .lock()
+                .expect("declared startup log poisoned")
+                .push(format!(
+                    "error:{}:{}",
+                    error
+                        .event()
+                        .map_or("unknown", crate::lifecycle::AppEvent::name),
+                    error.source_error(),
+                ));
+        });
+
+        cx.update(|app| startup.run(app))
+            .expect("a deferred quit is not fatal");
+
+        let events = log.lock().expect("declared startup log poisoned");
+        assert!(
+            events.iter().any(|step| step == "first:shutdown_requested")
+                && events
+                    .iter()
+                    .any(|step| step == "second:shutdown_requested"),
+            "a failing observer must not suppress the ones declared after it: {events:?}",
+        );
+        assert!(
+            events
+                .iter()
+                .any(|step| step.starts_with("error:shutdown_requested:")),
+            "the failure reaches the one runtime reporter: {events:?}",
+        );
+    }
+
+    struct FailingEventModule;
+
+    impl RuntimeModule for FailingEventModule {
+        fn id(&self) -> &'static str {
+            "event-probe"
+        }
+
+        fn init(
+            &mut self,
+            _cx: &mut App,
+            _info: &AppInfo,
+            _proxy: &crate::handles::AppProxy,
+        ) -> Result<(), AppShellError> {
+            Ok(())
+        }
+
+        fn on_event(&mut self, event: &AppEvent, _cx: &mut App) -> Result<(), AppShellError> {
+            if matches!(event, AppEvent::Started) {
+                return Err(AppShellError::Module {
+                    module: "inner",
+                    source: anyhow::anyhow!("event failed"),
+                });
+            }
+            Ok(())
+        }
+    }
+
+    #[gpui::test]
+    fn a_runtime_module_event_failure_keeps_its_module_identity(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = test_startup(
+            vec![Box::new(FailingEventModule)],
+            Arc::new(PendingEvents::default()),
+            None,
+            Arc::clone(&log),
+        );
+        let reported = Arc::clone(&log);
+        startup.error_reporter = Box::new(move |error, _cx| {
+            reported
+                .lock()
+                .expect("declared startup log poisoned")
+                .push(format!(
+                    "{:?}:{}:{}",
+                    error.operation(),
+                    error.module_id().unwrap_or("missing"),
+                    error.source_error()
+                ));
+        });
+        startup.observers = vec![recording_observer(Arc::clone(&log), true)];
+
+        cx.update(|app| startup.run(app))
+            .expect("module event errors are nonfatal");
+
+        assert!(
+            log.lock()
+                .expect("declared startup log poisoned")
+                .iter()
+                .any(|step| step == "Module:event-probe:module `inner` failed"),
+            "the report retains the runtime module identity",
+        );
+    }
+
+    #[gpui::test]
+    fn the_declared_app_shutdown_runs_once_between_will_exit_and_module_teardown(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        let shutdown_log = Arc::clone(&log);
+        startup.app_shutdown = Some(Box::new(move |_cx| {
+            shutdown_log
+                .lock()
+                .expect("declared startup log poisoned")
+                .push("app:shutdown".to_string());
+            Ok(())
+        }));
+
+        cx.update(|app| startup.run(app))
+            .expect_err("the primary surface is never installed");
+
+        let events = log.lock().expect("declared startup log poisoned");
+        let order: Vec<&str> = events.iter().map(String::as_str).collect();
+        assert_eq!(
+            order.iter().filter(|step| **step == "app:shutdown").count(),
+            1,
+            "the application shutdown hook runs exactly once: {order:?}",
+        );
+        let will_exit = order
+            .iter()
+            .position(|step| *step == "setup:will_exit")
+            .expect("WillExit is delivered");
+        let app_shutdown = order
+            .iter()
+            .position(|step| *step == "app:shutdown")
+            .expect("the app shutdown hook runs");
+        let module_shutdown = order
+            .iter()
+            .position(|step| *step == "setup:shutdown")
+            .expect("modules tear down");
+        assert!(
+            will_exit < app_shutdown && app_shutdown < module_shutdown,
+            "app shutdown runs after WillExit and before reverse module teardown: {order:?}",
+        );
+    }
+
+    #[gpui::test]
+    fn a_failing_app_shutdown_is_reported_and_teardown_still_completes(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        startup.app_shutdown = Some(Box::new(|_cx| anyhow::bail!("flush failed")));
+        let reported = Arc::clone(&log);
+        startup.error_reporter = Box::new(move |error, _cx| {
+            reported
+                .lock()
+                .expect("declared startup log poisoned")
+                .push(format!(
+                    "error:{:?}:{}",
+                    error.operation(),
+                    error.source_error()
+                ));
+        });
+
+        cx.update(|app| startup.run(app))
+            .expect_err("the primary surface is never installed");
+
+        let events = log.lock().expect("declared startup log poisoned");
+        assert!(
+            events
+                .iter()
+                .any(|step| step == "error:Shutdown:flush failed"),
+            "a failing app shutdown is reported as a Shutdown runtime error: {events:?}",
+        );
+        assert!(
+            events.iter().any(|step| step == "setup:shutdown"),
+            "teardown continues after a failing app shutdown: {events:?}",
+        );
+    }
+
+    // ------------------------------------------ app-shutdown transaction gate
+    // The application shutdown hook is bound to the application startup
+    // *transaction*, not to teardown in general. It runs for every teardown from
+    // the common start phase onward — including when no start hook is
+    // declared — and is skipped for framework, module, and setup failures
+    // before it, which leave nothing application-owned to unwind.
+
+    /// A declared startup whose application shutdown hook records `app:shutdown`.
+    fn recording_app_shutdown(startup: &mut Startup, log: &Arc<Mutex<Vec<String>>>) {
+        let shutdown_log = Arc::clone(log);
+        startup.app_shutdown = Some(Box::new(move |_cx| {
+            shutdown_log
+                .lock()
+                .expect("declared startup log poisoned")
+                .push("app:shutdown".to_string());
+            Ok(())
+        }));
+    }
+
+    fn count_app_shutdown(log: &Arc<Mutex<Vec<String>>>) -> usize {
+        log.lock()
+            .expect("declared startup log poisoned")
+            .iter()
+            .filter(|step| step.as_str() == "app:shutdown")
+            .count()
+    }
+
+    #[gpui::test]
+    fn a_module_init_failure_before_start_skips_the_app_shutdown_hook(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        // A framework/setup module that fails its own init: the common start
+        // phase is never reached.
+        startup.modules = vec![recording_module("broken", true, Arc::clone(&log))];
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect_err("a module init failure is fatal");
+
+        let events = log.lock().expect("declared startup log poisoned");
+        assert!(
+            events.iter().any(|step| step == "observer:will_exit"),
+            "teardown still runs for a pre-start failure: {events:?}",
+        );
+        assert!(
+            !events.iter().any(|step| step == "app:shutdown"),
+            "the application never started, so it must not be torn down: {events:?}",
+        );
+    }
+
+    #[gpui::test]
+    fn a_failing_common_start_runs_the_app_shutdown_hook_once(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        let start_log = Arc::clone(&log);
+        startup.start = Some(Box::new(move |_cx| {
+            start_log
+                .lock()
+                .expect("declared startup log poisoned")
+                .push("start".to_string());
+            Err(anyhow::anyhow!("composition failed"))
+        }));
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect_err("a failing start is fatal");
+
+        assert_eq!(
+            count_app_shutdown(&log),
+            1,
+            "the transaction was entered before `start` ran, so it unwinds once",
+        );
+        let events = log.lock().expect("declared startup log poisoned");
+        let start = events
+            .iter()
+            .position(|step| step == "start")
+            .expect("start ran");
+        let app_shutdown = events
+            .iter()
+            .position(|step| step == "app:shutdown")
+            .expect("the app shutdown hook ran");
+        assert!(start < app_shutdown, "{events:?}");
+    }
+
+    #[gpui::test]
+    fn a_failing_before_primary_runs_the_app_shutdown_hook_once(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let launch = launch_runtime(
+            crate::declaration::LaunchSpec::new(parse_unit).before_primary(|_value, _cx| {
+                record_declared("before_primary");
+                Err(anyhow::anyhow!("launch hook failed"))
+            }),
+        );
+        let mut startup = declared_startup(&log, launch, false);
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect_err("a failing launch hook is fatal");
+
+        assert_eq!(declared_steps(), vec!["before_primary"]);
+        assert_eq!(count_app_shutdown(&log), 1);
+    }
+
+    #[gpui::test]
+    fn a_failing_primary_open_runs_the_app_shutdown_hook_once(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect_err("the primary surface is never installed");
+
+        assert_eq!(count_app_shutdown(&log), 1);
+    }
+
+    #[gpui::test]
+    fn a_normal_quit_after_a_successful_start_runs_the_app_shutdown_hook_once(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        // No primary surface to open, so this startup succeeds all the way
+        // through `Started`, drain, and activation.
+        let launch = launch_runtime(crate::declaration::LaunchSpec::new(parse_unit));
+        let mut startup = declared_startup(&log, launch, false);
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect("the declared startup succeeds");
+        assert_eq!(
+            count_app_shutdown(&log),
+            0,
+            "a successful start does not tear the application down",
+        );
+        // `Startup::run` is driven directly in this unit seam, outside
+        // `Platform::run`; ending the test app invokes the registered
+        // platform-quit observer, which is the normal quit path.
+        cx.quit();
+
+        assert_eq!(count_app_shutdown(&log), 1);
+        let events = log.lock().expect("declared startup log poisoned");
+        let will_exit = events
+            .iter()
+            .position(|step| step == "setup:will_exit")
+            .expect("WillExit is delivered");
+        let app_shutdown = events
+            .iter()
+            .position(|step| step == "app:shutdown")
+            .expect("the app shutdown hook ran");
+        let module_shutdown = events
+            .iter()
+            .position(|step| step == "setup:shutdown")
+            .expect("modules tear down");
+        assert!(
+            will_exit < app_shutdown && app_shutdown < module_shutdown,
+            "a normal quit keeps the documented teardown order: {events:?}",
+        );
+    }
+
+    #[gpui::test]
+    fn entering_the_start_transaction_does_not_require_a_start_hook(cx: &mut gpui::TestAppContext) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut startup = declared_startup(&log, launch_runtime(uninstalled_primary()), false);
+        // A declaration with no common start hook still owns everything the
+        // launch runtime builds after it.
+        startup.start = None;
+        recording_app_shutdown(&mut startup, &log);
+
+        cx.update(|app| startup.run(app))
+            .expect_err("the primary surface is never installed");
+
+        assert_eq!(
+            count_app_shutdown(&log),
+            1,
+            "the transaction is entered even with no start hook",
+        );
     }
 
     #[test]
@@ -1109,74 +1583,80 @@ mod tests {
         apply_environment(EnvironmentPolicy::Inherit);
     }
 
-    #[test]
-    fn start_and_on_launch_share_one_slot() {
-        let builder = AppShellBuilder::new(identity())
-            .start(|_, _| Ok(()))
-            .on_launch(|_| Ok(()));
-        assert!(matches!(
-            builder.configuration_error,
-            Some(BuilderConfigurationError::DuplicateStartup {
-                first: StartupHook::Start,
-                second: StartupHook::OnLaunch,
-            })
-        ));
+    /// Records the pre-platform sequence into the same thread-local recorder the
+    /// declared `prepare` hook uses, so both land in one ordered log.
+    struct PrePlatformProbe;
+
+    impl RuntimeModule for PrePlatformProbe {
+        fn prepare(&mut self, _info: &AppInfo) {
+            record_declared("module:prepare");
+        }
+
+        fn init(
+            &mut self,
+            _cx: &mut App,
+            _info: &AppInfo,
+            _proxy: &crate::handles::AppProxy,
+        ) -> Result<(), AppShellError> {
+            record_declared("module:init");
+            Ok(())
+        }
+    }
+
+    /// The declaration side of [`PrePlatformProbe`]: the only way a runtime module
+    /// reaches a plan is a declaration module contributing it.
+    struct PrePlatformProbeDeclaration;
+
+    impl crate::declaration::DeclarationModule for PrePlatformProbeDeclaration {
+        fn key(&self) -> &'static str {
+            "pre_platform.probe"
+        }
+
+        fn validate(&self, _errors: &mut Vec<crate::declaration::DeclarationError>) {}
+
+        fn install(self: Box<Self>, modules: &mut RuntimeModules) {
+            modules.push(Box::new(PrePlatformProbe));
+        }
+    }
+
+    fn recording_prepare(_info: &AppInfo) -> anyhow::Result<()> {
+        record_declared("advanced:prepare");
+        Ok(())
     }
 
     #[test]
-    fn duplicate_start_records_configuration_error() {
-        let builder = AppShellBuilder::new(identity())
-            .start(|_, _| Ok(()))
-            .start(|_, _| Ok(()));
-        assert!(matches!(
-            builder.configuration_error,
-            Some(BuilderConfigurationError::DuplicateStartup {
-                first: StartupHook::Start,
-                second: StartupHook::Start,
-            })
-        ));
-        assert!(matches!(
-            builder.run(),
-            Err(AppShellError::Configuration(
-                BuilderConfigurationError::DuplicateStartup { .. }
-            ))
-        ));
+    fn the_plan_runs_the_declared_prepare_hook_then_module_prepare_before_the_platform() {
+        let plan = crate::declaration::AppDeclaration::new(identity())
+            .advanced(crate::declaration::AdvancedHooks::new().prepare(recording_prepare))
+            .module(PrePlatformProbeDeclaration)
+            .lower(LaunchRuntime::unit(None), PlatformRunner::failing());
+
+        let error = plan
+            .run()
+            .expect_err("the failing runner never builds a platform");
+
+        assert!(
+            matches!(error, AppShellError::Platform(_)),
+            "preflight completed and the platform is what failed: {error:?}",
+        );
+        assert_eq!(
+            declared_steps(),
+            vec!["advanced:prepare", "module:prepare"],
+            "the application's own hook prepares the process before any module reads it, \
+             and no module initializes without a platform",
+        );
     }
 
     #[test]
     fn platform_construction_failure_returns_platform_error() {
-        let result = AppShell::builder(identity())
-            .runner(PlatformRunner::failing())
-            .run();
+        let plan = crate::declaration::AppDeclaration::new(identity())
+            .lower(LaunchRuntime::unit(None), PlatformRunner::failing());
+
+        let result = plan.run();
 
         assert!(matches!(
             result,
             Err(AppShellError::Platform(error)) if error.to_string() == "test platform construction failure"
-        ));
-    }
-
-    #[test]
-    fn shell_preferences_are_consumer_driven_and_idempotent() {
-        let builder = AppShellBuilder::new(identity());
-        assert!(!builder.shell_preferences_installed);
-        assert_eq!(builder.plugins.len(), 1);
-
-        let builder = builder.shell_preferences().shell_preferences();
-        assert!(builder.shell_preferences_installed);
-        assert_eq!(builder.plugins.len(), 2);
-    }
-
-    #[test]
-    fn raw_and_standard_menus_are_mutually_exclusive() {
-        let builder = AppShellBuilder::new(identity())
-            .menus(crate::commands::MenuPlan::standard())
-            .standard_menus(crate::commands::StandardMenus::new());
-        assert!(matches!(
-            builder.configuration_error,
-            Some(BuilderConfigurationError::DuplicateMenus {
-                first: MenuConfiguration::MenuPlan,
-                second: MenuConfiguration::StandardMenus,
-            })
         ));
     }
 

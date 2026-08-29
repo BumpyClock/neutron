@@ -280,7 +280,7 @@ fn ensure_type<T: AppSettings>(
 ///
 /// Change observation uses a cheap per-store monotonic version counter. It
 /// increments after an update is validated and accepted by `DebouncedStore`.
-pub trait SettingsExt {
+pub trait Settings {
     /// Borrow the current value. Panics if the requested store is not registered.
     fn settings<T: AppSettings>(&self, key: StoreKey) -> &T;
 
@@ -304,7 +304,7 @@ pub trait SettingsExt {
     fn flush_settings<T: AppSettings>(&mut self, key: StoreKey) -> Result<(), SettingsError>;
 }
 
-impl SettingsExt for App {
+impl Settings for App {
     fn settings<T: AppSettings>(&self, key: StoreKey) -> &T {
         self.global::<SettingsRegistry>()
             .entry::<T>(&key)

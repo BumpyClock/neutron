@@ -5,7 +5,7 @@
 //! live `App`:
 //!
 //! 1. [`MenuPlan::outline`] (pure): given the registered commands, compute the
-//!    ordered [`MenuOutline`]s — which top-level menus, and the sequence of
+//!    ordered [`MenuPlanOutline`]s — which top-level menus, and the sequence of
 //!    command/separator/section nodes inside each.
 //! 2. [`build_menus`] (App-bound): resolve each node into a `gpui::Menu`,
 //!    evaluating labels/checked/enabled and expanding section providers.
@@ -14,11 +14,14 @@ use std::collections::HashSet;
 
 use gpui::{App, Menu, MenuItem, SystemMenuType};
 
-use super::{APP_MENU, Command, CommandId, CommandRegistry, DOCK_MENU, EDIT_MENU, WINDOW_MENU};
+use super::label::MenuLabel;
+use super::{
+    APP_MENU, CommandId, CommandRegistry, DOCK_MENU, EDIT_MENU, RuntimeCommand, WINDOW_MENU,
+};
 
 /// One node in a projected menu.
 #[derive(Debug, PartialEq, Eq)]
-pub enum MenuNode {
+pub(crate) enum MenuPlanNode {
     /// A command, referenced by id (resolved to a menu item at build time).
     Command(CommandId),
     /// A separator between groups or before a section.
@@ -32,35 +35,39 @@ pub enum MenuNode {
 
 /// The pure, ordered structure of one top-level menu.
 #[derive(Debug, PartialEq, Eq)]
-pub struct MenuOutline {
+pub(crate) struct MenuPlanOutline {
     /// The top-level menu key (e.g. [`APP_MENU`]); the App menu renders with the
     /// app display name.
     pub key: &'static str,
     /// The ordered nodes.
-    pub nodes: Vec<MenuNode>,
+    pub nodes: Vec<MenuPlanNode>,
 }
 
-/// One top-level menu in the plan: a key plus any reserved section slots
-/// appended after its commands.
+/// One top-level menu in the plan: a key, an optional declared title, and any
+/// reserved section slots appended after its commands.
 struct TopMenu {
     key: &'static str,
+    /// The title the typed declaration asked for. Absent for plans built from
+    /// bare keys, which keep the historical key/app-name fallback.
+    label: Option<MenuLabel>,
     fixed: Vec<FixedNode>,
 }
 
 struct FixedNode {
     group: u16,
     order: u16,
-    node: MenuNode,
+    node: MenuPlanNode,
 }
 
 /// A declarative description of the native menu bar. Menus are projections of
 /// the command registry (plan §3).
-pub struct MenuPlan {
+pub(crate) struct MenuPlan {
     menus: Vec<TopMenu>,
 }
 
 impl MenuPlan {
     /// The standard App + Edit + Window menu bar, projected from the registry.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn standard() -> Self {
         Self::from_keys([APP_MENU, EDIT_MENU, WINDOW_MENU])
     }
@@ -74,6 +81,7 @@ impl MenuPlan {
             .filter(|key| seen.insert(*key))
             .map(|key| TopMenu {
                 key,
+                label: None,
                 fixed: Vec::new(),
             })
             .collect();
@@ -82,37 +90,22 @@ impl MenuPlan {
 
     /// Append a top-level menu. Existing keys are not duplicated.
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn with_menu(mut self, key: &'static str) -> Self {
         if !self.menus.iter().any(|menu| menu.key == key) {
             self.menus.push(TopMenu {
                 key,
+                label: None,
                 fixed: Vec::new(),
             });
         }
         self
     }
 
-    pub(super) fn insert_before(&mut self, before: &'static str, key: &'static str) {
-        if self.menus.iter().any(|menu| menu.key == key) {
-            return;
-        }
-        let ix = self
-            .menus
-            .iter()
-            .position(|menu| menu.key == before)
-            .unwrap_or(self.menus.len());
-        self.menus.insert(
-            ix,
-            TopMenu {
-                key,
-                fixed: Vec::new(),
-            },
-        );
-    }
-
     /// Reserve an Appearance/Theme section in the App menu, fed by the
     /// [`MenuSection`](super::MenuSection) provider registered under
     /// [`THEME_SECTION`].
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn with_theme_menu(mut self) -> Self {
         self.reserve_section(APP_MENU, THEME_SECTION);
         self
@@ -120,16 +113,17 @@ impl MenuPlan {
 
     /// Reserve a section `slot` at the end of the menu keyed by `menu_key`. The
     /// same seam serves a future Move-to-Window section.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn reserve_section(&mut self, menu_key: &'static str, slot: &'static str) {
         self.reserve_section_at(menu_key, u16::MAX, 0, slot);
     }
 
     /// Compute the pure menu outline from the registered `commands`.
-    pub fn outline(&self, commands: &[Command]) -> Vec<MenuOutline> {
+    pub fn outline(&self, commands: &[RuntimeCommand]) -> Vec<MenuPlanOutline> {
         self.warn_unknown_placements(commands);
         self.menus
             .iter()
-            .map(|menu| MenuOutline {
+            .map(|menu| MenuPlanOutline {
                 key: menu.key,
                 nodes: outline_nodes(menu, commands),
             })
@@ -150,7 +144,7 @@ impl MenuPlan {
         menu.fixed.push(FixedNode {
             group,
             order,
-            node: MenuNode::Section(slot),
+            node: MenuPlanNode::Section(slot),
         });
     }
 
@@ -162,12 +156,31 @@ impl MenuPlan {
         menu.fixed.push(FixedNode {
             group,
             order,
-            node: MenuNode::Services,
+            node: MenuPlanNode::Services,
         });
     }
 
-    fn warn_unknown_placements(&self, commands: &[Command]) {
-        for placement in commands.iter().filter_map(Command::placement) {
+    /// Set the declared title for `menu_key`, overriding the key/app-name
+    /// fallback used by plans built from bare keys.
+    ///
+    /// A derived title is re-resolved on every projection, so an app-name or
+    /// state-dependent menu title stays current across invalidations.
+    pub(super) fn set_menu_label(&mut self, menu_key: &'static str, label: MenuLabel) {
+        if let Some(menu) = self.menus.iter_mut().find(|menu| menu.key == menu_key) {
+            menu.label = Some(label);
+        }
+    }
+
+    /// The declared title for `menu_key`, if the plan carries one.
+    fn menu_label(&self, menu_key: &str) -> Option<&MenuLabel> {
+        self.menus
+            .iter()
+            .find(|menu| menu.key == menu_key)
+            .and_then(|menu| menu.label.as_ref())
+    }
+
+    fn warn_unknown_placements(&self, commands: &[RuntimeCommand]) {
+        for placement in commands.iter().flat_map(RuntimeCommand::placements) {
             if placement.menu != DOCK_MENU
                 && !self.menus.iter().any(|menu| menu.key == placement.menu)
             {
@@ -181,24 +194,29 @@ impl MenuPlan {
 }
 
 /// The section slot fed by the theme service's Appearance/Theme submenu.
-pub const THEME_SECTION: &str = "appearance";
+///
+/// Derived from the validated [`MenuSectionKey`](super::keys::MenuSectionKey)
+/// constant so the string alias cannot drift from the typed key.
+pub(crate) const THEME_SECTION: &str = super::keys::MenuSectionKey::THEME.as_str();
 
 /// Build the ordered nodes for one top-level menu: commands grouped and
 /// separated by `(group, order)`, then each reserved section (preceded by a
 /// separator when the menu already has items).
-fn outline_nodes(menu: &TopMenu, commands: &[Command]) -> Vec<MenuNode> {
+fn outline_nodes(menu: &TopMenu, commands: &[RuntimeCommand]) -> Vec<MenuPlanNode> {
     enum PlacedNode<'a> {
         Command(CommandId),
-        Fixed(&'a MenuNode),
+        Fixed(&'a MenuPlanNode),
     }
 
     let mut placed: Vec<(u16, u16, usize, PlacedNode<'_>)> = commands
         .iter()
         .enumerate()
-        .filter_map(|c| {
-            c.1.placement()
+        .flat_map(|(ix, command)| {
+            command
+                .placements()
+                .iter()
                 .filter(|p| p.menu == menu.key)
-                .map(|p| (p.group, p.order, c.0, PlacedNode::Command(c.1.id())))
+                .map(move |p| (p.group, p.order, ix, PlacedNode::Command(command.id())))
         })
         .collect();
     placed.extend(menu.fixed.iter().enumerate().map(|(ix, fixed)| {
@@ -216,14 +234,16 @@ fn outline_nodes(menu: &TopMenu, commands: &[Command]) -> Vec<MenuNode> {
     for (group, _, _, node) in placed {
         if let Some(prev) = last_group {
             if prev != group {
-                nodes.push(MenuNode::Separator);
+                nodes.push(MenuPlanNode::Separator);
             }
         }
         last_group = Some(group);
         match node {
-            PlacedNode::Command(id) => nodes.push(MenuNode::Command(id)),
-            PlacedNode::Fixed(MenuNode::Section(slot)) => nodes.push(MenuNode::Section(slot)),
-            PlacedNode::Fixed(MenuNode::Services) => nodes.push(MenuNode::Services),
+            PlacedNode::Command(id) => nodes.push(MenuPlanNode::Command(id)),
+            PlacedNode::Fixed(MenuPlanNode::Section(slot)) => {
+                nodes.push(MenuPlanNode::Section(slot))
+            }
+            PlacedNode::Fixed(MenuPlanNode::Services) => nodes.push(MenuPlanNode::Services),
             PlacedNode::Fixed(_) => unreachable!("fixed nodes are sections or Services"),
         }
     }
@@ -243,19 +263,19 @@ pub(super) fn build_menus(cx: &App, registry: &CommandRegistry) -> Option<Vec<Me
         let mut items = Vec::new();
         for node in &outline.nodes {
             match node {
-                MenuNode::Command(id) => {
+                MenuPlanNode::Command(id) => {
                     if let Some(cmd) = registry.get(*id) {
                         items.push(cmd.to_menu_item(cx));
                     }
                 }
                 // Never emit a leading or doubled separator: a preceding
                 // reserved section may have resolved to zero items.
-                MenuNode::Separator => {
+                MenuPlanNode::Separator => {
                     if !items.is_empty() && !matches!(items.last(), Some(MenuItem::Separator)) {
                         items.push(MenuItem::Separator);
                     }
                 }
-                MenuNode::Section(slot) => {
+                MenuPlanNode::Section(slot) => {
                     if let Some(section) = registry.section(slot) {
                         // Drop a dangling separator if the section is empty.
                         let section_items = section.items(cx);
@@ -270,7 +290,7 @@ pub(super) fn build_menus(cx: &App, registry: &CommandRegistry) -> Option<Vec<Me
                         items.pop();
                     }
                 }
-                MenuNode::Services => {
+                MenuPlanNode::Services => {
                     items.push(MenuItem::os_submenu("Services", SystemMenuType::Services));
                 }
             }
@@ -278,10 +298,14 @@ pub(super) fn build_menus(cx: &App, registry: &CommandRegistry) -> Option<Vec<Me
         if items.is_empty() {
             continue;
         }
-        let name = if outline.key == APP_MENU {
-            app_title.clone()
-        } else {
-            outline.key.into()
+        let name = match plan.menu_label(outline.key) {
+            // A declared title wins, resolved fresh so dynamic titles track
+            // application state across invalidations.
+            Some(label) => label.resolve(cx),
+            // Otherwise keep the historical fallback: the app display name for
+            // the application menu, the key itself for everything else.
+            None if outline.key == APP_MENU => app_title.clone(),
+            None => outline.key.into(),
         };
         menus.push(Menu {
             name,
@@ -296,13 +320,14 @@ pub(super) fn build_menus(cx: &App, registry: &CommandRegistry) -> Option<Vec<Me
 /// flat item list for `set_dock_menu`.
 #[cfg(target_os = "macos")]
 pub(super) fn build_dock_items(cx: &App, registry: &CommandRegistry) -> Vec<MenuItem> {
-    let mut placed: Vec<(u16, u16, &Command)> = registry
+    let mut placed: Vec<(u16, u16, &RuntimeCommand)> = registry
         .commands()
         .iter()
-        .filter_map(|c| {
-            c.placement()
+        .flat_map(|c| {
+            c.placements()
+                .iter()
                 .filter(|p| p.menu == super::DOCK_MENU)
-                .map(|p| (p.group, p.order, c))
+                .map(move |p| (p.group, p.order, c))
         })
         .collect();
     placed.sort_by_key(|(group, order, _)| (*group, *order));
@@ -323,7 +348,7 @@ pub(super) fn build_dock_items(cx: &App, registry: &CommandRegistry) -> Vec<Menu
 
 /// The App menu title: the app display name when the shell is installed, else a
 /// neutral fallback (keeps pure/early builds working).
-fn app_menu_title(cx: &App) -> gpui::SharedString {
+pub(super) fn app_menu_title(cx: &App) -> gpui::SharedString {
     use crate::handles::{AppShellExt, ShellState};
     if cx.has_global::<ShellState>() {
         cx.app_info().display_name().to_string().into()
@@ -340,8 +365,8 @@ mod tests {
 
     actions!(menu_test, [Noop]);
 
-    fn cmd(id: &'static str, placement: MenuPlacement) -> Command {
-        Command::new(CommandId(id), id, CommandScope::App, Noop).with_placement(placement)
+    fn cmd(id: &'static str, placement: MenuPlacement) -> RuntimeCommand {
+        RuntimeCommand::new(CommandId(id), id, CommandScope::App, Noop).with_placement(placement)
     }
 
     #[test]
@@ -360,17 +385,17 @@ mod tests {
         assert_eq!(
             outline[0].nodes,
             vec![
-                MenuNode::Command(CommandId("about")),
-                MenuNode::Separator,
-                MenuNode::Command(CommandId("quit")),
+                MenuPlanNode::Command(CommandId("about")),
+                MenuPlanNode::Separator,
+                MenuPlanNode::Command(CommandId("quit")),
             ]
         );
         // Edit menu: undo then copy (order within group), no separator.
         assert_eq!(
             outline[1].nodes,
             vec![
-                MenuNode::Command(CommandId("undo")),
-                MenuNode::Command(CommandId("copy")),
+                MenuPlanNode::Command(CommandId("undo")),
+                MenuPlanNode::Command(CommandId("copy")),
             ]
         );
         // Window menu: empty.
@@ -386,9 +411,9 @@ mod tests {
         assert_eq!(
             outline[0].nodes,
             vec![
-                MenuNode::Command(CommandId("about")),
-                MenuNode::Separator,
-                MenuNode::Section(THEME_SECTION),
+                MenuPlanNode::Command(CommandId("about")),
+                MenuPlanNode::Separator,
+                MenuPlanNode::Section(THEME_SECTION),
             ]
         );
     }
@@ -397,7 +422,7 @@ mod tests {
     fn theme_section_without_commands_has_no_leading_separator() {
         let plan = MenuPlan::standard().with_theme_menu();
         let outline = plan.outline(&[]);
-        assert_eq!(outline[0].nodes, vec![MenuNode::Section(THEME_SECTION)]);
+        assert_eq!(outline[0].nodes, vec![MenuPlanNode::Section(THEME_SECTION)]);
     }
 
     #[test]
@@ -414,5 +439,75 @@ mod tests {
     fn duplicate_appended_menu_key_is_ignored() {
         let plan = MenuPlan::from_keys([EDIT_MENU]).with_menu(EDIT_MENU);
         assert_eq!(plan.outline(&[]).len(), 1);
+    }
+
+    #[test]
+    fn one_command_projects_into_every_menu_it_is_placed_in() {
+        let commands = vec![
+            cmd("copy", MenuPlacement::new(EDIT_MENU, 0, 0))
+                .with_placement(MenuPlacement::new(APP_MENU, 0, 1))
+                .with_placement(MenuPlacement::new(DOCK_MENU, 0, 0)),
+            cmd("about", MenuPlacement::new(APP_MENU, 0, 0)),
+        ];
+        let outline = MenuPlan::standard().outline(&commands);
+
+        assert_eq!(
+            outline[0].nodes,
+            vec![
+                MenuPlanNode::Command(CommandId("about")),
+                MenuPlanNode::Command(CommandId("copy")),
+            ],
+            "the App menu honors the command's second placement",
+        );
+        assert_eq!(
+            outline[1].nodes,
+            vec![MenuPlanNode::Command(CommandId("copy"))],
+            "and the Edit menu still honors its first",
+        );
+        assert_eq!(
+            commands[0].placement(),
+            Some(MenuPlacement::new(EDIT_MENU, 0, 0)),
+            "the compatibility accessor reports the first placement only",
+        );
+    }
+
+    #[test]
+    fn a_single_placement_still_projects_exactly_once() {
+        let commands = vec![cmd("copy", MenuPlacement::new(EDIT_MENU, 0, 0))];
+        let outline = MenuPlan::standard().outline(&commands);
+        assert!(outline[0].nodes.is_empty(), "App menu stays empty");
+        assert_eq!(
+            outline[1].nodes,
+            vec![MenuPlanNode::Command(CommandId("copy"))],
+            "appending placements did not duplicate the old single-placement case",
+        );
+    }
+
+    /// The dock projection reads the same placement list, so a command can sit
+    /// in a menu *and* the dock. macOS-only: `build_dock_items` is too.
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn the_dock_projection_reads_every_placement(cx: &mut gpui::TestAppContext) {
+        use crate::commands::{AppCommandsExt, CommandRegistry};
+
+        cx.update(|cx| {
+            cx.register_command(
+                cmd("copy", MenuPlacement::new(EDIT_MENU, 0, 0))
+                    .with_placement(MenuPlacement::new(DOCK_MENU, 0, 0)),
+            )
+            .expect("valid command");
+
+            let registry = cx.global::<CommandRegistry>();
+            assert_eq!(
+                build_dock_items(cx, registry).len(),
+                1,
+                "the dock placement projects even though it is not the first",
+            );
+            assert_eq!(
+                MenuPlan::standard().outline(registry.commands())[1].nodes,
+                vec![MenuPlanNode::Command(CommandId("copy"))],
+                "and the menu placement still projects",
+            );
+        });
     }
 }

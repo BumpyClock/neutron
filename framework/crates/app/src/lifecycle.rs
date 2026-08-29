@@ -10,7 +10,6 @@
 //! The queue logic here is pure (no gpui) and unit-tested directly.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
 
 /// A lifecycle event delivered to plugins and app event handlers.
 ///
@@ -19,8 +18,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum AppEvent {
-    /// The application finished launching. Carries the initial launch request.
-    Started(LaunchRequest),
+    /// The application finished launching.
+    Started,
     /// The application was reopened (e.g. dock icon clicked with no windows).
     Reopened,
     /// The platform asked the app to open URLs or files. May arrive *before*
@@ -40,34 +39,12 @@ impl AppEvent {
     /// Stable name used by runtime error reporting.
     pub const fn name(&self) -> &'static str {
         match self {
-            Self::Started(_) => "started",
+            Self::Started => "started",
             Self::Reopened => "reopened",
             Self::OpenRequested(_) => "open_requested",
             Self::LastWindowClosed => "last_window_closed",
             Self::ShutdownRequested(_) => "shutdown_requested",
             Self::WillExit => "will_exit",
-        }
-    }
-}
-
-/// The context in which the application was launched.
-#[derive(Debug, Clone, Default)]
-pub struct LaunchRequest {
-    /// Process arguments (excluding argv\[0\]).
-    pub args: Vec<String>,
-    /// Working directory at launch, if resolvable.
-    pub cwd: Option<PathBuf>,
-    /// URLs/files supplied at launch (e.g. `open`-with, deep link).
-    pub urls: Vec<String>,
-}
-
-impl LaunchRequest {
-    /// Build a launch request from the current process environment.
-    pub fn from_env() -> Self {
-        Self {
-            args: std::env::args().skip(1).collect(),
-            cwd: std::env::current_dir().ok(),
-            urls: Vec::new(),
         }
     }
 }
@@ -100,6 +77,7 @@ pub enum ShutdownReason {
 /// should deliver immediately). [`EventQueue::drain`] empties the buffer in
 /// arrival order.
 #[derive(Debug, Default)]
+#[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
 pub struct EventQueue {
     ready: bool,
     pending: VecDeque<AppEvent>,
@@ -107,11 +85,13 @@ pub struct EventQueue {
 
 impl EventQueue {
     /// A new, not-yet-ready queue.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Whether the shell has been marked ready.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn is_ready(&self) -> bool {
         self.ready
     }
@@ -123,6 +103,7 @@ impl EventQueue {
     /// event is handed back (rather than signalled with a bool) so a ready caller
     /// still owns it to perform the immediate delivery.
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn push(&mut self, event: AppEvent) -> Option<AppEvent> {
         if self.ready {
             Some(event)
@@ -133,21 +114,25 @@ impl EventQueue {
     }
 
     /// Mark the shell ready. Does not itself drain — call [`EventQueue::drain`].
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn mark_ready(&mut self) {
         self.ready = true;
     }
 
     /// Remove and return all buffered events in arrival order.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn drain(&mut self) -> Vec<AppEvent> {
         self.pending.drain(..).collect()
     }
 
     /// Number of buffered events.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn len(&self) -> usize {
         self.pending.len()
     }
 
     /// Whether the buffer is empty.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
@@ -252,7 +237,7 @@ mod tests {
     fn reentrant_queue_defers_nested_events_and_preserves_order() {
         let mut q = ReentrantQueue::new();
         // Outer pass begins and delivers now.
-        assert!(q.try_enter(&AppEvent::Started(LaunchRequest::default())));
+        assert!(q.try_enter(&AppEvent::Started));
         assert!(q.is_delivering());
         // Events raised during the pass are buffered, not delivered.
         assert!(!q.try_enter(&AppEvent::Reopened));

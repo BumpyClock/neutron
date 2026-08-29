@@ -3,12 +3,48 @@
 use gpui::{App, OsAction, actions};
 use neutron_components::input;
 
-use super::{
-    ABOUT_COMMAND_ID, APP_MENU, AppCommandsExt, Command, CommandError, CommandId, CommandScope,
-    EDIT_MENU, FILE_MENU, HELP_MENU, MenuPlan, OPEN_SETTINGS_COMMAND_ID, QUIT_COMMAND_ID,
-    THEME_SECTION, VIEW_MENU, WINDOW_MENU,
-};
+use super::declaration::StandardFeatures;
+use super::keys::MenuKey;
+use super::{CommandId, CommandScope, RuntimeCommand};
 use crate::handles::AppShellExt;
+
+pub use super::{ABOUT_COMMAND_ID, OPEN_SETTINGS_COMMAND_ID, QUIT_COMMAND_ID};
+
+/// Stable ids for the standard commands that have no public constant yet.
+///
+/// The typed menu layout ([`super::menu_model`]) and the current registration
+/// path both reference these, so a rename cannot desynchronize the two.
+pub const HIDE_APP_COMMAND_ID: CommandId = CommandId("app.hide");
+/// Stable id for the macOS Hide Others command.
+pub const HIDE_OTHERS_COMMAND_ID: CommandId = CommandId("app.hide_others");
+/// Stable id for the macOS Show All command.
+pub const SHOW_ALL_COMMAND_ID: CommandId = CommandId("app.show_all");
+/// Stable id for the macOS Minimize command.
+pub const MINIMIZE_COMMAND_ID: CommandId = CommandId("window.minimize");
+/// Stable id for the macOS Zoom command.
+pub const ZOOM_COMMAND_ID: CommandId = CommandId("window.zoom");
+/// Stable id for the Close Window command.
+pub const CLOSE_WINDOW_COMMAND_ID: CommandId = CommandId("window.close");
+/// Stable id for the standard Undo command.
+pub const UNDO_COMMAND_ID: CommandId = CommandId("edit.undo");
+/// Stable id for the standard Redo command.
+pub const REDO_COMMAND_ID: CommandId = CommandId("edit.redo");
+/// Stable id for the standard Cut command.
+pub const CUT_COMMAND_ID: CommandId = CommandId("edit.cut");
+/// Stable id for the standard Copy command.
+pub const COPY_COMMAND_ID: CommandId = CommandId("edit.copy");
+/// Stable id for the standard Paste command.
+pub const PASTE_COMMAND_ID: CommandId = CommandId("edit.paste");
+/// Stable id for the standard Select All command.
+pub const SELECT_ALL_COMMAND_ID: CommandId = CommandId("edit.select_all");
+/// Stable id for the standard Delete command.
+pub const DELETE_COMMAND_ID: CommandId = CommandId("edit.delete");
+/// Stable id for the standard Delete Previous Word command.
+pub const DELETE_PREVIOUS_WORD_COMMAND_ID: CommandId = CommandId("edit.delete_previous_word");
+/// Stable id for the standard Delete Next Word command.
+pub const DELETE_NEXT_WORD_COMMAND_ID: CommandId = CommandId("edit.delete_next_word");
+/// Stable id for the standard Find command.
+pub const FIND_COMMAND_ID: CommandId = CommandId("edit.find");
 
 actions!(
     app,
@@ -41,289 +77,6 @@ actions!(
     ]
 );
 
-type StandardCallback = Box<dyn Fn(&mut App) -> anyhow::Result<()> + 'static>;
-
-/// Conventional cross-platform application menus.
-///
-/// Settings and About are present only when their callbacks are configured, so
-/// the command registry never exposes inert items or shortcuts.
-pub struct StandardMenus {
-    settings: Option<StandardCallback>,
-    about: Option<StandardCallback>,
-    theme_menu: bool,
-    custom_menus: Vec<&'static str>,
-}
-
-impl StandardMenus {
-    /// Create standard Quit, Edit, and Window menus without optional app-owned
-    /// Settings, About, or Appearance surfaces.
-    pub fn new() -> Self {
-        Self {
-            settings: None,
-            about: None,
-            theme_menu: false,
-            custom_menus: Vec::new(),
-        }
-    }
-
-    /// Add Settings/Preferences and its conventional shortcut.
-    #[must_use]
-    pub fn on_settings(
-        mut self,
-        callback: impl Fn(&mut App) -> anyhow::Result<()> + 'static,
-    ) -> Self {
-        self.settings = Some(Box::new(callback));
-        self
-    }
-
-    /// Add About to the platform-conventional menu.
-    #[must_use]
-    pub fn on_about(mut self, callback: impl Fn(&mut App) -> anyhow::Result<()> + 'static) -> Self {
-        self.about = Some(Box::new(callback));
-        self
-    }
-
-    /// Add the reserved Appearance/theme section.
-    #[must_use]
-    pub fn with_theme_menu(mut self) -> Self {
-        self.theme_menu = true;
-        self
-    }
-
-    /// Insert a custom top-level menu before Window/Help.
-    #[must_use]
-    pub fn with_menu(mut self, key: &'static str) -> Self {
-        if !self.custom_menus.contains(&key) {
-            self.custom_menus.push(key);
-        }
-        self
-    }
-
-    pub(super) fn install(self, cx: &mut App, app_name: &str) -> Result<MenuPlan, CommandError> {
-        let platform = DesktopPlatform::current();
-        let plan = standard_menu_plan(platform, self.theme_menu, &self.custom_menus);
-        install_base(cx, app_name, platform, true)?;
-
-        if let Some(callback) = self.settings {
-            cx.register_command(
-                Command::new(
-                    OPEN_SETTINGS_COMMAND_ID,
-                    settings_label(platform),
-                    CommandScope::App,
-                    OpenSettings,
-                )
-                .with_binding(settings_binding(platform))
-                .placed(app_menu_key(platform), settings_group(platform), 0),
-            )?;
-            cx.on_action(move |_: &OpenSettings, cx: &mut App| {
-                if let Err(error) = callback(cx) {
-                    report_callback_error(cx, OPEN_SETTINGS_COMMAND_ID, error);
-                }
-            });
-        }
-
-        if let Some(callback) = self.about {
-            cx.register_command(
-                Command::new(
-                    ABOUT_COMMAND_ID,
-                    format!("About {app_name}"),
-                    CommandScope::App,
-                    About,
-                )
-                .placed(about_menu_key(platform), 0, 0),
-            )?;
-            cx.on_action(move |_: &About, cx: &mut App| {
-                if let Err(error) = callback(cx) {
-                    report_callback_error(cx, ABOUT_COMMAND_ID, error);
-                }
-            });
-        }
-
-        Ok(plan)
-    }
-}
-
-impl Default for StandardMenus {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Install the legacy raw-plan standard vocabulary. About remains absent until
-/// an app explicitly registers it, avoiding the previous inert menu item.
-pub(super) fn install_raw(cx: &mut App, app_name: &str) -> Result<(), CommandError> {
-    install_base(cx, app_name, DesktopPlatform::current(), false)
-}
-
-fn install_base(
-    cx: &mut App,
-    app_name: &str,
-    platform: DesktopPlatform,
-    platform_plan: bool,
-) -> Result<(), CommandError> {
-    register_app_block(cx, app_name, platform, platform_plan)?;
-    register_edit_block(cx)?;
-    register_window_block(cx, platform)?;
-    register_handlers(cx);
-    Ok(())
-}
-
-fn register_app_block(
-    cx: &mut App,
-    app_name: &str,
-    platform: DesktopPlatform,
-    platform_plan: bool,
-) -> Result<(), CommandError> {
-    #[cfg(target_os = "macos")]
-    if platform == DesktopPlatform::MacOs {
-        cx.register_command(
-            Command::new(
-                CommandId("app.hide"),
-                format!("Hide {app_name}"),
-                CommandScope::App,
-                HideApp,
-            )
-            .with_binding("cmd-h")
-            .placed(APP_MENU, 4, 0),
-        )?;
-        cx.register_command(
-            Command::new(
-                CommandId("app.hide_others"),
-                "Hide Others",
-                CommandScope::App,
-                HideOthers,
-            )
-            .placed(APP_MENU, 4, 1),
-        )?;
-        cx.register_command(
-            Command::new(
-                CommandId("app.show_all"),
-                "Show All",
-                CommandScope::App,
-                ShowAll,
-            )
-            .placed(APP_MENU, 4, 2),
-        )?;
-    }
-
-    let menu = if platform_plan {
-        app_menu_key(platform)
-    } else {
-        APP_MENU
-    };
-    let label = if platform == DesktopPlatform::MacOs {
-        format!("Quit {app_name}")
-    } else {
-        "Quit".to_string()
-    };
-    cx.register_command(
-        Command::new(QUIT_COMMAND_ID, label, CommandScope::App, Quit)
-            .with_binding(quit_binding(platform))
-            .placed(menu, 9, 0),
-    )?;
-    Ok(())
-}
-
-fn register_edit_block(cx: &mut App) -> Result<(), CommandError> {
-    cx.register_command(edit(
-        CommandId("edit.undo"),
-        "Undo",
-        input::Undo,
-        OsAction::Undo,
-        0,
-        0,
-    ))?;
-    cx.register_command(edit(
-        CommandId("edit.redo"),
-        "Redo",
-        input::Redo,
-        OsAction::Redo,
-        0,
-        1,
-    ))?;
-    cx.register_command(edit(
-        CommandId("edit.cut"),
-        "Cut",
-        input::Cut,
-        OsAction::Cut,
-        1,
-        0,
-    ))?;
-    cx.register_command(edit(
-        CommandId("edit.copy"),
-        "Copy",
-        input::Copy,
-        OsAction::Copy,
-        1,
-        1,
-    ))?;
-    cx.register_command(edit(
-        CommandId("edit.paste"),
-        "Paste",
-        input::Paste,
-        OsAction::Paste,
-        1,
-        2,
-    ))?;
-    cx.register_command(edit(
-        CommandId("edit.select_all"),
-        "Select All",
-        input::SelectAll,
-        OsAction::SelectAll,
-        2,
-        0,
-    ))?;
-    Ok(())
-}
-
-fn edit(
-    id: CommandId,
-    label: &'static str,
-    action: impl gpui::Action,
-    os_action: OsAction,
-    group: u16,
-    order: u16,
-) -> Command {
-    Command::new(id, label, CommandScope::Window, action)
-        .with_os_action(os_action)
-        .placed(EDIT_MENU, group, order)
-}
-
-fn register_window_block(cx: &mut App, platform: DesktopPlatform) -> Result<(), CommandError> {
-    #[cfg(target_os = "macos")]
-    if platform == DesktopPlatform::MacOs {
-        cx.register_command(
-            Command::new(
-                CommandId("window.minimize"),
-                "Minimize",
-                CommandScope::Window,
-                Minimize,
-            )
-            .with_binding("cmd-m")
-            .placed(WINDOW_MENU, 0, 0),
-        )?;
-        cx.register_command(
-            Command::new(CommandId("window.zoom"), "Zoom", CommandScope::Window, Zoom).placed(
-                WINDOW_MENU,
-                0,
-                1,
-            ),
-        )?;
-    }
-
-    cx.register_command(
-        Command::new(
-            CommandId("window.close"),
-            "Close Window",
-            CommandScope::Window,
-            CloseWindow,
-        )
-        .with_binding(close_binding(platform))
-        .placed(WINDOW_MENU, 1, 0),
-    )?;
-    Ok(())
-}
-
 fn register_handlers(cx: &mut App) {
     cx.on_action(|_: &Quit, cx: &mut App| cx.request_quit());
 
@@ -336,22 +89,26 @@ fn register_handlers(cx: &mut App) {
 }
 
 fn report_callback_error(cx: &mut App, command: CommandId, error: anyhow::Error) {
-    crate::handles::report_error(
-        cx,
-        crate::error::RuntimeError::command(command.as_str(), error),
-    );
+    crate::handles::report_error(cx, crate::error::RuntimeError::command(command, error));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(super) enum DesktopPlatform {
+pub enum DesktopPlatform {
     MacOs,
     Windows,
     Linux,
 }
 
 impl DesktopPlatform {
-    fn current() -> Self {
+    /// Every desktop platform, in the order pure validation reports faults.
+    ///
+    /// Declaration validation iterates this list on *every* host, so a binding
+    /// that is invalid on Windows fails on a macOS developer machine too.
+    pub(crate) const ALL: [Self; 3] = [Self::MacOs, Self::Windows, Self::Linux];
+
+    /// The current desktop platform.
+    #[must_use]
+    pub fn current() -> Self {
         #[cfg(target_os = "macos")]
         return Self::MacOs;
         #[cfg(target_os = "windows")]
@@ -359,63 +116,54 @@ impl DesktopPlatform {
         #[cfg(target_os = "linux")]
         return Self::Linux;
     }
+
+    /// A stable name for diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MacOs => "macOS",
+            Self::Windows => "Windows",
+            Self::Linux => "Linux",
+        }
+    }
 }
 
-fn standard_menu_plan(
-    platform: DesktopPlatform,
-    theme_menu: bool,
-    custom_menus: &[&'static str],
-) -> MenuPlan {
-    let mut plan = MenuPlan::from_keys(standard_menu_keys(platform, theme_menu));
-    let insertion_key = WINDOW_MENU;
-    for key in custom_menus {
-        plan.insert_before(insertion_key, key);
-    }
-    if theme_menu {
-        let (menu, group) = match platform {
-            DesktopPlatform::MacOs => (APP_MENU, 2),
-            DesktopPlatform::Windows | DesktopPlatform::Linux => (VIEW_MENU, 0),
-        };
-        plan.reserve_section_at(menu, group, 0, THEME_SECTION);
-    }
-    if platform == DesktopPlatform::MacOs {
-        plan.reserve_services_at(APP_MENU, 3, 0);
-    }
-    plan
-}
-
-fn standard_menu_keys(platform: DesktopPlatform, theme_menu: bool) -> Vec<&'static str> {
+/// The conventional top-level menus for `platform`, in bar order.
+///
+/// Shared with the typed menu layout so the two models cannot drift.
+pub(super) fn standard_menu_keys(platform: DesktopPlatform, theme_menu: bool) -> Vec<MenuKey> {
     match platform {
-        DesktopPlatform::MacOs => vec![APP_MENU, EDIT_MENU, WINDOW_MENU],
+        DesktopPlatform::MacOs => vec![MenuKey::APP, MenuKey::EDIT, MenuKey::WINDOW],
         DesktopPlatform::Windows | DesktopPlatform::Linux => {
-            let mut keys = vec![FILE_MENU, EDIT_MENU];
+            let mut keys = vec![MenuKey::FILE, MenuKey::EDIT];
             if theme_menu {
-                keys.push(VIEW_MENU);
+                keys.push(MenuKey::VIEW);
             }
-            keys.extend([WINDOW_MENU, HELP_MENU]);
+            keys.extend([MenuKey::WINDOW, MenuKey::HELP]);
             keys
         }
     }
 }
 
-fn app_menu_key(platform: DesktopPlatform) -> &'static str {
+/// The menu that hosts the Appearance/Theme section on `platform`.
+pub(super) fn theme_section_menu(platform: DesktopPlatform) -> MenuKey {
     match platform {
-        DesktopPlatform::MacOs => APP_MENU,
-        DesktopPlatform::Windows | DesktopPlatform::Linux => FILE_MENU,
+        DesktopPlatform::MacOs => MenuKey::APP,
+        DesktopPlatform::Windows | DesktopPlatform::Linux => MenuKey::VIEW,
     }
 }
 
-fn about_menu_key(platform: DesktopPlatform) -> &'static str {
+pub(super) fn app_menu_key(platform: DesktopPlatform) -> &'static str {
     match platform {
-        DesktopPlatform::MacOs => APP_MENU,
-        DesktopPlatform::Windows | DesktopPlatform::Linux => HELP_MENU,
+        DesktopPlatform::MacOs => MenuKey::APP.as_str(),
+        DesktopPlatform::Windows | DesktopPlatform::Linux => MenuKey::FILE.as_str(),
     }
 }
 
-fn settings_group(platform: DesktopPlatform) -> u16 {
+pub(super) fn about_menu_key(platform: DesktopPlatform) -> &'static str {
     match platform {
-        DesktopPlatform::MacOs => 1,
-        DesktopPlatform::Windows | DesktopPlatform::Linux => 0,
+        DesktopPlatform::MacOs => MenuKey::APP.as_str(),
+        DesktopPlatform::Windows | DesktopPlatform::Linux => MenuKey::HELP.as_str(),
     }
 }
 
@@ -448,6 +196,274 @@ fn close_binding(platform: DesktopPlatform) -> &'static str {
     }
 }
 
+/// The command ids the framework itself installs for `platform`.
+///
+/// Pure and host-independent: the macOS-only ids are listed whenever
+/// `platform` is macOS, even on a Linux build host, so typed validation of a
+/// macOS layout gives the same answer everywhere.
+///
+/// Deliberately excludes About and Settings. Those are *optional* standard
+/// references: the standard layout only projects them when the application
+/// resolved the corresponding feature, so they arrive through
+/// [`feature_command_ids`] instead. A layout that asks for one without the
+/// feature is an `UnknownCommand` fault, which is the intended report.
+pub(super) fn framework_command_ids(platform: DesktopPlatform) -> Vec<CommandId> {
+    let mut ids = vec![QUIT_COMMAND_ID];
+    if platform == DesktopPlatform::MacOs {
+        ids.extend([
+            HIDE_APP_COMMAND_ID,
+            HIDE_OTHERS_COMMAND_ID,
+            SHOW_ALL_COMMAND_ID,
+        ]);
+    }
+    ids.extend([
+        UNDO_COMMAND_ID,
+        REDO_COMMAND_ID,
+        CUT_COMMAND_ID,
+        COPY_COMMAND_ID,
+        PASTE_COMMAND_ID,
+        DELETE_COMMAND_ID,
+        DELETE_PREVIOUS_WORD_COMMAND_ID,
+        DELETE_NEXT_WORD_COMMAND_ID,
+        FIND_COMMAND_ID,
+        SELECT_ALL_COMMAND_ID,
+    ]);
+    if platform == DesktopPlatform::MacOs {
+        ids.extend([MINIMIZE_COMMAND_ID, ZOOM_COMMAND_ID]);
+    }
+    ids.push(CLOSE_WINDOW_COMMAND_ID);
+    ids
+}
+
+/// Every command id the framework itself may install, across every desktop
+/// platform and every optional standard feature.
+///
+/// [`Commands::replace_command`](super::Commands::replace_command) rejects a
+/// framework-owned id no matter which platform is currently running, so this
+/// unions [`framework_command_ids`] over [`DesktopPlatform::ALL`] with both
+/// optional feature ids (Settings, About) instead of just the current host's
+/// set — behavior stays the same on every build host.
+pub(super) fn is_standard_command(id: CommandId) -> bool {
+    id == OPEN_SETTINGS_COMMAND_ID
+        || id == ABOUT_COMMAND_ID
+        || DesktopPlatform::ALL
+            .iter()
+            .any(|&platform| framework_command_ids(platform).contains(&id))
+}
+
+/// Build the framework's standard commands for `platform`, without placements.
+///
+/// The typed model owns menu projection, so every placement comes from the
+/// resolved outline and is applied by the installer. Returned as values (no
+/// `&mut App`) so the whole install can be assembled before anything mutates.
+///
+/// The macOS-only commands are gated on the *build* host as well as `platform`,
+/// because their actions only exist under `cfg(target_os = "macos")`.
+pub(super) fn framework_commands(platform: DesktopPlatform) -> Vec<RuntimeCommand> {
+    let mut commands = Vec::new();
+
+    #[cfg(target_os = "macos")]
+    if platform == DesktopPlatform::MacOs {
+        commands.push(
+            RuntimeCommand::new(HIDE_APP_COMMAND_ID, "Hide", CommandScope::App, HideApp)
+                .with_derived_label(hide_app_label)
+                .with_binding("cmd-h"),
+        );
+        commands.push(RuntimeCommand::new(
+            HIDE_OTHERS_COMMAND_ID,
+            "Hide Others",
+            CommandScope::App,
+            HideOthers,
+        ));
+        commands.push(RuntimeCommand::new(
+            SHOW_ALL_COMMAND_ID,
+            "Show All",
+            CommandScope::App,
+            ShowAll,
+        ));
+    }
+
+    let quit = RuntimeCommand::new(QUIT_COMMAND_ID, "Quit", CommandScope::App, Quit)
+        .with_binding(quit_binding(platform));
+    commands.push(if platform == DesktopPlatform::MacOs {
+        quit.with_derived_label(quit_label)
+    } else {
+        quit
+    });
+
+    commands.extend([
+        edit_command(UNDO_COMMAND_ID, "Undo", input::Undo, OsAction::Undo),
+        edit_command(REDO_COMMAND_ID, "Redo", input::Redo, OsAction::Redo),
+        edit_command(CUT_COMMAND_ID, "Cut", input::Cut, OsAction::Cut),
+        edit_command(COPY_COMMAND_ID, "Copy", input::Copy, OsAction::Copy),
+        edit_command(PASTE_COMMAND_ID, "Paste", input::Paste, OsAction::Paste),
+        window_command(DELETE_COMMAND_ID, "Delete", input::Delete),
+        window_command(
+            DELETE_PREVIOUS_WORD_COMMAND_ID,
+            "Delete Previous Word",
+            input::DeleteToPreviousWordStart,
+        ),
+        window_command(
+            DELETE_NEXT_WORD_COMMAND_ID,
+            "Delete Next Word",
+            input::DeleteToNextWordEnd,
+        ),
+        window_command(FIND_COMMAND_ID, "Find", input::Search),
+        edit_command(
+            SELECT_ALL_COMMAND_ID,
+            "Select All",
+            input::SelectAll,
+            OsAction::SelectAll,
+        ),
+    ]);
+
+    #[cfg(target_os = "macos")]
+    if platform == DesktopPlatform::MacOs {
+        commands.push(
+            RuntimeCommand::new(
+                MINIMIZE_COMMAND_ID,
+                "Minimize",
+                CommandScope::Window,
+                Minimize,
+            )
+            .with_binding("cmd-m"),
+        );
+        commands.push(RuntimeCommand::new(
+            ZOOM_COMMAND_ID,
+            "Zoom",
+            CommandScope::Window,
+            Zoom,
+        ));
+    }
+
+    commands.push(
+        RuntimeCommand::new(
+            CLOSE_WINDOW_COMMAND_ID,
+            "Close Window",
+            CommandScope::Window,
+            CloseWindow,
+        )
+        .with_binding(close_binding(platform)),
+    );
+
+    commands
+}
+
+/// Install the action handlers for the framework's standard commands.
+///
+/// Separate from [`framework_commands`] so the installer can register every
+/// command first and only then take the irreversible step of adding handlers.
+pub(super) fn install_framework_handlers(cx: &mut App) {
+    register_handlers(cx);
+}
+
+/// The command ids the resolved standard features contribute.
+///
+/// Separate from [`framework_command_ids`] because these are *conditional*: the
+/// Settings id exists only when a Settings surface was declared, and the About
+/// id only when About was not disabled.
+pub(super) fn feature_command_ids(features: StandardFeatures) -> Vec<CommandId> {
+    let mut ids = Vec::new();
+    if features.has_settings() {
+        ids.push(OPEN_SETTINGS_COMMAND_ID);
+    }
+    if features.has_about() {
+        ids.push(ABOUT_COMMAND_ID);
+    }
+    ids
+}
+
+/// Build the commands the resolved standard features contribute, without
+/// placements.
+///
+/// Ids, labels, and bindings stay framework-owned here: an application replaces
+/// the *surface* behind a standard feature, never its vocabulary or its
+/// platform conventions.
+pub(super) fn feature_commands(
+    platform: DesktopPlatform,
+    features: StandardFeatures,
+) -> Vec<RuntimeCommand> {
+    let mut commands = Vec::new();
+    if features.has_settings() {
+        commands.push(
+            RuntimeCommand::new(
+                OPEN_SETTINGS_COMMAND_ID,
+                settings_label(platform),
+                CommandScope::App,
+                OpenSettings,
+            )
+            .with_binding(settings_binding(platform)),
+        );
+    }
+    if features.has_about() {
+        commands.push(
+            RuntimeCommand::new(ABOUT_COMMAND_ID, "About", CommandScope::App, About)
+                .with_derived_label(about_label),
+        );
+    }
+    commands
+}
+
+/// Install the action handlers routing the standard feature commands to the
+/// surfaces the declaration resolved.
+pub(super) fn install_feature_handlers(cx: &mut App, features: StandardFeatures) {
+    if let Some(open) = features.settings {
+        cx.on_action(move |_: &OpenSettings, cx: &mut App| {
+            if let Err(error) = open(cx) {
+                report_callback_error(cx, OPEN_SETTINGS_COMMAND_ID, error);
+            }
+        });
+    }
+    if let Some(open) = features.about {
+        cx.on_action(move |_: &About, cx: &mut App| {
+            if let Err(error) = open(cx) {
+                report_callback_error(cx, ABOUT_COMMAND_ID, error);
+            }
+        });
+    }
+}
+
+/// `About <App>` — the convention on every desktop platform.
+fn about_label(cx: &App) -> gpui::SharedString {
+    format!("About {}", app_display_name(cx)).into()
+}
+
+fn edit_command(
+    id: CommandId,
+    label: &'static str,
+    action: impl gpui::Action,
+    os_action: OsAction,
+) -> RuntimeCommand {
+    RuntimeCommand::new(id, label, CommandScope::Window, action).with_os_action(os_action)
+}
+
+/// A window-scoped standard Edit command with no [`OsAction`] counterpart.
+///
+/// [`OsAction`] only covers the handful of edits the platform menu can
+/// specialize (cut/copy/paste/select all/undo/redo); Delete, the word-delete
+/// pair, and Find have no matching variant, so these commands carry none.
+fn window_command(id: CommandId, label: &'static str, action: impl gpui::Action) -> RuntimeCommand {
+    RuntimeCommand::new(id, label, CommandScope::Window, action)
+}
+
+/// `Quit <App>` — the macOS convention.
+fn quit_label(cx: &App) -> gpui::SharedString {
+    format!("Quit {}", app_display_name(cx)).into()
+}
+
+/// `Hide <App>` — the macOS convention.
+#[cfg(target_os = "macos")]
+fn hide_app_label(cx: &App) -> gpui::SharedString {
+    format!("Hide {}", app_display_name(cx)).into()
+}
+
+/// The application display name, used as the derived title of the standard
+/// application menu. Falls back to the menu key before the shell is installed,
+/// matching the current native projection.
+pub(super) fn app_display_name(cx: &App) -> gpui::SharedString {
+    super::menu::app_menu_title(cx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,34 +472,21 @@ mod tests {
     fn standard_plan_uses_native_desktop_conventions() {
         assert_eq!(
             standard_menu_keys(DesktopPlatform::MacOs, false),
-            vec![APP_MENU, EDIT_MENU, WINDOW_MENU]
+            vec![MenuKey::APP, MenuKey::EDIT, MenuKey::WINDOW]
         );
         assert_eq!(
             standard_menu_keys(DesktopPlatform::Windows, true),
-            vec!["File", EDIT_MENU, "View", WINDOW_MENU, "Help"]
+            vec![
+                MenuKey::FILE,
+                MenuKey::EDIT,
+                MenuKey::VIEW,
+                MenuKey::WINDOW,
+                MenuKey::HELP
+            ]
         );
         assert_eq!(
             standard_menu_keys(DesktopPlatform::Linux, false),
-            vec!["File", EDIT_MENU, WINDOW_MENU, "Help"]
-        );
-    }
-
-    #[test]
-    fn custom_menus_precede_window_and_help() {
-        let plan = standard_menu_plan(DesktopPlatform::Linux, false, &["Tools", "Debug"]);
-        assert_eq!(
-            plan.outline(&[])
-                .iter()
-                .map(|menu| menu.key)
-                .collect::<Vec<_>>(),
-            vec![
-                FILE_MENU,
-                EDIT_MENU,
-                "Tools",
-                "Debug",
-                WINDOW_MENU,
-                HELP_MENU
-            ]
+            vec![MenuKey::FILE, MenuKey::EDIT, MenuKey::WINDOW, MenuKey::HELP]
         );
     }
 
@@ -498,6 +501,29 @@ mod tests {
     }
 
     #[test]
+    fn standard_command_membership_is_host_independent() {
+        // A mac-only id must be recognized as standard even when the build
+        // host is not macOS, and vice versa for a non-mac id: validation runs
+        // the same on every host regardless of `DesktopPlatform::current()`.
+        assert!(is_standard_command(HIDE_APP_COMMAND_ID));
+        assert!(is_standard_command(MINIMIZE_COMMAND_ID));
+        assert!(is_standard_command(QUIT_COMMAND_ID));
+        assert!(is_standard_command(UNDO_COMMAND_ID));
+        assert!(is_standard_command(CLOSE_WINDOW_COMMAND_ID));
+        assert!(is_standard_command(DELETE_COMMAND_ID));
+        assert!(is_standard_command(DELETE_PREVIOUS_WORD_COMMAND_ID));
+        assert!(is_standard_command(DELETE_NEXT_WORD_COMMAND_ID));
+        assert!(is_standard_command(FIND_COMMAND_ID));
+
+        // Settings/About are conditional features, not entries in
+        // `framework_command_ids`, but they are still framework-owned ids.
+        assert!(is_standard_command(OPEN_SETTINGS_COMMAND_ID));
+        assert!(is_standard_command(ABOUT_COMMAND_ID));
+
+        assert!(!is_standard_command(CommandId("app.not_standard")));
+    }
+
+    #[test]
     fn every_standard_binding_parses() {
         for platform in [
             DesktopPlatform::MacOs,
@@ -505,71 +531,25 @@ mod tests {
             DesktopPlatform::Linux,
         ] {
             for command in [
-                Command::new(
+                RuntimeCommand::new(
                     OPEN_SETTINGS_COMMAND_ID,
                     "Settings",
                     CommandScope::App,
                     OpenSettings,
                 )
                 .with_binding(settings_binding(platform)),
-                Command::new(QUIT_COMMAND_ID, "Quit", CommandScope::App, Quit)
+                RuntimeCommand::new(QUIT_COMMAND_ID, "Quit", CommandScope::App, Quit)
                     .with_binding(quit_binding(platform)),
-                Command::new(
-                    CommandId("window.close"),
+                RuntimeCommand::new(
+                    CLOSE_WINDOW_COMMAND_ID,
                     "Close Window",
                     CommandScope::Window,
                     CloseWindow,
                 )
                 .with_binding(close_binding(platform)),
             ] {
-                super::super::plugin::validate_command_binding(&command).unwrap();
+                super::super::menus::validate_command_binding(&command).unwrap();
             }
         }
-    }
-
-    #[test]
-    fn macos_system_sections_use_conventional_groups() {
-        let plan = standard_menu_plan(DesktopPlatform::MacOs, true, &[]);
-        assert_eq!(
-            plan.outline(&[])[0].nodes,
-            vec![
-                super::super::MenuNode::Section(THEME_SECTION),
-                super::super::MenuNode::Separator,
-                super::super::MenuNode::Services,
-            ]
-        );
-    }
-
-    #[gpui::test]
-    fn optional_callbacks_control_commands(cx: &mut gpui::TestAppContext) {
-        cx.update(|cx| {
-            StandardMenus::new().install(cx, "Test App").unwrap();
-            let registry = cx.global::<super::super::CommandRegistry>();
-            assert!(registry.get(OPEN_SETTINGS_COMMAND_ID).is_none());
-            assert!(registry.get(ABOUT_COMMAND_ID).is_none());
-        });
-    }
-
-    #[gpui::test]
-    fn configured_callbacks_register_stable_commands(cx: &mut gpui::TestAppContext) {
-        cx.update(|cx| {
-            StandardMenus::new()
-                .on_settings(|_| Ok(()))
-                .on_about(|_| Ok(()))
-                .install(cx, "Test App")
-                .unwrap();
-            let registry = cx.global::<super::super::CommandRegistry>();
-            assert_eq!(
-                registry
-                    .get(OPEN_SETTINGS_COMMAND_ID)
-                    .unwrap()
-                    .default_binding(),
-                Some(settings_binding(DesktopPlatform::current()))
-            );
-            assert_eq!(
-                registry.get(ABOUT_COMMAND_ID).unwrap().label().as_ref(),
-                "About Test App"
-            );
-        });
     }
 }

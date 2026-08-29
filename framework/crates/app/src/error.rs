@@ -3,130 +3,67 @@
 //! Library callbacks and shell APIs return [`AppShellError`] rather than
 //! `anyhow::Error` so downstream apps can match on failure modes across
 //! releases (plan §3, "public API errors are a stable `AppShellError`").
-//! `anyhow` is still accepted *into* the shell (via `From`) so application
-//! callbacks may use `?` freely.
 
 use thiserror::Error;
-
-/// Builder callbacks that occupy the single transactional startup slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum StartupHook {
-    /// [`crate::AppShellBuilder::start`].
-    Start,
-    /// [`crate::AppShellBuilder::on_launch`].
-    OnLaunch,
-}
-
-impl std::fmt::Display for StartupHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Start => f.write_str("start"),
-            Self::OnLaunch => f.write_str("on_launch"),
-        }
-    }
-}
-
-/// Builder APIs that claim ownership of application menu projection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum MenuConfiguration {
-    /// [`crate::AppShellBuilder::menus`] with an explicit [`crate::MenuPlan`].
-    MenuPlan,
-    /// [`crate::AppShellBuilder::standard_menus`] desktop conventions.
-    StandardMenus,
-}
-
-impl std::fmt::Display for MenuConfiguration {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MenuPlan => f.write_str("menus"),
-            Self::StandardMenus => f.write_str("standard_menus"),
-        }
-    }
-}
-
-/// Invalid combinations recorded by [`crate::AppShellBuilder`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum BuilderConfigurationError {
-    /// Both callbacks would occupy the one transactional startup slot.
-    #[error("startup callback `{first}` is already registered; cannot also register `{second}`")]
-    DuplicateStartup {
-        /// Callback registered first.
-        first: StartupHook,
-        /// Duplicate or mixed callback registered later.
-        second: StartupHook,
-    },
-    /// More than one builder API claimed the application menu model.
-    #[error("menu configuration `{first}` is already registered; cannot also register `{second}`")]
-    DuplicateMenus {
-        /// Menu API registered first.
-        first: MenuConfiguration,
-        /// Duplicate or mixed menu API registered later.
-        second: MenuConfiguration,
-    },
-    /// A second [`crate::MenusPlugin`] attempted to own menu projection.
-    #[error("an application menu owner is already initialized")]
-    DuplicateMenuOwner,
-}
 
 /// Errors surfaced by the application shell.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AppShellError {
-    /// The builder contains an invalid callback or service combination.
-    #[error("invalid application shell configuration: {0}")]
-    Configuration(#[source] BuilderConfigurationError),
-
-    /// The compiled-in [`crate::AppIdentity`] failed validation.
-    #[error("invalid app identity: {0}")]
-    Identity(String),
+    /// A declaration failed pure validation.
+    ///
+    /// Carries every independent fault in declaration order. Constructed before
+    /// paths, the platform, and GPUI exist, so a malformed declaration costs
+    /// nothing.
+    #[error("invalid application declaration: {0}")]
+    Declaration(#[source] crate::declaration::DeclarationErrors),
 
     /// Per-app directories could not be resolved from the identity namespace.
     #[error("failed to resolve application paths")]
     Paths(#[source] neutron_components_storage::StorageError),
 
-    /// A required startup service failed and startup cannot continue.
+    /// A pre-platform preparation step failed.
     ///
-    /// Degradable services (theme watcher, file logging) must not use this;
-    /// they log and continue. Only services declared *required* abort startup.
-    #[error("required startup service `{service}` failed")]
-    Service {
-        /// Stable identifier of the failing service.
-        service: &'static str,
-        /// Underlying cause.
-        #[source]
-        source: anyhow::Error,
-    },
+    /// Covers the advanced hooks that ready the process before the application
+    /// exists — `prepare`, `configure_application`, environment setup, and a
+    /// [`crate::LoggingPolicy::Configure`] initializer. The failure is
+    /// returned rather than logged and swallowed: a process that could not be
+    /// prepared must not continue starting, and for logging in particular the
+    /// logger the message would go to is exactly what failed.
+    #[error("failed to prepare the application environment")]
+    Preparation(#[source] anyhow::Error),
 
     /// The GPUI platform could not be constructed.
     #[error("failed to initialize application platform")]
     Platform(#[source] anyhow::Error),
 
+    /// A named module failed during startup and startup cannot continue.
+    ///
+    /// Fatal, unlike [`crate::RuntimeError::shutdown`]: shutdown-phase module
+    /// failures are nonfatal by definition and are reported through
+    /// [`crate::RuntimeError`], not through this variant.
+    #[error("module `{module}` failed")]
+    Module {
+        /// Stable identifier of the failing module.
+        module: &'static str,
+        /// Underlying cause.
+        #[source]
+        source: anyhow::Error,
+    },
+
     /// The application startup transaction failed.
     #[error("application startup failed")]
     Startup(#[source] anyhow::Error),
 
-    /// A cross-thread dispatch was attempted after shutdown began.
-    #[error(transparent)]
-    Closed(#[from] AppClosed),
-
-    /// An application-supplied callback returned an error.
+    /// A launch specification could not be parsed from the process facts.
     ///
-    /// This is the `?`-ergonomic bridge: `anyhow::Error` from a user closure
-    /// converts here automatically.
-    #[error("application callback failed")]
-    Callback(#[source] anyhow::Error),
+    /// Constructed by the declaration's launch preparation, before paths, the
+    /// platform, and GPUI exist.
+    #[error("failed to parse launch specification")]
+    Launch(#[source] anyhow::Error),
 }
 
-impl From<anyhow::Error> for AppShellError {
-    fn from(source: anyhow::Error) -> Self {
-        AppShellError::Callback(source)
-    }
-}
-
-/// Kind of nonfatal operation reported through [`crate::AppShellBuilder::on_error`].
+/// Kind of nonfatal operation reported through [`crate::AppDeclaration::runtime_errors`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RuntimeOperation {
@@ -134,8 +71,13 @@ pub enum RuntimeOperation {
     Lifecycle,
     /// Command or action execution.
     Command,
-    /// Best-effort shell service work.
-    Service,
+    /// Best-effort work performed while the shell is shutting down.
+    ///
+    /// Constructed when a declared application shutdown hook fails: the failure
+    /// is reported and the remaining teardown still runs.
+    Shutdown,
+    /// Best-effort named-module lifecycle work.
+    Module,
 }
 
 /// A nonfatal runtime error observed by the application shell.
@@ -144,43 +86,64 @@ pub enum RuntimeOperation {
 #[derive(Debug)]
 pub struct RuntimeError {
     operation: RuntimeOperation,
-    command_id: Option<String>,
-    event: Option<&'static str>,
+    command_id: Option<crate::commands::CommandId>,
+    event: Option<crate::lifecycle::AppEvent>,
+    module: Option<&'static str>,
     source: anyhow::Error,
-    continued: bool,
 }
 
 impl RuntimeError {
     /// Build a lifecycle delivery error.
-    pub fn lifecycle(event: &'static str, source: impl Into<anyhow::Error>) -> Self {
+    pub fn lifecycle(event: crate::lifecycle::AppEvent, source: impl Into<anyhow::Error>) -> Self {
         Self {
             operation: RuntimeOperation::Lifecycle,
             command_id: None,
             event: Some(event),
+            module: None,
             source: source.into(),
-            continued: true,
         }
     }
 
     /// Build a command execution error.
-    pub fn command(command_id: impl Into<String>, source: impl Into<anyhow::Error>) -> Self {
+    pub fn command(
+        command_id: crate::commands::CommandId,
+        source: impl Into<anyhow::Error>,
+    ) -> Self {
         Self {
             operation: RuntimeOperation::Command,
-            command_id: Some(command_id.into()),
+            command_id: Some(command_id),
             event: None,
+            module: None,
             source: source.into(),
-            continued: true,
         }
     }
 
-    /// Build a best-effort service error.
-    pub fn service(source: impl Into<anyhow::Error>) -> Self {
+    /// Build a best-effort named-module lifecycle error.
+    ///
+    /// Used for best-effort module-scoped work, such as a declared application
+    /// setup module's teardown or a shell service failing in a way that must
+    /// not abort the process.
+    pub fn module(module: &'static str, source: impl Into<anyhow::Error>) -> Self {
         Self {
-            operation: RuntimeOperation::Service,
+            operation: RuntimeOperation::Module,
             command_id: None,
             event: None,
+            module: Some(module),
             source: source.into(),
-            continued: true,
+        }
+    }
+
+    /// Build a best-effort shutdown-phase error.
+    ///
+    /// Used when a declared application shutdown hook fails: the process is
+    /// already exiting, so the failure is reported and teardown continues.
+    pub fn shutdown(source: impl Into<anyhow::Error>) -> Self {
+        Self {
+            operation: RuntimeOperation::Shutdown,
+            command_id: None,
+            event: None,
+            module: None,
+            source: source.into(),
         }
     }
 
@@ -190,32 +153,43 @@ impl RuntimeError {
     }
 
     /// Stable command id, for command failures.
-    pub fn command_id(&self) -> Option<&str> {
-        self.command_id.as_deref()
+    pub fn command_id(&self) -> Option<crate::commands::CommandId> {
+        self.command_id
     }
 
-    /// Stable lifecycle event name, for lifecycle failures.
-    pub fn event(&self) -> Option<&'static str> {
-        self.event
+    /// The lifecycle event, for lifecycle failures.
+    pub fn event(&self) -> Option<&crate::lifecycle::AppEvent> {
+        self.event.as_ref()
+    }
+
+    /// Stable module identifier, for module lifecycle failures.
+    pub fn module_id(&self) -> Option<&'static str> {
+        self.module
     }
 
     /// Original error, including its source chain.
     pub fn source_error(&self) -> &anyhow::Error {
         &self.source
     }
-
-    /// Whether execution continued after this error.
-    pub fn continued(&self) -> bool {
-        self.continued
-    }
 }
 
 impl std::fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match (self.event, self.command_id.as_deref()) {
-            (Some(event), _) => write!(f, "lifecycle operation `{event}` failed: {}", self.source),
-            (_, Some(command_id)) => {
+        match (&self.event, self.command_id, self.module) {
+            (Some(event), _, _) => {
+                write!(
+                    f,
+                    "lifecycle operation `{}` failed: {}",
+                    event.name(),
+                    self.source
+                )
+            }
+            (_, Some(command_id), _) => {
                 write!(f, "command `{command_id}` failed: {}", self.source)
+            }
+            (_, _, Some(module)) => write!(f, "module `{module}` failed: {}", self.source),
+            _ if self.operation == RuntimeOperation::Shutdown => {
+                write!(f, "shutdown operation failed: {}", self.source)
             }
             _ => write!(f, "runtime service operation failed: {}", self.source),
         }
@@ -242,14 +216,62 @@ pub struct AppClosed;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::CommandId;
+    use crate::lifecycle::AppEvent;
 
     #[test]
     fn runtime_error_preserves_operation_context_and_source() {
-        let error = RuntimeError::command("app.settings", anyhow::anyhow!("settings failed"));
+        let error = RuntimeError::command(
+            CommandId::new("app.settings"),
+            anyhow::anyhow!("settings failed"),
+        );
         assert_eq!(error.operation(), RuntimeOperation::Command);
-        assert_eq!(error.command_id(), Some("app.settings"));
-        assert_eq!(error.event(), None);
-        assert!(error.continued());
+        assert_eq!(error.command_id(), Some(CommandId::new("app.settings")));
+        assert!(error.event().is_none());
         assert_eq!(error.source_error().to_string(), "settings failed");
+    }
+
+    /// Regression: `RuntimeError::module` must report `RuntimeOperation::Module`
+    /// and the module identifier through `module_id`, not leak into the
+    /// `command_id`/`event` accessors reserved for other operations.
+    #[test]
+    fn module_error_preserves_module_context_and_source() {
+        let error = RuntimeError::module("theme_watcher", anyhow::anyhow!("watch failed"));
+        assert_eq!(error.operation(), RuntimeOperation::Module);
+        assert_eq!(error.module_id(), Some("theme_watcher"));
+        assert_eq!(error.command_id(), None);
+        assert!(error.event().is_none());
+        assert_eq!(error.source_error().to_string(), "watch failed");
+        assert_eq!(
+            error.to_string(),
+            "module `theme_watcher` failed: watch failed"
+        );
+    }
+
+    /// Regression: a lifecycle error's `event()` accessor returns the typed
+    /// `AppEvent` the shell was delivering, and `Display` still names it by
+    /// its stable string.
+    #[test]
+    fn lifecycle_error_preserves_the_typed_event_and_stable_display_name() {
+        let error = RuntimeError::lifecycle(AppEvent::Started, anyhow::anyhow!("plugin failed"));
+        assert_eq!(error.operation(), RuntimeOperation::Lifecycle);
+        assert!(matches!(error.event(), Some(AppEvent::Started)));
+        assert_eq!(error.command_id(), None);
+        assert_eq!(
+            error.to_string(),
+            "lifecycle operation `started` failed: plugin failed"
+        );
+    }
+
+    /// Regression: `RuntimeError::shutdown` must report `RuntimeOperation::Shutdown`
+    /// and a shutdown-specific `Display` message.
+    #[test]
+    fn shutdown_error_preserves_operation_and_distinct_display() {
+        let error = RuntimeError::shutdown(anyhow::anyhow!("flush failed"));
+        assert_eq!(error.operation(), RuntimeOperation::Shutdown);
+        assert_eq!(error.module_id(), None);
+        assert_eq!(error.command_id(), None);
+        assert!(error.event().is_none());
+        assert_eq!(error.to_string(), "shutdown operation failed: flush failed");
     }
 }

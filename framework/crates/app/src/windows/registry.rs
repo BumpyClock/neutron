@@ -32,12 +32,18 @@ pub struct WindowRecord {
     /// Stable role identity.
     pub key: WindowKey,
     /// The un-numbered base title this window was opened with.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub base_title: String,
+    /// The counter this window's number was drawn from: its base title for
+    /// untyped opens, its key for declared surfaces and typed raw windows.
+    pub numbering_scope: String,
     /// The assigned window number (1-based). `0` for overlays (not numbered).
     pub number: u32,
     /// The resolved, user-facing title (`base` or `"base - N"`).
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub title: String,
     /// Window vs overlay.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub kind: SurfaceKind,
 }
 
@@ -132,9 +138,9 @@ fn format_title(base: &str, number: u32) -> String {
 #[derive(Debug)]
 pub struct Registry<H> {
     records: HashMap<H, WindowRecord>,
-    /// In-use window numbers per base title. Reserved at `allocate`, freed at
-    /// `remove`/`release`, so numbering survives a build that reentrantly opens
-    /// another window of the same base.
+    /// In-use window numbers per numbering scope. Reserved at `allocate`, freed
+    /// at `remove`/`release`, so numbering survives a build that reentrantly
+    /// opens another window in the same scope.
     numbers: HashMap<String, BTreeSet<u32>>,
     singletons: HashMap<WindowKey, SingletonRecord<H>>,
     version: u64,
@@ -157,11 +163,15 @@ impl<H: Copy + Eq + Hash> Registry<H> {
         Self::default()
     }
 
-    /// Reserve the lowest free number for `base_title` and return it with the
-    /// formatted title. The number stays reserved until [`Registry::remove`] or
-    /// [`Registry::release`].
-    pub fn allocate(&mut self, base_title: &str) -> (u32, String) {
-        let set = self.numbers.entry(base_title.to_string()).or_default();
+    /// Reserve the lowest free number in `scope` and return it with the title
+    /// formatted from `base_title`. The number stays reserved until
+    /// [`Registry::remove`] or [`Registry::release`].
+    ///
+    /// Scope and base title are separate so two differently-keyed windows that
+    /// share a title (commonly the app display name) are each instance 1, while
+    /// two windows in one scope still number `1`, `2`, … off the same base.
+    pub fn allocate(&mut self, scope: &str, base_title: &str) -> (u32, String) {
+        let set = self.numbers.entry(scope.to_string()).or_default();
         let mut number = 1;
         while set.contains(&number) {
             number += 1;
@@ -172,11 +182,11 @@ impl<H: Copy + Eq + Hash> Registry<H> {
 
     /// Release a reserved number that never became — or is no longer — a record
     /// (e.g. `open_window` failed after [`Registry::allocate`]).
-    pub fn release(&mut self, base_title: &str, number: u32) {
-        if let Some(set) = self.numbers.get_mut(base_title) {
+    pub fn release(&mut self, scope: &str, number: u32) {
+        if let Some(set) = self.numbers.get_mut(scope) {
             set.remove(&number);
             if set.is_empty() {
-                self.numbers.remove(base_title);
+                self.numbers.remove(scope);
             }
         }
     }
@@ -191,12 +201,18 @@ impl<H: Copy + Eq + Hash> Registry<H> {
     /// version. Returns the removed record, if any.
     pub fn remove(&mut self, handle: &H) -> Option<WindowRecord> {
         let record = self.records.remove(handle)?;
-        self.release(&record.base_title, record.number);
+        self.release(&record.numbering_scope, record.number);
         self.version += 1;
         Some(record)
     }
 
+    /// The record registered for `handle`, if any.
+    pub fn record(&self, handle: &H) -> Option<&WindowRecord> {
+        self.records.get(handle)
+    }
+
     /// Number of registered real windows (excludes overlays).
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn window_count(&self) -> usize {
         self.records
             .values()
@@ -205,6 +221,7 @@ impl<H: Copy + Eq + Hash> Registry<H> {
     }
 
     /// Number of registered overlays.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn overlay_count(&self) -> usize {
         self.records
             .values()
@@ -215,11 +232,13 @@ impl<H: Copy + Eq + Hash> Registry<H> {
     /// A monotonic counter bumped on every insert/remove — a minimal
     /// observation seam for menu rebuilds (Move-to-Window) without a callback
     /// registry.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// Iterate registered `(handle, record)` pairs.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn iter(&self) -> impl Iterator<Item = (&H, &WindowRecord)> {
         self.records.iter()
     }
@@ -288,6 +307,7 @@ mod tests {
         WindowRecord {
             key: MAIN,
             base_title: "App".to_string(),
+            numbering_scope: "App".to_string(),
             number,
             title: title.to_string(),
             kind,
@@ -297,45 +317,90 @@ mod tests {
     #[test]
     fn first_window_keeps_bare_title_later_are_suffixed() {
         let mut reg: Registry<u64> = Registry::new();
-        assert_eq!(reg.allocate("App"), (1, "App".to_string()));
-        assert_eq!(reg.allocate("App"), (2, "App - 2".to_string()));
-        assert_eq!(reg.allocate("App"), (3, "App - 3".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (1, "App".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (2, "App - 2".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (3, "App - 3".to_string()));
     }
 
     #[test]
     fn numbering_reuses_lowest_free_after_release() {
         let mut reg: Registry<u64> = Registry::new();
-        let (n1, _) = reg.allocate("App"); // 1
-        let (n2, _) = reg.allocate("App"); // 2
-        let (n3, _) = reg.allocate("App"); // 3
+        let (n1, _) = reg.allocate("App", "App"); // 1
+        let (n2, _) = reg.allocate("App", "App"); // 2
+        let (n3, _) = reg.allocate("App", "App"); // 3
         assert_eq!((n1, n2, n3), (1, 2, 3));
 
         // Freeing #2 makes 2 the lowest free again.
         reg.release("App", 2);
-        assert_eq!(reg.allocate("App"), (2, "App - 2".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (2, "App - 2".to_string()));
         // 4 is next after 1,2,3.
-        assert_eq!(reg.allocate("App"), (4, "App - 4".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (4, "App - 4".to_string()));
     }
 
     #[test]
     fn numbering_is_per_base_title() {
         let mut reg: Registry<u64> = Registry::new();
-        assert_eq!(reg.allocate("App"), (1, "App".to_string()));
-        assert_eq!(reg.allocate("Inspector"), (1, "Inspector".to_string()));
-        assert_eq!(reg.allocate("App"), (2, "App - 2".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (1, "App".to_string()));
+        assert_eq!(
+            reg.allocate("Inspector", "Inspector"),
+            (1, "Inspector".to_string())
+        );
+        assert_eq!(reg.allocate("App", "App"), (2, "App - 2".to_string()));
+    }
+
+    #[test]
+    fn numbering_is_per_scope_even_when_titles_collide() {
+        let mut reg: Registry<u64> = Registry::new();
+        // Two differently-keyed surfaces sharing the app display name are each
+        // their own first instance.
+        assert_eq!(reg.allocate("surface:logs", "App"), (1, "App".to_string()));
+        assert_eq!(reg.allocate("surface:audit", "App"), (1, "App".to_string()));
+        // Within one scope, numbering still climbs off the base title.
+        assert_eq!(
+            reg.allocate("surface:logs", "App"),
+            (2, "App - 2".to_string())
+        );
+        // Releasing one scope leaves the other untouched.
+        reg.release("surface:logs", 1);
+        assert_eq!(reg.allocate("surface:logs", "App"), (1, "App".to_string()));
+        assert_eq!(
+            reg.allocate("surface:audit", "App"),
+            (2, "App - 2".to_string())
+        );
+    }
+
+    #[test]
+    fn remove_frees_the_number_in_its_own_scope() {
+        let mut reg: Registry<u64> = Registry::new();
+        let (number, title) = reg.allocate("surface:logs", "App");
+        reg.insert(
+            10,
+            WindowRecord {
+                key: MAIN,
+                base_title: "App".to_string(),
+                numbering_scope: "surface:logs".to_string(),
+                number,
+                title,
+                kind: SurfaceKind::Window,
+            },
+        );
+        assert_eq!(reg.allocate("surface:logs", "App").0, 2);
+
+        reg.remove(&10);
+        assert_eq!(reg.allocate("surface:logs", "App"), (1, "App".to_string()));
     }
 
     #[test]
     fn remove_frees_the_number_for_reuse() {
         let mut reg: Registry<u64> = Registry::new();
-        let (n, title) = reg.allocate("App");
+        let (n, title) = reg.allocate("App", "App");
         reg.insert(10, record(n, &title, SurfaceKind::Window));
-        let (n2, _) = reg.allocate("App");
+        let (n2, _) = reg.allocate("App", "App");
         assert_eq!(n2, 2);
 
         reg.remove(&10);
         // #1 is free again.
-        assert_eq!(reg.allocate("App"), (1, "App".to_string()));
+        assert_eq!(reg.allocate("App", "App"), (1, "App".to_string()));
     }
 
     #[test]
@@ -353,7 +418,7 @@ mod tests {
         let mut reg: Registry<u64> = Registry::new();
         assert_eq!(reg.version(), 0);
         // allocate/release alone do not bump (no registered change yet).
-        let _ = reg.allocate("App");
+        let _ = reg.allocate("App", "App");
         assert_eq!(reg.version(), 0);
 
         reg.insert(1, record(1, "App", SurfaceKind::Window));

@@ -21,10 +21,12 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::bail;
-use neutron_components_app::commands::StandardMenus;
 use neutron_components_app::gpui::*;
 use neutron_components_app::prelude::*;
 use neutron_components_app::ui::{ActiveTheme as _, switch::Switch, v_flex};
+use neutron_components_app::{
+    AppDeclaration, DesktopApp, LaunchDecision, LaunchSpec, ProcessLaunch, Surface, SurfaceKey,
+};
 use serde::{Deserialize, Serialize};
 
 neutron_components_app::include_identity!();
@@ -50,6 +52,9 @@ impl AppSettings for ExampleSettings {
 /// choose their own lifecycle and storage policy.
 struct ExampleService {
     config_dir: PathBuf,
+    /// Whether this launch requested a `--smoke` quit, read back by the
+    /// primary surface's `after_open` hook.
+    smoke: bool,
 }
 
 impl Global for ExampleService {}
@@ -141,65 +146,113 @@ impl Render for AboutView {
     }
 }
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("app_shell failed: {error:#}");
-            ExitCode::from(2)
-        }
+/// This example's parsed CLI launch modes.
+struct AppLaunch {
+    smoke: bool,
+    asset_smoke: bool,
+    fail_start: bool,
+}
+
+/// Parse the documented `--smoke`/`--asset-smoke`/`--fail-start` flags.
+/// Deterministic and infallible: unrecognized arguments are ignored.
+fn parse_launch(process: &ProcessLaunch) -> anyhow::Result<LaunchDecision<AppLaunch>> {
+    let has_flag = |flag: &str| {
+        process
+            .args()
+            .iter()
+            .any(|arg| arg.to_string_lossy() == flag)
+    };
+    Ok(LaunchDecision::Run(AppLaunch {
+        smoke: has_flag("--smoke"),
+        asset_smoke: has_flag("--asset-smoke"),
+        fail_start: has_flag("--fail-start"),
+    }))
+}
+
+/// Launch-specific work before the primary surface opens: fail-start and
+/// asset-smoke both request a quit here, which suppresses the primary open;
+/// the normal path registers the app-owned service and bumps `launch_count`.
+fn before_primary(launch: &AppLaunch, cx: &mut App) -> anyhow::Result<()> {
+    if launch.fail_start {
+        // Startup failure wins over a quit requested here: AppShell returns
+        // the error and this executable maps it nonzero.
+        eprintln!("APP_SHELL_FAIL_START_REACHED");
+        cx.request_quit();
+        bail!("requested startup failure");
+    }
+
+    if launch.asset_smoke {
+        validate_asset_chain(cx)?;
+        cx.request_quit();
+        return Ok(());
+    }
+
+    cx.set_global(ExampleService {
+        config_dir: cx.app_info().paths().config_dir().to_path_buf(),
+        smoke: launch.smoke,
+    });
+    cx.update_settings(StoreKey::PRIMARY, |settings: &mut ExampleSettings, _| {
+        settings.launch_count += 1;
+    })?;
+    Ok(())
+}
+
+/// Schedules the `--smoke` quit once the primary surface has opened.
+fn after_primary_open(_view: &Entity<MainView>, _window: &mut Window, cx: &mut App) {
+    if cx.global::<ExampleService>().smoke {
+        schedule_smoke_quit(cx);
     }
 }
 
-fn run() -> Result<(), AppShellError> {
-    let smoke = std::env::args().any(|arg| arg == "--smoke");
-    let asset_smoke = std::env::args().any(|arg| arg == "--asset-smoke");
-    let fail_start = std::env::args().any(|arg| arg == "--fail-start");
+fn build_main(_launch: &AppLaunch, _window: &mut Window, cx: &mut App) -> Entity<MainView> {
+    cx.new(|_| MainView)
+}
 
-    AppShell::builder(APP_IDENTITY)
-        .assets(ExampleAssets)
-        .assets(neutron_components_assets::Assets)
-        .initial_activation(InitialActivation::Forced)
-        .settings::<ExampleSettings>(StoreKey::PRIMARY)
-        .theme(ThemeSource::registry())
-        .standard_menus(
-            StandardMenus::new()
-                .with_theme_menu()
-                .on_settings(open_settings)
-                .on_about(open_about),
-        )
-        .start(move |_launch, cx| {
-            if fail_start {
-                // Startup failure wins over a quit requested during Starting:
-                // AppShell returns the error and this executable maps it nonzero.
-                eprintln!("APP_SHELL_FAIL_START_REACHED");
-                cx.request_quit();
-                bail!("requested startup failure");
-            }
+fn build_settings(_args: &(), _window: &mut Window, cx: &mut App) -> Entity<SettingsView> {
+    cx.new(|_| SettingsView)
+}
 
-            if asset_smoke {
-                validate_asset_chain(cx)?;
-                cx.request_quit();
-                return Ok(());
-            }
+fn build_about(_args: &(), _window: &mut Window, cx: &mut App) -> Entity<AboutView> {
+    cx.new(|_| AboutView)
+}
 
-            cx.set_global(ExampleService {
-                config_dir: cx.app_info().paths().config_dir().to_path_buf(),
-            });
-            cx.update_settings(StoreKey::PRIMARY, |settings: &mut ExampleSettings, _| {
-                settings.launch_count += 1;
-            })?;
-            WindowManager::open(
-                cx,
-                WindowSpec::new("main").title("App Shell Example"),
-                |_, cx| cx.new(|_| MainView),
-            )?;
-            if smoke {
-                schedule_smoke_quit(cx);
-            }
-            Ok(())
-        })
-        .run()
+/// The AppShell declaration for this conformance example. A zero-sized type:
+/// the shell never creates or retains an application object.
+struct AppShellExampleApp;
+
+impl DesktopApp for AppShellExampleApp {
+    fn declaration() -> AppDeclaration {
+        AppDeclaration::new(APP_IDENTITY)
+            .assets(ExampleAssets)
+            .assets(neutron_components_assets::Assets)
+            .initial_activation(InitialActivation::Forced)
+            .settings_store::<ExampleSettings>(StoreKey::PRIMARY)
+            .settings_surface(
+                Surface::new(SurfaceKey::settings(), build_settings).title("Settings"),
+            )
+            .about_surface(
+                Surface::new(SurfaceKey::about(), build_about).title("About App Shell Example"),
+            )
+            .launch(
+                LaunchSpec::new(parse_launch)
+                    .before_primary(before_primary)
+                    .primary_surface(
+                        Surface::new(SurfaceKey::primary(), build_main)
+                            .title("App Shell Example")
+                            .after_open(after_primary_open),
+                    ),
+            )
+    }
+}
+
+fn main() -> ExitCode {
+    match AppShell::run::<AppShellExampleApp>() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("app_shell failed: {:#}", anyhow::Error::new(error));
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn schedule_smoke_quit(cx: &mut App) {
@@ -221,23 +274,5 @@ fn validate_asset_chain(cx: &App) -> anyhow::Result<()> {
     cx.asset_source()
         .load(COMPONENT_ASSET_PATH)?
         .ok_or_else(|| anyhow::anyhow!("bundled component asset missing"))?;
-    Ok(())
-}
-
-fn open_settings(cx: &mut App) -> anyhow::Result<()> {
-    WindowManager::open_singleton(
-        cx,
-        WindowSpec::new("settings").title("Settings"),
-        |_, cx| cx.new(|_| SettingsView),
-    )?;
-    Ok(())
-}
-
-fn open_about(cx: &mut App) -> anyhow::Result<()> {
-    WindowManager::open_singleton(
-        cx,
-        WindowSpec::new("about").title("About App Shell Example"),
-        |_, cx| cx.new(|_| AboutView),
-    )?;
     Ok(())
 }

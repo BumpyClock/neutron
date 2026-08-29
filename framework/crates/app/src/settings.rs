@@ -17,12 +17,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::error::AppShellError;
+use crate::handles::{AppInfo, AppProxy};
 use crate::lifecycle::AppEvent;
-use crate::plugin::{AppPlugin, ShellSeed};
+use crate::module::RuntimeModule;
 
 mod runtime;
 
-pub use runtime::SettingsExt;
+pub use runtime::Settings;
 use runtime::{SettingsEntry, SettingsRegistry};
 
 // GPUI runs quit observers synchronously before applying its 100ms deadline to
@@ -30,12 +31,41 @@ use runtime::{SettingsEntry, SettingsRegistry};
 const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// A serializable application settings schema.
+///
+/// The schema type owns its version, its downgrade policy, its migration chain,
+/// and its validation rule, so registering a store needs nothing but a
+/// [`StoreKey`].
 pub trait AppSettings: Serialize + DeserializeOwned + Default + Send + 'static {
     /// Current on-disk schema version.
     const SCHEMA_VERSION: u32;
 
+    /// Behavior when disk holds a schema newer than [`Self::SCHEMA_VERSION`].
+    ///
+    /// [`SettingsModule::new`] derives its policy from this constant. An
+    /// explicit [`SettingsModule::future_version_policy`] call overrides it.
+    const FUTURE_VERSION_POLICY: FutureVersionPolicy = FutureVersionPolicy::RefuseToWrite;
+
+    /// Migrate a raw document in place from schema `from` to schema `to`.
+    ///
+    /// Called **once** per load, with `from` set to the version found on disk
+    /// and `to` set to the store's current version, so one implementation owns
+    /// the whole chain and decides how to walk intermediate versions. The
+    /// caller stamps `schema_version = to` afterwards; the implementation must
+    /// leave a TOML table behind.
+    ///
+    /// The default refuses to migrate, which keeps a type that declares no
+    /// migrations failing loudly rather than silently loading defaults over
+    /// real user data.
+    fn migrate(from: u32, to: u32, value: &mut toml::Value) -> Result<(), SettingsError> {
+        let _ = value;
+        Err(SettingsError::MissingMigration {
+            found: from,
+            current: to,
+        })
+    }
+
     /// Validate a value before it becomes current or is queued for persistence.
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), SettingsError> {
         Ok(())
     }
 }
@@ -54,13 +84,18 @@ impl StoreKey {
 
     /// Create a named store key.
     ///
-    /// Keys may contain ASCII letters, digits, `-`, and `_` only.
+    /// Keys may contain ASCII lowercase letters, digits, `-`, and `_` only.
+    /// Uppercase is rejected because the key becomes a filename, and
+    /// `Settings.toml` and `settings.toml` are the same file on the
+    /// case-insensitive filesystems that macOS and Windows use by default.
+    /// Allowing both spellings would let two stores claim one file while the
+    /// duplicate-registration check saw distinct names.
     pub fn new(key: impl Into<Cow<'static, str>>) -> Result<Self, SettingsError> {
         let key = key.into();
         if key.is_empty()
-            || !key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            || !key.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+            })
         {
             return Err(SettingsError::InvalidStoreKey(key.into_owned()));
         }
@@ -92,13 +127,16 @@ pub enum FutureVersionPolicy {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SettingsError {
-    /// A key could escape or alias the config directory.
-    #[error("invalid settings store key {0:?}")]
+    /// A key could escape the config directory, or alias another key on a
+    /// case-insensitive filesystem.
+    #[error(
+        "invalid settings store key {0:?}: use ASCII lowercase letters, digits, '-', and '_' only"
+    )]
     InvalidStoreKey(String),
     /// No registered store owns this filename.
     #[error("settings store {0:?} is not registered")]
     NotRegistered(String),
-    /// Another settings plugin already owns this filename.
+    /// Another settings module already owns this filename.
     #[error("settings store filename {0:?} is already registered")]
     DuplicateStore(String),
     /// The filename is registered for a different Rust settings type.
@@ -162,9 +200,9 @@ pub enum SettingsError {
 }
 
 /// Function called for one schema migration edge.
-pub type MigrationFn = fn(toml::Value) -> Result<toml::Value, String>;
-/// Additional validator installed by [`SettingsPlugin::validate`].
-pub type SettingsValidator<T> = fn(&T) -> Result<(), String>;
+pub(crate) type MigrationFn = fn(toml::Value) -> Result<toml::Value, String>;
+/// Additional validator installed by [`SettingsModule::validate`].
+pub(crate) type SettingsValidator<T> = fn(&T) -> Result<(), String>;
 
 struct MigrationStep {
     from: u32,
@@ -172,8 +210,8 @@ struct MigrationStep {
     run: MigrationFn,
 }
 
-/// Plugin registering one typed, named settings store.
-pub struct SettingsPlugin<T: AppSettings> {
+/// The runtime module registering one typed, named settings store.
+pub(crate) struct SettingsModule<T: AppSettings> {
     key: StoreKey,
     current_version: u32,
     migrations: Vec<MigrationStep>,
@@ -182,15 +220,18 @@ pub struct SettingsPlugin<T: AppSettings> {
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T: AppSettings> SettingsPlugin<T> {
-    /// Register `T` under `key` using [`AppSettings::SCHEMA_VERSION`].
+impl<T: AppSettings> SettingsModule<T> {
+    /// Register `T` under `key`.
+    ///
+    /// The current version comes from [`AppSettings::SCHEMA_VERSION`] and the
+    /// downgrade policy from [`AppSettings::FUTURE_VERSION_POLICY`].
     pub fn new(key: StoreKey) -> Self {
         Self {
             key,
             current_version: T::SCHEMA_VERSION,
             migrations: Vec::new(),
             validator: None,
-            future_version_policy: FutureVersionPolicy::default(),
+            future_version_policy: T::FUTURE_VERSION_POLICY,
             _marker: PhantomData,
         }
     }
@@ -200,27 +241,38 @@ impl<T: AppSettings> SettingsPlugin<T> {
     /// Normally the [`AppSettings::SCHEMA_VERSION`] default is sufficient. This
     /// builder exists for the explicit §4a registration form.
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn current_version(mut self, version: u32) -> Self {
         self.current_version = version;
         self
     }
 
     /// Add one directed migration edge. Edges run stepwise from the version on disk.
+    ///
+    /// Registering any edge makes this module own the entire chain:
+    /// [`AppSettings::migrate`] is then never called, so the two paths never
+    /// both run and a gap in the edge set fails with
+    /// [`SettingsError::MissingMigration`] instead of being skipped.
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn migrate(mut self, from: u32, to: u32, run: MigrationFn) -> Self {
         self.migrations.push(MigrationStep { from, to, run });
         self
     }
 
-    /// Add plugin-specific validation after [`AppSettings::validate`].
+    /// Add store-specific validation after [`AppSettings::validate`].
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn validate(mut self, validator: SettingsValidator<T>) -> Self {
         self.validator = Some(validator);
         self
     }
 
     /// Set downgrade behavior for a newer on-disk schema.
+    ///
+    /// Overrides [`AppSettings::FUTURE_VERSION_POLICY`] for this store.
     #[must_use]
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn future_version_policy(mut self, policy: FutureVersionPolicy) -> Self {
         self.future_version_policy = policy;
         self
@@ -237,7 +289,7 @@ impl<T: AppSettings> SettingsPlugin<T> {
             LoadOutcome::Loaded(raw) => (decode_value(raw)?, None),
             LoadOutcome::NeedsMigration { found, raw } => {
                 migrated = true;
-                (self.apply_migrations(found, raw)?, None)
+                (self.migrate_to_current(found, raw)?, None)
             }
             LoadOutcome::FutureVersion { found } => (T::default(), Some(found)),
             LoadOutcome::Corrupt { .. } | LoadOutcome::Missing => (T::default(), None),
@@ -265,7 +317,25 @@ impl<T: AppSettings> SettingsPlugin<T> {
         Ok(entry)
     }
 
-    fn apply_migrations(&self, mut version: u32, mut raw: toml::Value) -> Result<T, SettingsError> {
+    /// Bring a raw older document up to `current_version` and decode it.
+    ///
+    /// Exactly one migration path runs: registered edges when this module
+    /// declares any, otherwise the [`AppSettings::migrate`] hook.
+    fn migrate_to_current(&self, found: u32, mut raw: toml::Value) -> Result<T, SettingsError> {
+        if self.migrations.is_empty() {
+            T::migrate(found, self.current_version, &mut raw)?;
+            stamp_schema_version(&mut raw, found, self.current_version)?;
+        } else {
+            raw = self.apply_migrations(found, raw)?;
+        }
+        decode_envelope(raw)
+    }
+
+    fn apply_migrations(
+        &self,
+        mut version: u32,
+        mut raw: toml::Value,
+    ) -> Result<toml::Value, SettingsError> {
         while version < self.current_version {
             let migration = self
                 .migrations
@@ -287,23 +357,10 @@ impl<T: AppSettings> SettingsPlugin<T> {
                 to: migration.to,
                 message,
             })?;
-            let table = raw.as_table_mut().ok_or_else(|| SettingsError::Migration {
-                from: migration.from,
-                to: migration.to,
-                message: "migration returned a non-table TOML value".to_string(),
-            })?;
-            table.insert(
-                "schema_version".to_string(),
-                toml::Value::Integer(i64::from(migration.to)),
-            );
+            stamp_schema_version(&mut raw, migration.from, migration.to)?;
             version = migration.to;
         }
-
-        let envelope: Envelope<T> = raw
-            .try_into()
-            .map_err(StorageError::from)
-            .map_err(SettingsError::from)?;
-        Ok(envelope.inner)
+        Ok(raw)
     }
 
     fn flush_for_exit(&self, cx: &mut App) {
@@ -313,16 +370,23 @@ impl<T: AppSettings> SettingsPlugin<T> {
         if let Err(error) = result {
             crate::handles::report_error(
                 cx,
-                crate::error::RuntimeError::service(anyhow::Error::new(error)),
+                crate::error::RuntimeError::module("settings", anyhow::Error::new(error)),
             );
         }
     }
 }
 
-impl<T: AppSettings> crate::plugin::sealed::Sealed for SettingsPlugin<T> {}
+impl<T: AppSettings> RuntimeModule for SettingsModule<T> {
+    fn id(&self) -> &'static str {
+        "settings"
+    }
 
-impl<T: AppSettings> AppPlugin for SettingsPlugin<T> {
-    fn init(&mut self, cx: &mut App, shell: &ShellSeed) -> Result<(), AppShellError> {
+    fn init(
+        &mut self,
+        cx: &mut App,
+        info: &AppInfo,
+        _proxy: &AppProxy,
+    ) -> Result<(), AppShellError> {
         if !cx.has_global::<SettingsRegistry>() {
             cx.set_global(SettingsRegistry::default());
         }
@@ -334,7 +398,7 @@ impl<T: AppSettings> AppPlugin for SettingsPlugin<T> {
         {
             return Err(service_error(SettingsError::DuplicateStore(filename)));
         }
-        let entry = self.open_entry(shell.info.paths()).map_err(service_error)?;
+        let entry = self.open_entry(info.paths()).map_err(service_error)?;
         cx.global_mut::<SettingsRegistry>()
             .entries
             .insert(filename, Box::new(entry));
@@ -354,8 +418,8 @@ impl<T: AppSettings> AppPlugin for SettingsPlugin<T> {
 }
 
 fn service_error(error: SettingsError) -> AppShellError {
-    AppShellError::Service {
-        service: "settings",
+    AppShellError::Module {
+        module: "settings",
         source: anyhow::Error::new(error),
     }
 }
@@ -366,11 +430,35 @@ fn decode_value<T: AppSettings>(raw: toml::Value) -> Result<T, SettingsError> {
         .map_err(SettingsError::from)
 }
 
+/// Decode a migrated document, whose table still carries `schema_version`.
+fn decode_envelope<T: AppSettings>(raw: toml::Value) -> Result<T, SettingsError> {
+    let envelope: Envelope<T> = raw
+        .try_into()
+        .map_err(StorageError::from)
+        .map_err(SettingsError::from)?;
+    Ok(envelope.inner)
+}
+
+/// Stamp the version a migration step just produced, rejecting a non-table.
+fn stamp_schema_version(raw: &mut toml::Value, from: u32, to: u32) -> Result<(), SettingsError> {
+    raw.as_table_mut()
+        .ok_or_else(|| SettingsError::Migration {
+            from,
+            to,
+            message: "migration returned a non-table TOML value".to_string(),
+        })?
+        .insert(
+            "schema_version".to_string(),
+            toml::Value::Integer(i64::from(to)),
+        );
+    Ok(())
+}
+
 fn validate_value<T: AppSettings>(
     value: &T,
     validator: Option<SettingsValidator<T>>,
 ) -> Result<(), SettingsError> {
-    value.validate().map_err(SettingsError::Validation)?;
+    value.validate()?;
     if let Some(validator) = validator {
         validator(value).map_err(SettingsError::Validation)?;
     }
@@ -408,31 +496,43 @@ impl AppSettings for ShellPreferences {
     const SCHEMA_VERSION: u32 = 1;
 }
 
-fn shell_preferences_key() -> StoreKey {
-    StoreKey(Cow::Borrowed("shell-preferences"))
+/// Filename stem of the platform-owned shell-preferences store.
+///
+/// Reserved: an application store may not claim it.
+pub(crate) const SHELL_PREFERENCES_KEY: &str = "shell-preferences";
+
+pub(crate) fn shell_preferences_key() -> StoreKey {
+    StoreKey(Cow::Borrowed(SHELL_PREFERENCES_KEY))
 }
 
-/// Dedicated plugin for the automatically registered shell-preferences store.
-pub struct ShellPreferencesPlugin(SettingsPlugin<ShellPreferences>);
+/// Dedicated module for the automatically registered shell-preferences store.
+pub(crate) struct ShellPreferencesModule(SettingsModule<ShellPreferences>);
 
-impl ShellPreferencesPlugin {
-    /// Create the shell-preferences plugin.
+impl ShellPreferencesModule {
+    /// Create the shell-preferences module.
     pub fn new() -> Self {
-        Self(SettingsPlugin::new(shell_preferences_key()))
+        Self(SettingsModule::new(shell_preferences_key()))
     }
 }
 
-impl Default for ShellPreferencesPlugin {
+impl Default for ShellPreferencesModule {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::plugin::sealed::Sealed for ShellPreferencesPlugin {}
+impl RuntimeModule for ShellPreferencesModule {
+    fn id(&self) -> &'static str {
+        "shell-preferences"
+    }
 
-impl AppPlugin for ShellPreferencesPlugin {
-    fn init(&mut self, cx: &mut App, shell: &ShellSeed) -> Result<(), AppShellError> {
-        self.0.init(cx, shell)
+    fn init(
+        &mut self,
+        cx: &mut App,
+        info: &AppInfo,
+        proxy: &AppProxy,
+    ) -> Result<(), AppShellError> {
+        self.0.init(cx, info, proxy)
     }
 
     fn on_event(&mut self, event: &AppEvent, cx: &mut App) -> Result<(), AppShellError> {

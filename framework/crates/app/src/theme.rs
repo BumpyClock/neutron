@@ -12,7 +12,8 @@ use neutron_components::{Theme, ThemeConfig, ThemeModePreference, ThemeRegistry}
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppShellError;
-use crate::plugin::{self, AppPlugin, ShellSeed};
+use crate::handles::{AppInfo, AppProxy};
+use crate::module::RuntimeModule;
 
 const DEFAULT_THEME_SET: &str = "Default";
 const BUNDLED_MANIFEST: &str = "themes-bundled.lst";
@@ -55,7 +56,7 @@ where
     }
 }
 
-/// Source of themes managed by [`ThemePlugin`].
+/// Source of themes managed by [`ThemeModule`].
 pub enum ThemeSource {
     /// Embedded files synchronized to `config_dir/themes`.
     ///
@@ -198,7 +199,7 @@ impl Global for ThemeRegistryVersion {}
 
 /// Register a callback for registry loads and hot reloads.
 ///
-/// Register after `ThemePlugin` initialization. The callback runs after the
+/// Register after `ThemeModule` initialization. The callback runs after the
 /// current selection has been re-applied, so command/menu integrations can
 /// rebuild labels and checked state from [`theme_menu_items`]. Retain the
 /// returned subscription, or call `detach()` for an app-lifetime listener.
@@ -246,14 +247,14 @@ pub fn theme_menu_items(cx: &App) -> Vec<ThemeMenuItem> {
     items
 }
 
-/// App-shell plugin providing theme selection and registry lifecycle.
-pub struct ThemePlugin {
+/// The runtime module providing theme selection and registry lifecycle.
+pub(crate) struct ThemeModule {
     source: Option<ThemeSource>,
     hooks: PreferenceHooks,
 }
 
-impl ThemePlugin {
-    /// Construct a theme plugin.
+impl ThemeModule {
+    /// Construct a theme module.
     pub fn new(source: ThemeSource) -> Self {
         Self {
             source: Some(source),
@@ -273,26 +274,35 @@ impl ThemePlugin {
     }
 }
 
-impl plugin::sealed::Sealed for ThemePlugin {}
+impl RuntimeModule for ThemeModule {
+    fn id(&self) -> &'static str {
+        "theme"
+    }
 
-impl AppPlugin for ThemePlugin {
-    fn init(&mut self, cx: &mut App, shell: &ShellSeed) -> Result<(), AppShellError> {
-        let source = self.source.take().expect("ThemePlugin initialized twice");
+    fn init(
+        &mut self,
+        cx: &mut App,
+        info: &AppInfo,
+        _proxy: &AppProxy,
+    ) -> Result<(), AppShellError> {
+        let source = self.source.take().expect("ThemeModule initialized twice");
         let selection = self.hooks.read(cx).unwrap_or_default();
         let mut watch_dir = None;
         let custom = match source {
             ThemeSource::Bundled { assets } => {
-                let config_dir = shell.info.paths().config_dir();
+                let config_dir = info.paths().config_dir();
                 let themes_dir = config_dir.join("themes");
                 if let Err(error) = sync_bundled_themes(assets.as_ref(), config_dir) {
-                    crate::handles::report_error(cx, crate::error::RuntimeError::service(error));
+                    crate::handles::report_error(
+                        cx,
+                        crate::error::RuntimeError::module("theme", error),
+                    );
                 }
                 watch_dir = Some(themes_dir);
                 None
             }
             ThemeSource::Registry { dir } => {
-                watch_dir =
-                    Some(dir.unwrap_or_else(|| shell.info.paths().config_dir().join("themes")));
+                watch_dir = Some(dir.unwrap_or_else(|| info.paths().config_dir().join("themes")));
                 None
             }
             ThemeSource::Custom { light, dark } => Some((Rc::new(*light), Rc::new(*dark))),
@@ -311,7 +321,10 @@ impl AppPlugin for ThemePlugin {
             cx.observe_global::<ThemeRegistry>(registry_reloaded)
                 .detach();
             if let Err(error) = ThemeRegistry::watch_dir(dir, cx, |_| {}) {
-                crate::handles::report_error(cx, crate::error::RuntimeError::service(error));
+                crate::handles::report_error(
+                    cx,
+                    crate::error::RuntimeError::module("theme", error),
+                );
             }
         }
 

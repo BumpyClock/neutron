@@ -59,7 +59,9 @@ pub fn should_exit(policy: ExitPolicy, holds: usize, windows: usize) -> bool {
 pub struct Liveness {
     holds: Arc<AtomicUsize>,
     exit_policy: ExitPolicy,
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     initial_activation: InitialActivation,
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     activated: bool,
 }
 
@@ -80,16 +82,19 @@ impl Liveness {
     }
 
     /// The configured initial-activation policy.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn initial_activation(&self) -> InitialActivation {
         self.initial_activation
     }
 
     /// Whether initial activation has been applied.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn activated(&self) -> bool {
         self.activated
     }
 
     /// Record that initial activation has been applied.
+    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
     pub fn mark_activated(&mut self) {
         self.activated = true;
     }

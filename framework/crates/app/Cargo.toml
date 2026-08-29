@@ -1,6 +1,6 @@
 [package]
 name = "neutron-components-app"
-description = "Application shell for neutron-components apps: AppShell builder, lifecycle events, identity, settings, windows, theme, menus."
+description = "Application shell for neutron-components apps: the AppDeclaration model, lifecycle events, identity, settings, windows, theme, menus."
 version = "0.7.0"
 edition.workspace = true
 publish = false
@@ -19,6 +19,7 @@ anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 neutron-components.workspace = true
+neutron-components-assets.workspace = true
 neutron-components-manifest.workspace = true
 neutron-components-storage.workspace = true
 log.workspace = true

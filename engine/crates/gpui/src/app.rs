@@ -1735,8 +1735,11 @@ impl App {
                     })
                     .collect::<Vec<_>>()
                 {
-                    self.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
-                        .unwrap();
+                    self.update_window(window, |_, window, cx| {
+                        window.run_next_frame_callbacks(cx);
+                        window.draw(cx).clear(cx);
+                    })
+                    .log_err();
                 }
 
                 if self.pending_effects.is_empty() {

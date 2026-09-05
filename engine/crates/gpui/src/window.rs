@@ -1463,13 +1463,10 @@ impl Window {
                     }
                 }
 
-                let next_frame_callbacks = next_frame_callbacks.take();
-                if !next_frame_callbacks.is_empty() {
+                if !next_frame_callbacks.borrow().is_empty() {
                     handle
                         .update(&mut cx, |_, window, cx| {
-                            for callback in next_frame_callbacks {
-                                callback(window, cx);
-                            }
+                            window.run_next_frame_callbacks(cx);
                         })
                         .log_err();
                 }
@@ -2282,6 +2279,12 @@ impl Window {
     /// Schedule the given closure to be run directly after the current frame is rendered.
     pub fn on_next_frame(&self, callback: impl FnOnce(&mut Window, &mut App) + 'static) {
         RefCell::borrow_mut(&self.next_frame_callbacks).push(Box::new(callback));
+    }
+
+    pub(crate) fn run_next_frame_callbacks(&mut self, cx: &mut App) {
+        for callback in self.next_frame_callbacks.take() {
+            callback(self, cx);
+        }
     }
 
     /// Schedule a frame to be drawn on the next animation frame.
@@ -6565,6 +6568,27 @@ mod bounds_change_tests {
         assert_eq!(
             cx.update(|window, _| window.mouse_position()),
             Point::default()
+        );
+    }
+
+    #[gpui::test]
+    fn test_support_dirty_draw_runs_next_frame_callbacks(cx: &mut TestAppContext) {
+        let window = cx.add_window(|_, _| Empty);
+        let callback_ran = Rc::new(Cell::new(false));
+
+        window
+            .update(cx, {
+                let callback_ran = callback_ran.clone();
+                move |_, window, _| {
+                    window.on_next_frame(move |_, _| callback_ran.set(true));
+                    window.refresh();
+                }
+            })
+            .expect("test window remains open");
+
+        assert!(
+            callback_ran.get(),
+            "the test-support dirty-window draw must emulate platform frame callbacks"
         );
     }
 

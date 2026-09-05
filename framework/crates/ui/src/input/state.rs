@@ -1794,9 +1794,11 @@ impl InputState {
         self.blink_cursor.update(cx, |cursor, cx| {
             cursor.stop(cx);
         });
-        Root::update(window, cx, |root, _, _| {
-            root.focused_input = None;
-        });
+        if let Some(root) = window.root::<Root>().flatten() {
+            root.update(cx, |root, _| {
+                root.focused_input = None;
+            });
+        }
         cx.emit(InputEvent::Blur);
         cx.notify();
     }
@@ -2668,6 +2670,16 @@ mod tests {
             input.replace("y", window, cx);
             input.undo(&Undo, window, cx);
             assert_eq!(input.value(), "a漢d");
+        });
+    }
+
+    #[gpui::test]
+    fn input_blur_without_component_root_is_supported(cx: &mut TestAppContext) {
+        let (window, mut cx) = new_input_state(cx, "text");
+        let input = window.root(&mut cx).unwrap();
+
+        input.update_in(&mut cx, |input, window, cx| {
+            input.on_blur(window, cx);
         });
     }
 }

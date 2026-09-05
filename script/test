@@ -7,7 +7,32 @@ export PYTHONDONTWRITEBYTECODE=1
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-cargo test --locked --workspace --all-targets --features test-support
-cargo test --locked --workspace --doc
+if [ "$#" -eq 0 ]; then
+    cargo test --locked --workspace --all-targets --features test-support
+    cargo test --locked --workspace --doc
+else
+    case "$1" in
+        -h|--help)
+            printf '%s\n' \
+                "Usage: script/test [--tooling | CARGO_TEST_OPTIONS...]" \
+                "No arguments: workspace tests, doctests, and Python tooling tests." \
+                "--tooling: Python tooling tests only." \
+                "Other arguments: one cargo test --locked invocation with those arguments." \
+                "Example: script/test -p neutron-components-app --test headless --features test-support"
+            exit 0
+            ;;
+        --tooling)
+            if [ "$#" -ne 1 ]; then
+                printf '%s\n' "error: --tooling takes no additional arguments" >&2
+                exit 2
+            fi
+            ;;
+        *)
+            cargo test --locked "$@"
+            exit 0
+            ;;
+    esac
+fi
+
 python3 -m unittest discover -s framework/tooling -p 'test_*.py'
 python3 -m unittest discover -s framework/tooling/tests -p 'test_*.py'

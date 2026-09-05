@@ -170,7 +170,13 @@ fn load(root: &Path) -> Result<Compatibility> {
 
 fn generate(framework_root: &Path, repository_root: &Path) -> Result<()> {
     let compatibility = load(framework_root)?;
-    let report = validate(framework_root, repository_root, &compatibility, false);
+    let report = validate(
+        framework_root,
+        repository_root,
+        &compatibility,
+        false,
+        Path::new(LONGBRIDGE_CHECKOUT),
+    );
     print_warnings(&report.warnings);
     if !report.errors.is_empty() {
         return Err(validation_error(report.errors));
@@ -184,7 +190,13 @@ fn generate(framework_root: &Path, repository_root: &Path) -> Result<()> {
 
 fn check(framework_root: &Path, repository_root: &Path) -> Result<()> {
     let compatibility = load(framework_root)?;
-    let mut report = validate(framework_root, repository_root, &compatibility, true);
+    let mut report = validate(
+        framework_root,
+        repository_root,
+        &compatibility,
+        true,
+        Path::new(LONGBRIDGE_CHECKOUT),
+    );
     validate_generated(framework_root, &compatibility, &mut report.errors);
     print_warnings(&report.warnings);
     if !report.errors.is_empty() {
@@ -267,6 +279,7 @@ fn validate(
     repository_root: &Path,
     compatibility: &Compatibility,
     check_generated: bool,
+    longbridge_checkout: &Path,
 ) -> Validation {
     let mut report = Validation::default();
     validate_metadata(compatibility, &mut report.errors);
@@ -290,7 +303,7 @@ fn validate(
     validate_lockfile(repository_root, compatibility, &mut report.errors);
     validate_toolchain(repository_root, compatibility, &mut report.errors);
     validate_publishable_dependencies(repository_root, framework_root, &mut report.errors);
-    validate_longbridge_provenance(framework_root, &mut report);
+    validate_longbridge_provenance_with_checkout(framework_root, longbridge_checkout, &mut report);
     validate_engine_checkout(repository_root, compatibility, &mut report);
 
     if check_generated && !framework_root.join(GENERATED_FILE).is_file() {
@@ -849,14 +862,6 @@ fn validate_engine_checkout(
             .push(format!("{} is missing fork.toml", engine_path.display()));
     }
     validate_root_patches(repository_root, report);
-}
-
-fn validate_longbridge_provenance(framework_root: &Path, report: &mut Validation) {
-    validate_longbridge_provenance_with_checkout(
-        framework_root,
-        Path::new(LONGBRIDGE_CHECKOUT),
-        report,
-    );
 }
 
 fn validate_longbridge_provenance_with_checkout(

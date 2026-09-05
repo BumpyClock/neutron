@@ -1,8 +1,10 @@
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
 use crate::{
-    self as gpui, App, Bounds, Context, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Render, Style, TestAppContext, Window, fill, point, px, size, white,
+    self as gpui, App, AppContext, Bounds, Context, Element, ElementId, GlobalElementId,
+    InspectorElementId, InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent,
+    MouseUpEvent, ParentElement, PlatformInput, Render, Style, Styled, TestAppContext, Window, div,
+    fill, point, px, size, white,
 };
 
 use super::*;
@@ -199,6 +201,107 @@ fn retained_layer_replays_child_paint_on_compositor_only_update(cx: &mut TestApp
     assert_eq!(third_layer.content_revision, 1.into());
 }
 
+struct RetainedPointerTestView {
+    paint_count: Rc<Cell<usize>>,
+    click_count: Rc<Cell<usize>>,
+    opacity: f32,
+    left: crate::Pixels,
+}
+
+impl Render for RetainedPointerTestView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let click_count = self.click_count.clone();
+        div().relative().size_full().child(
+            div()
+                .id("retained-button")
+                .absolute()
+                .left(self.left)
+                .top(px(30.))
+                .size(px(20.))
+                .on_mouse_down(MouseButton::Left, move |_, _, _| {
+                    click_count.set(click_count.get() + 1);
+                })
+                .child(CountingElement {
+                    paint_count: self.paint_count.clone(),
+                })
+                .with_retained_layer("pointer-layer", 0)
+                .opacity(self.opacity),
+        )
+    }
+}
+
+#[gpui::test]
+fn retained_layer_preserves_pointer_callbacks_on_compositor_only_update(cx: &mut TestAppContext) {
+    let paint_count = Rc::new(Cell::new(0));
+    let click_count = Rc::new(Cell::new(0));
+    let window = cx.add_window(|_, _| RetainedPointerTestView {
+        paint_count: paint_count.clone(),
+        click_count: click_count.clone(),
+        opacity: 1.0,
+        left: px(40.),
+    });
+    let click_at = |cx: &mut TestAppContext, position| {
+        for event in [
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position,
+                modifiers: Default::default(),
+                click_count: 1,
+                first_mouse: false,
+            }),
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position,
+                modifiers: Default::default(),
+                click_count: 1,
+            }),
+        ] {
+            cx.update_window(window.into(), |_, window, cx| {
+                window.dispatch_event(event, cx);
+            })
+            .unwrap();
+        }
+    };
+
+    for (index, opacity) in [1.0, 0.25, 0.75].into_iter().enumerate() {
+        window
+            .update(cx, |view, _, cx| {
+                view.opacity = opacity;
+                cx.notify();
+            })
+            .unwrap();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.draw(cx).clear(cx);
+            assert_eq!(
+                window.rendered_frame.scene.retained_layers[0].opacity,
+                opacity
+            );
+        })
+        .unwrap();
+        assert_eq!(paint_count.get(), 1 + 2 * index);
+        click_at(cx, point(px(45.), px(35.)));
+        assert_eq!(click_count.get(), index + 1);
+        // Press and release each change active state and require a content refresh.
+        assert_eq!(paint_count.get(), 3 + 2 * index);
+    }
+
+    window
+        .update(cx, |view, _, cx| {
+            view.left = px(80.);
+            cx.notify();
+        })
+        .unwrap();
+    cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
+        .unwrap();
+    assert_eq!(paint_count.get(), 8);
+    click_at(cx, point(px(45.), px(35.)));
+    assert_eq!(click_count.get(), 3);
+    assert_eq!(paint_count.get(), 8);
+    click_at(cx, point(px(85.), px(35.)));
+    assert_eq!(click_count.get(), 4);
+    assert_eq!(paint_count.get(), 10);
+}
+
 #[gpui::test]
 fn retained_layer_a11y(cx: &mut TestAppContext) {
     let paint_count = Rc::new(Cell::new(0));
@@ -246,6 +349,118 @@ fn retained_layer_a11y(cx: &mut TestAppContext) {
     });
 
     assert_eq!(action_count.get(), 1);
+}
+
+#[gpui::test]
+fn retained_layer_invalidates_nested_ranges_after_parent_reuse(cx: &mut TestAppContext) {
+    let paint_count = Rc::new(Cell::new(0));
+    let cx = cx.add_empty_window();
+
+    for (revision, prefix) in [(0, false), (0, true), (1, false)] {
+        cx.update(|window, cx| {
+            window.invalidator.set_phase(crate::DrawPhase::Prepaint);
+            let mut element = crate::Drawable::new(
+                CountingElement {
+                    paint_count: paint_count.clone(),
+                }
+                .with_retained_layer("inner", 0)
+                .with_retained_layer("outer", revision),
+            );
+            element.layout_as_root(size(px(100.), px(100.)).into(), window, cx);
+            window.with_absolute_element_offset(Default::default(), |window| {
+                element.prepaint(window, cx)
+            });
+
+            window.invalidator.set_phase(crate::DrawPhase::Paint);
+            if prefix {
+                window.paint_quad(fill(
+                    Bounds::new(point(px(40.), px(40.)), size(px(10.), px(10.))),
+                    white(),
+                ));
+            }
+            element.paint(window, cx);
+            window.invalidator.set_phase(crate::DrawPhase::None);
+        });
+        finish_frame(cx);
+        assert_eq!(paint_count.get(), revision as usize + 1);
+    }
+
+    cx.update(|window, _| {
+        assert_eq!(window.rendered_frame.scene.quads.len(), 1);
+        assert_eq!(window.rendered_frame.scene.retained_layers.len(), 2);
+        for layer in &window.rendered_frame.scene.retained_layers {
+            assert!(layer.content_dirty);
+            assert_eq!(layer.paint_range, 0..1);
+        }
+    });
+}
+
+struct DeferredRetainedTestView {
+    paint_count: Rc<Cell<usize>>,
+    prefix: bool,
+    revision: u64,
+}
+
+impl Render for DeferredRetainedTestView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .relative()
+            .size_full()
+            .children(
+                self.prefix
+                    .then(|| div().absolute().size(px(10.)).bg(white())),
+            )
+            .child(
+                crate::deferred(
+                    CountingElement {
+                        paint_count: self.paint_count.clone(),
+                    }
+                    .with_retained_layer("inner", 0),
+                )
+                .with_retained_layer("outer", self.revision),
+            )
+    }
+}
+
+#[gpui::test]
+fn retained_layer_updates_deferred_descendant_ranges(cx: &mut TestAppContext) {
+    let paint_count = Rc::new(Cell::new(0));
+    let window = cx.add_window(|_, _| DeferredRetainedTestView {
+        paint_count: paint_count.clone(),
+        prefix: true,
+        revision: 0,
+    });
+    let assert_inner_range = |cx: &mut TestAppContext, expected: Range<usize>| {
+        cx.update_window(window.into(), |_, window, _| {
+            let scene = &window.rendered_frame.scene;
+            let inner = scene
+                .retained_layers
+                .iter()
+                .find(|layer| layer.id.0.last() == Some(&ElementId::from("inner")))
+                .expect("deferred inner layer must remain in the scene");
+            assert_eq!(inner.paint_range, expected);
+            assert_eq!(scene.quads.len(), expected.end);
+        })
+        .unwrap();
+    };
+    assert_inner_range(cx, 1..2);
+
+    window
+        .update(cx, |view, _, cx| {
+            view.prefix = false;
+            cx.notify();
+        })
+        .unwrap();
+    assert_inner_range(cx, 0..1);
+
+    window
+        .update(cx, |view, _, cx| {
+            view.revision = 1;
+            cx.notify();
+        })
+        .unwrap();
+    assert_inner_range(cx, 0..1);
+    assert_eq!(paint_count.get(), 1);
 }
 
 fn draw_retained_layer(
@@ -317,6 +532,7 @@ fn finish_frame(cx: &mut crate::VisualTestContext) {
         window.next_frame.finish(&mut window.rendered_frame);
         std::mem::swap(&mut window.rendered_frame, &mut window.next_frame);
         window.next_frame.clear();
+        window.refreshing = false;
     });
 }
 

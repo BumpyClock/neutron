@@ -183,18 +183,38 @@ impl Scene {
     }
 
     pub fn clone_paint_range(&self, range: Range<usize>) -> Self {
-        self.clone_paint_operations(|index| range.contains(&index))
+        let mut scene = Self::default();
+        let end = range.end.min(self.paint_operations.len());
+        if let Some(operations) = self.paint_operations.get(range.start..end) {
+            for operation in operations {
+                scene.push_cloned_operation(operation);
+            }
+        }
+        scene.finish();
+        scene
     }
 
     pub fn clone_excluding_paint_ranges(&self, excluded_ranges: &[Range<usize>]) -> Self {
+        let mut excluded_ranges = excluded_ranges
+            .iter()
+            .filter(|range| !range.is_empty())
+            .collect::<Vec<_>>();
+        excluded_ranges.sort_unstable_by_key(|range| range.start);
+        let mut next_range = 0;
         self.clone_paint_operations(|index| {
-            !excluded_ranges
-                .iter()
-                .any(|range| range.start <= index && index < range.end)
+            while excluded_ranges
+                .get(next_range)
+                .is_some_and(|range| range.end <= index)
+            {
+                next_range += 1;
+            }
+            excluded_ranges
+                .get(next_range)
+                .is_none_or(|range| index < range.start)
         })
     }
 
-    fn clone_paint_operations(&self, include: impl Fn(usize) -> bool) -> Self {
+    fn clone_paint_operations(&self, mut include: impl FnMut(usize) -> bool) -> Self {
         let mut scene = Self::default();
         for (index, operation) in self.paint_operations.iter().enumerate() {
             if include(index) {
@@ -1994,6 +2014,78 @@ mod tests {
 
         assert_eq!(next_scene.paint_operations.len(), 2);
         assert_eq!(next_scene.retained_layers[0].paint_range, 1..2);
+    }
+
+    #[test]
+    fn retained_layer_paint_ranges_preserve_nested_operations_order_and_masks() {
+        let bounds = test_bounds();
+        let mut scene = Scene::default();
+        scene.push_layer(bounds);
+        for index in 0..6 {
+            if index == 1 {
+                scene.push_layer(bounds);
+            }
+            let mut mask = ContentMask::new(bounds);
+            mask.bounds.origin.x = ScaledPixels(index as f32);
+            scene.insert_primitive(Quad {
+                bounds,
+                content_mask: mask,
+                ..Default::default()
+            });
+            if index == 4 {
+                scene.pop_layer();
+            }
+        }
+        scene.pop_layer();
+        scene.finish();
+
+        let assert_same_operations = |actual: &Scene, expected: &Scene| {
+            assert_eq!(
+                actual
+                    .paint_operations
+                    .iter()
+                    .map(std::mem::discriminant)
+                    .collect::<Vec<_>>(),
+                expected
+                    .paint_operations
+                    .iter()
+                    .map(std::mem::discriminant)
+                    .collect::<Vec<_>>()
+            );
+            let quad_geometry = |scene: &Scene| {
+                scene
+                    .quads
+                    .iter()
+                    .map(|quad| (quad.order, quad.bounds, quad.content_mask.clone()))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(quad_geometry(actual), quad_geometry(expected));
+        };
+
+        for start in 0..=scene.len() + 1 {
+            for end in 0..=scene.len() + 1 {
+                let range = start..end;
+                let expected = scene.clone_paint_operations(|index| range.contains(&index));
+                assert_same_operations(&scene.clone_paint_range(range.clone()), &expected);
+
+                // The second range covers disjoint, nested, and overlapping exclusions.
+                for second in [0..0, 0..3, 2..7, 7..usize::MAX] {
+                    for excluded in [
+                        [range.clone(), second.clone()],
+                        [second.clone(), range.clone()],
+                    ] {
+                        let expected = scene.clone_paint_operations(|index| {
+                            !excluded.iter().any(|range| range.contains(&index))
+                        });
+                        assert_same_operations(
+                            &scene.clone_excluding_paint_ranges(&excluded),
+                            &expected,
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(scene.clone_paint_range(0..usize::MAX).len(), scene.len());
     }
 
     #[test]

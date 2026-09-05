@@ -7,6 +7,9 @@ dependencies. Engine and framework versions remain independent.
 The root `.github/workflows/release-validation.yml` runs for `engine-v*` and
 `framework-v*` tags. It runs release checks and uploads a report. It does not
 publish crates, create a GitHub release, or move a tag automatically.
+The report covers both domains even if one phase fails. Any failed phase,
+including an unresolved publication blocker, fails the workflow. The artifact
+upload still retains the report.
 
 ## Release authorization
 

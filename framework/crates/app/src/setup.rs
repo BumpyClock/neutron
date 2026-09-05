@@ -171,7 +171,7 @@ mod tests {
     use crate::declaration::{SetupKey, SetupModule, tests::identity};
     use crate::error::{RuntimeError, RuntimeOperation};
     use crate::handles::PendingEvents;
-    use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+    use crate::liveness::{ExitPolicy, Liveness};
 
     use super::*;
 
@@ -259,7 +259,7 @@ mod tests {
         let proxy = handles::install(
             cx,
             info.clone(),
-            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Liveness::new(ExitPolicy::Explicit),
             Vec::new(),
             Vec::new(),
             Arc::new(PendingEvents::default()),

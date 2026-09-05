@@ -32,7 +32,20 @@ pub struct TreeStory {
     items: Vec<TreeItem>,
 }
 
-fn build_file_items(ignorer: &Ignorer, root: &PathBuf, path: &PathBuf) -> Vec<TreeItem> {
+struct FileRecord {
+    id: String,
+    label: String,
+    children: Vec<FileRecord>,
+}
+
+impl FileRecord {
+    fn into_tree_item(self) -> TreeItem {
+        TreeItem::new(self.id, self.label)
+            .children(self.children.into_iter().map(Self::into_tree_item))
+    }
+}
+
+fn build_file_records(ignorer: &Ignorer, root: &PathBuf, path: &PathBuf) -> Vec<FileRecord> {
     let mut items = Vec::new();
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
@@ -49,17 +62,22 @@ fn build_file_items(ignorer: &Ignorer, root: &PathBuf, path: &PathBuf) -> Vec<Tr
                 .unwrap_or("Unknown")
                 .to_string();
             let id = path.to_string_lossy().to_string();
-            if path.is_dir() {
-                let children = build_file_items(ignorer, &root, &path);
-                items.push(TreeItem::new(id, file_name).children(children));
+            let children = if path.is_dir() {
+                build_file_records(ignorer, root, &path)
             } else {
-                items.push(TreeItem::new(id, file_name));
-            }
+                Vec::new()
+            };
+            items.push(FileRecord {
+                id,
+                label: file_name,
+                children,
+            });
         }
     }
     items.sort_by(|a, b| {
-        b.is_folder()
-            .cmp(&a.is_folder())
+        a.children
+            .is_empty()
+            .cmp(&b.children.is_empty())
             .then(a.label.cmp(&b.label))
     });
     items
@@ -72,8 +90,17 @@ impl TreeStory {
 
     fn load_files(state: Entity<TreeState>, path: PathBuf, cx: &mut Context<Self>) {
         cx.spawn(async move |weak_self, cx| {
-            let ignorer = Ignorer::new(&path.to_string_lossy());
-            let items = build_file_items(&ignorer, &path, &path);
+            let records = cx
+                .background_executor()
+                .spawn(async move {
+                    let ignorer = Ignorer::new(&path.to_string_lossy());
+                    build_file_records(&ignorer, &path, &path)
+                })
+                .await;
+            let items: Vec<_> = records
+                .into_iter()
+                .map(FileRecord::into_tree_item)
+                .collect();
             _ = state.update(cx, |state, cx| {
                 state.set_items(items.clone(), cx);
             });
@@ -117,6 +144,76 @@ impl Story for TreeStory {
 
     fn zoomable() -> Option<PanelControl> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_records_preserve_hierarchy_and_initial_expansion() {
+        let item = FileRecord {
+            id: "src".into(),
+            label: "src".into(),
+            children: vec![
+                FileRecord {
+                    id: "src/empty".into(),
+                    label: "empty".into(),
+                    children: Vec::new(),
+                },
+                FileRecord {
+                    id: "src/lib.rs".into(),
+                    label: "lib.rs".into(),
+                    children: Vec::new(),
+                },
+            ],
+        }
+        .into_tree_item();
+
+        assert_eq!(item.id.as_ref(), "src");
+        assert!(item.is_folder());
+        assert!(!item.is_expanded());
+        assert_eq!(item.children[0].id.as_ref(), "src/empty");
+        assert!(!item.children[0].is_folder());
+        assert!(!item.children[0].is_expanded());
+        assert_eq!(item.children[1].label.as_ref(), "lib.rs");
+        assert_eq!(item.children[1].id.as_ref(), "src/lib.rs");
+    }
+
+    #[gpui::test]
+    fn background_file_load_updates_story_and_tree_state(cx: &mut gpui::TestAppContext) {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/fixtures");
+        let story = cx.new(|cx| {
+            let tree_state = cx.new(|cx| TreeState::new(cx));
+            TreeStory::load_files(tree_state.clone(), path.clone(), cx);
+            TreeStory {
+                tree_state,
+                items: Vec::new(),
+            }
+        });
+        assert!(story.read_with(cx, |story, _| story.items.is_empty()));
+        cx.run_until_parked();
+        story.update(cx, |story, cx| {
+            let labels: Vec<&str> = story.items.iter().map(|item| item.label.as_ref()).collect();
+            assert_eq!(
+                labels,
+                [
+                    "counters.json",
+                    "countries.json",
+                    "daily-devices.json",
+                    "monthly-devices.json",
+                    "stock-prices.json",
+                ]
+            );
+            assert!(story.items.iter().all(|item| !item.is_expanded()));
+            story.tree_state.update(cx, |state, cx| {
+                assert_eq!(state.selected_index(), None);
+                state.set_selected_item(Some(&story.items[0]), cx);
+                assert_eq!(state.selected_index(), Some(0));
+                assert_eq!(state.selected_item().unwrap().id, story.items[0].id);
+            });
+        });
     }
 }
 
@@ -175,12 +272,10 @@ impl Render for TreeStory {
                                             h_flex().gap_2().child(icon).child(item.label.clone()),
                                         )
                                         .on_click(cx.listener({
-                                            let item = item.clone();
+                                            let label = item.label.clone();
+                                            let id = item.id.clone();
                                             move |_, _, _window, _| {
-                                                println!(
-                                                    "Clicked on item: {} ({})",
-                                                    item.label, item.id
-                                                );
+                                                println!("Clicked on item: {} ({})", label, id);
                                             }
                                         }))
                                 })

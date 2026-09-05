@@ -2,6 +2,28 @@
 
 CI reports validation by level. A compile-only job is not a runtime test.
 
+## Local selection
+
+From the repository root, select the smallest command that observes the change:
+
+```bash
+./script/test -p neutron-components-manifest
+./script/test -p neutron-components-app --test headless --features test-support
+./script/test --tooling
+./script/check -p framework-xtask
+```
+
+With no arguments, `script/test` retains the workspace, doctest, and Python
+suites. With Cargo arguments, it runs one `cargo test --locked` command and
+forwards those arguments unchanged. Specify required features explicitly.
+`script/check` accepts repeated package selectors for check and Clippy; it
+always retains format, workspace resolution, and both domain contract checks.
+All four validation scripts support `--help` without any test or build.
+
+`script/stage1` is a local headless and tooling preflight. It does not run the
+native matrix or produce exact-source acceptance artifacts. The workflow
+`.github/workflows/stage1.yml` owns those evidence gates.
+
 The [Stage 1 Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTRACT.md)
 is the canonical, normative source for Stage 1 startup and teardown order,
 pure, headless, native, and story-smoke evidence clauses, exact-source identity,
@@ -101,6 +123,8 @@ Contract](https://github.com/BumpyClock/neutron/blob/main/framework/STAGE1-CONTR
 for the recording, verification, and seven-manifest aggregate-comparison
 rules.
 
+The watchdog writes and flushes stdout and stderr files while the command runs.
+An output-file error fails the command after owned-process cleanup.
 The watchdog timeout covers process creation and command execution. After that
 single deadline, cleanup has at most five additional seconds to terminate the
 owned process tree, reap the root, and drain captured output. POSIX commands run
@@ -222,6 +246,11 @@ Windows sets `GPUI_RENDERER=software` and
 `WAYLAND_DISPLAY`; Xlib evidence is not accepted by this profile. Linux jobs
 constrain `VK_ICD_FILENAMES` to the lavapipe ICD and separately require adapter
 name evidence. This proves software-GPU selection, not hardware-GPU execution.
+
+The Windows native job also runs the `gpui_windows` library suite with one test
+thread under a 600-second watchdog. This suite includes WARP texture-readback
+tests for retained composition. Its output remains in the existing Windows
+artifact. Texture readback does not prove desktop presentation.
 
 Linux Wayland first starts a normal Weston 16 headless/Pixman compositor for
 `lifecycle-clean`, `lifecycle-startup-failure`,

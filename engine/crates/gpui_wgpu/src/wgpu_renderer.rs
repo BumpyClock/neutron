@@ -1795,9 +1795,11 @@ impl WgpuRenderer {
 
                 let mut layer_scene = layer_scene;
                 let draw_order = Self::first_draw_order(&layer_scene).unwrap_or(u32::MAX);
-                Self::localize_scene(&mut layer_scene, layer.bounds.origin);
                 let needs_render =
                     self.ensure_retained_layer_texture(&cache_key, &layer, texture_size);
+                if needs_render {
+                    Self::localize_scene(&mut layer_scene, layer.bounds.origin);
+                }
 
                 Some(PreparedRetainedLayer {
                     cache_key,

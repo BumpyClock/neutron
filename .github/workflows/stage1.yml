@@ -26,6 +26,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: bash
         run: |
@@ -81,6 +84,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: pwsh
         run: |
@@ -135,6 +141,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: bash
         run: |
@@ -192,6 +201,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: bash
         run: |
@@ -327,6 +339,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: pwsh
         run: |
@@ -351,6 +366,19 @@ jobs:
             --stderr (Join-Path $artifactDir "focused-contracts.stderr.log") `
             --log (Join-Path $artifactDir "focused-contracts.watchdog.log") `
             -- cargo test --locked -p neutron-components stage1_contract_
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+      - name: Test Windows renderer and retained composition pixels
+        shell: pwsh
+        run: |
+          $artifactDir = Join-Path $env:RUNNER_TEMP "stage1-${{ github.job }}"
+          & python framework/tooling/stage1_watchdog.py `
+            --timeout-seconds 600 `
+            --stdout (Join-Path $artifactDir "windows-renderer-tests.stdout.log") `
+            --stderr (Join-Path $artifactDir "windows-renderer-tests.stderr.log") `
+            --log (Join-Path $artifactDir "windows-renderer-tests.watchdog.log") `
+            -- cargo test --locked -p gpui_windows --lib -- --test-threads=1 --nocapture
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -464,6 +492,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: bash
         run: |
@@ -561,6 +592,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+        with:
+          key: stage1-${{ github.job }}
       - name: Prepare evidence directory
         shell: bash
         run: |

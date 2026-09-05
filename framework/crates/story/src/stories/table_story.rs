@@ -689,11 +689,10 @@ pub struct TableStory {
     table: Entity<TableState<StockTableDelegate>>,
     num_stocks_input: Entity<InputState>,
     stripe: bool,
-    refresh_data: bool,
+    refresh_task: Option<Task<()>>,
     size: Size,
 
     _subscriptions: Vec<Subscription>,
-    _load_task: Task<()>,
 }
 
 impl super::Story for TableStory {
@@ -720,6 +719,91 @@ impl Focusable for TableStory {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use super::*;
+
+    #[gpui::test]
+    fn refresh_task_starts_stops_and_preserves_its_deadline(cx: &mut gpui::TestAppContext) {
+        let story = cx.update(|cx| {
+            neutron_components::init(cx);
+            let window = cx
+                .open_window(Default::default(), |_, cx| cx.new(|_| gpui::Empty))
+                .unwrap();
+            window
+                .update(cx, |_, window, cx| cx.new(|cx| TableStory::new(window, cx)))
+                .unwrap()
+        });
+        let table = story.read_with(cx, |story, _| story.table.clone());
+        table.update(cx, |table, _| {
+            table.delegate_mut().stocks = vec![Stock {
+                price: f64::INFINITY,
+                ..Default::default()
+            }];
+        });
+        let updates = Rc::new(Cell::new(0));
+        let _subscription = cx.update(|cx| {
+            cx.observe(&story, {
+                let updates = updates.clone();
+                move |_, _| updates.set(updates.get() + 1)
+            })
+        });
+        cx.run_until_parked();
+        assert!(story.read_with(cx, |story, _| story.refresh_task.is_none()));
+        cx.executor().advance_clock(Duration::from_millis(100));
+        assert_eq!(updates.get(), 0);
+        assert_eq!(
+            table.read_with(cx, |table, _| table.delegate().stocks[0].price),
+            f64::INFINITY
+        );
+
+        story.update(cx, |story, cx| story.set_refresh_data(true, cx));
+        cx.run_until_parked();
+        updates.set(0);
+        cx.executor().advance_clock(Duration::from_millis(20));
+        story.update(cx, |story, cx| story.set_refresh_data(true, cx));
+        cx.run_until_parked();
+        assert_eq!(updates.get(), 0);
+        cx.executor().advance_clock(Duration::from_millis(13));
+        cx.run_until_parked();
+        assert_eq!(updates.get(), 1);
+        assert!(table.read_with(cx, |table, _| table.delegate().stocks[0].price.is_finite()));
+
+        story.update(cx, |story, cx| story.set_refresh_data(false, cx));
+        cx.run_until_parked();
+        assert!(story.read_with(cx, |story, _| story.refresh_task.is_none()));
+        updates.set(0);
+        let stopped_price = table.read_with(cx, |table, _| table.delegate().stocks[0].price);
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        assert_eq!(updates.get(), 0);
+        assert_eq!(
+            table.read_with(cx, |table, _| table.delegate().stocks[0].price),
+            stopped_price
+        );
+
+        story.update(cx, |story, cx| story.set_refresh_data(true, cx));
+        cx.run_until_parked();
+        updates.set(0);
+        cx.executor().advance_clock(Duration::from_millis(33));
+        cx.run_until_parked();
+        assert_eq!(updates.get(), 1);
+        let weak_story = story.downgrade();
+        drop(story);
+        cx.update(|_| {});
+        assert!(weak_story.upgrade().is_none());
+        let last_price = table.read_with(cx, |table, _| table.delegate().stocks[0].price);
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        assert_eq!(
+            table.read_with(cx, |table, _| table.delegate().stocks[0].price),
+            last_price
+        );
+    }
+}
+
 impl TableStory {
     pub fn view(window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(window, cx))
@@ -741,45 +825,15 @@ impl TableStory {
         let _subscriptions = vec![
             cx.subscribe_in(&table, window, Self::on_table_event),
             cx.subscribe_in(&num_stocks_input, window, Self::on_num_stocks_input_change),
-            // Spawn a background to random refresh the list
         ];
-
-        let _load_task = cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(time::Duration::from_millis(33))
-                    .await;
-
-                this.update(cx, |this, cx| {
-                    if !this.refresh_data {
-                        return;
-                    }
-
-                    this.table.update(cx, |table, _| {
-                        table.delegate_mut().stocks.iter_mut().enumerate().for_each(
-                            |(i, stock)| {
-                                let n = (3..10).fake::<usize>();
-                                // update 30% of the stocks
-                                if i % n == 0 {
-                                    stock.random_update();
-                                }
-                            },
-                        );
-                    });
-                    cx.notify();
-                })
-                .ok();
-            }
-        });
 
         Self {
             table,
             num_stocks_input,
             stripe: false,
-            refresh_data: false,
+            refresh_task: None,
             size: Size::default(),
             _subscriptions,
-            _load_task,
         }
     }
 
@@ -870,7 +924,40 @@ impl TableStory {
     }
 
     fn toggle_refresh_data(&mut self, checked: &bool, _: &mut Window, cx: &mut Context<Self>) {
-        self.refresh_data = *checked;
+        self.set_refresh_data(*checked, cx);
+    }
+
+    fn set_refresh_data(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if enabled == self.refresh_task.is_some() {
+            return;
+        }
+        self.refresh_task = enabled.then(|| {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(time::Duration::from_millis(33))
+                        .await;
+
+                    if this
+                        .update(cx, |this, cx| {
+                            this.table.update(cx, |table, _| {
+                                for (i, stock) in table.delegate_mut().stocks.iter_mut().enumerate()
+                                {
+                                    let n = (3..10).fake::<usize>();
+                                    if i % n == 0 {
+                                        stock.random_update();
+                                    }
+                                }
+                            });
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+        });
         cx.notify();
     }
 
@@ -1037,7 +1124,7 @@ impl Render for TableStory {
                     .child(
                         Checkbox::new("refresh-data")
                             .label("Refresh Data")
-                            .selected(self.refresh_data)
+                            .selected(self.refresh_task.is_some())
                             .on_click(cx.listener(Self::toggle_refresh_data)),
                     ),
             )

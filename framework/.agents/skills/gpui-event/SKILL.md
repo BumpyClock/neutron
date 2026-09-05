@@ -165,12 +165,5 @@ entity2.subscribe(entity1) → emits event → infinite loop!
 
 ## Reference Documentation
 
-- **API Reference**: See [api-reference.md](references/api-reference.md)
-  - Event definition, emission, subscriptions
-  - Observations, global events
-  - Subscription lifecycle
-
-- **Patterns**: See [patterns.md](references/patterns.md)
-  - Event-driven architectures
-  - Communication patterns
-  - Best practices and pitfalls
+- For event and subscription methods, read the [resolved context source](../../../../engine/crates/gpui/src/app/context.rs).
+- For entity communication, read [entity patterns](../gpui-entity/references/patterns.md).

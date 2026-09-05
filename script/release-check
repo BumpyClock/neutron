@@ -5,9 +5,39 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-cargo run --locked -p engine-xtask -- fork validate
-cargo run --locked -p engine-xtask -- publish-plan
-cargo run --locked -p engine-xtask -- release-check
-cargo run --locked -p framework-xtask -- compatibility check
-cargo run --locked -p framework-xtask -- publish-plan
-cargo run --locked -p framework-xtask -- release-check
+registry_option=
+for argument in "$@"; do
+    case "$argument" in
+        -h|--help)
+            printf '%s\n' \
+                "Usage: script/release-check [--require-registry]" \
+                "Run both domain release checks and retain a failure from any phase." \
+                "Publication blockers remain failures. This command does not publish."
+            exit 0
+            ;;
+        --require-registry) registry_option=--require-registry ;;
+        *)
+            printf '%s\n' "error: unsupported argument '$argument'; use --help" >&2
+            exit 2
+            ;;
+    esac
+done
+
+status=0
+run_check() {
+    printf '\nRelease check: %s\n' "$*"
+    if "$@"; then
+        return 0
+    else
+        printf 'error: release check failed: %s\n' "$*" >&2
+        status=1
+    fi
+}
+
+run_check cargo run --locked -p engine-xtask -- fork validate
+run_check cargo run --locked -p engine-xtask -- publish-plan
+run_check cargo run --locked -p engine-xtask -- release-check ${registry_option:+"$registry_option"}
+run_check cargo run --locked -p framework-xtask -- compatibility check
+run_check cargo run --locked -p framework-xtask -- publish-plan ${registry_option:+"$registry_option"}
+run_check cargo run --locked -p framework-xtask -- release-check ${registry_option:+"$registry_option"}
+exit "$status"

@@ -82,7 +82,7 @@ impl RuntimeModule for MenusModule {
 
         // Mark the registry live: past this point apps can only register commands
         // from `on_launch` (or later), so those registrations must bind and
-        // re-project themselves — see `AppCommandsExt::register_command`.
+        // re-project themselves — see `Commands::register_command`.
         cx.global_mut::<CommandRegistry>().activate();
 
         self.theme_observer =
@@ -341,7 +341,7 @@ mod tests {
         use neutron_components_storage::{AppPaths, PathLayout};
 
         use crate::handles::PendingEvents;
-        use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+        use crate::liveness::{ExitPolicy, Liveness};
         use crate::{PlatformCapabilities, handles};
 
         let info = AppInfo::new(
@@ -353,7 +353,7 @@ mod tests {
         let proxy = handles::install(
             cx,
             info.clone(),
-            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Liveness::new(ExitPolicy::Explicit),
             Vec::new(),
             Vec::new(),
             Arc::new(PendingEvents::default()),

@@ -128,7 +128,7 @@ mod tests {
     use crate::declaration::{DeclaredSurface, Surface, SurfaceRole};
     use crate::handles::PendingEvents;
     use crate::handles::{AppInfo, AppProxy};
-    use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+    use crate::liveness::{ExitPolicy, Liveness};
     use crate::module::RuntimeModule;
     use crate::windows::WindowsModule;
     use crate::{PlatformCapabilities, handles};
@@ -149,7 +149,7 @@ mod tests {
         let proxy = handles::install(
             cx,
             info.clone(),
-            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Liveness::new(ExitPolicy::Explicit),
             Vec::new(),
             Vec::new(),
             Arc::new(PendingEvents::default()),

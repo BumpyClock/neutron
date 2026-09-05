@@ -59,44 +59,20 @@ pub fn should_exit(policy: ExitPolicy, holds: usize, windows: usize) -> bool {
 pub struct Liveness {
     holds: Arc<AtomicUsize>,
     exit_policy: ExitPolicy,
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    initial_activation: InitialActivation,
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    activated: bool,
 }
 
 impl Liveness {
-    /// New liveness state with the given policies and zero holds.
-    pub fn new(exit_policy: ExitPolicy, initial_activation: InitialActivation) -> Self {
+    /// New liveness state with the given exit policy and zero holds.
+    pub fn new(exit_policy: ExitPolicy) -> Self {
         Self {
             holds: Arc::new(AtomicUsize::new(0)),
             exit_policy,
-            initial_activation,
-            activated: false,
         }
     }
 
     /// The configured exit policy.
     pub fn exit_policy(&self) -> ExitPolicy {
         self.exit_policy
-    }
-
-    /// The configured initial-activation policy.
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    pub fn initial_activation(&self) -> InitialActivation {
-        self.initial_activation
-    }
-
-    /// Whether initial activation has been applied.
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    pub fn activated(&self) -> bool {
-        self.activated
-    }
-
-    /// Record that initial activation has been applied.
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    pub fn mark_activated(&mut self) {
-        self.activated = true;
     }
 
     /// Current number of outstanding holds.

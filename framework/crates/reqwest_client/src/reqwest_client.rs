@@ -3,8 +3,8 @@ use std::sync::{LazyLock, OnceLock};
 use std::{borrow::Cow, mem, pin::Pin, task::Poll, time::Duration};
 
 use anyhow::anyhow;
-use bytes::{BufMut, Bytes, BytesMut};
-use futures::{AsyncRead, FutureExt as _, TryStreamExt as _};
+use bytes::{Bytes, BytesMut};
+use futures::{FutureExt as _, TryStreamExt as _};
 use gpui::http_client::{self, RedirectPolicy, Url, http};
 use regex::Regex;
 use reqwest::{
@@ -152,7 +152,10 @@ impl futures::Stream for StreamReader {
         }
 
         match poll_read_buf(&mut reader, cx, &mut this.buf) {
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                self.reader = Some(reader);
+                Poll::Pending
+            }
             Poll::Ready(Err(err)) => {
                 self.reader = None;
 
@@ -171,42 +174,26 @@ impl futures::Stream for StreamReader {
     }
 }
 
-/// Implementation from <https://docs.rs/tokio-util/0.7.12/src/tokio_util/util/poll_buf.rs.html>
-/// Specialized for this use case
+/// Append bytes from a futures reader to an initialized buffer.
+///
+/// A pending read or error leaves the buffer's existing contents unchanged.
 pub fn poll_read_buf(
     io: &mut Pin<Box<dyn futures::AsyncRead + Send + Sync>>,
     cx: &mut std::task::Context<'_>,
     buf: &mut BytesMut,
 ) -> Poll<std::io::Result<usize>> {
-    if !buf.has_remaining_mut() {
-        return Poll::Ready(Ok(0));
+    let len = buf.len();
+    buf.reserve(1);
+    buf.resize(buf.capacity(), 0);
+    let result = io.as_mut().poll_read(cx, &mut buf[len..]);
+    match result {
+        Poll::Ready(Ok(n)) => {
+            assert!(n <= buf.len() - len, "reader exceeded buffer capacity");
+            buf.truncate(len + n);
+        }
+        Poll::Pending | Poll::Ready(Err(_)) => buf.truncate(len),
     }
-
-    let n = {
-        let dst = buf.chunk_mut();
-
-        // Safety: `chunk_mut()` returns a `&mut UninitSlice`, and `UninitSlice` is a
-        // transparent wrapper around `[MaybeUninit<u8>]`.
-        let dst = unsafe { &mut *(dst as *mut _ as *mut [std::mem::MaybeUninit<u8>]) };
-        let mut buf = tokio::io::ReadBuf::uninit(dst);
-        let ptr = buf.filled().as_ptr();
-        let unfilled_portion = buf.initialize_unfilled();
-        // SAFETY: Pin projection
-        let io_pin = unsafe { Pin::new_unchecked(io) };
-        std::task::ready!(io_pin.poll_read(cx, unfilled_portion)?);
-
-        // Ensure the pointer does not change from under us
-        assert_eq!(ptr, buf.filled().as_ptr());
-        buf.filled().len()
-    };
-
-    // Safety: This is guaranteed to be the number of initialized (and read)
-    // bytes due to the invariants provided by `ReadBuf::filled`.
-    unsafe {
-        buf.advance_mut(n);
-    }
-
-    Poll::Ready(Ok(n))
+    result
 }
 
 fn redact_error(mut error: reqwest::Error) -> reqwest::Error {
@@ -281,9 +268,155 @@ impl http_client::HttpClient for ReqwestClient {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::VecDeque, io, pin::Pin, task::Context};
+
+    use futures::{AsyncRead, Stream, task::noop_waker_ref};
     use gpui::http_client::{HttpClient, Url};
 
+    use super::{BytesMut, Poll, StreamReader, poll_read_buf};
     use crate::ReqwestClient;
+
+    enum ReadStep {
+        Pending,
+        Data(&'static [u8]),
+        Error,
+    }
+
+    struct ScriptedReader(VecDeque<ReadStep>);
+
+    impl AsyncRead for ScriptedReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            match self.0.pop_front() {
+                Some(ReadStep::Pending) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Some(ReadStep::Data(bytes)) => {
+                    let n = bytes.len().min(buf.len());
+                    buf[..n].copy_from_slice(&bytes[..n]);
+                    if n < bytes.len() {
+                        self.0.push_front(ReadStep::Data(&bytes[n..]));
+                    }
+                    Poll::Ready(Ok(n))
+                }
+                Some(ReadStep::Error) => Poll::Ready(Err(io::Error::other("read failed"))),
+                None => Poll::Ready(Ok(0)),
+            }
+        }
+    }
+
+    #[test]
+    fn stream_reader_ready_data_and_eof() {
+        let mut stream = StreamReader::new(Box::pin(futures::io::Cursor::new(b"ready")));
+        let mut cx = Context::from_waker(noop_waker_ref());
+        let Poll::Ready(Some(Ok(bytes))) = Pin::new(&mut stream).poll_next(&mut cx) else {
+            panic!("ready reader must yield data");
+        };
+        assert_eq!(&bytes[..], b"ready");
+        assert!(matches!(
+            Pin::new(&mut stream).poll_next(&mut cx),
+            Poll::Ready(None)
+        ));
+        assert!(matches!(
+            Pin::new(&mut stream).poll_next(&mut cx),
+            Poll::Ready(None)
+        ));
+    }
+
+    #[test]
+    fn stream_reader_preserves_reader_across_pending() {
+        let reader = ScriptedReader(VecDeque::from([
+            ReadStep::Pending,
+            ReadStep::Data(b"first"),
+            ReadStep::Pending,
+            ReadStep::Data(b"second"),
+        ]));
+        let mut stream = StreamReader::new(Box::pin(reader));
+        let mut cx = Context::from_waker(noop_waker_ref());
+        for expected in [b"first".as_slice(), b"second".as_slice()] {
+            assert!(Pin::new(&mut stream).poll_next(&mut cx).is_pending());
+            let Poll::Ready(Some(Ok(bytes))) = Pin::new(&mut stream).poll_next(&mut cx) else {
+                panic!("reader must yield data after pending");
+            };
+            assert_eq!(&bytes[..], expected);
+        }
+        assert!(matches!(
+            Pin::new(&mut stream).poll_next(&mut cx),
+            Poll::Ready(None)
+        ));
+    }
+
+    #[test]
+    fn stream_reader_preserves_all_bytes_across_chunks() {
+        let input: Vec<u8> = (0..super::DEFAULT_CAPACITY * 3 + 17)
+            .map(|index| (index % 251) as u8)
+            .collect();
+        let mut stream = StreamReader::new(Box::pin(futures::io::Cursor::new(input.clone())));
+        let mut cx = Context::from_waker(noop_waker_ref());
+        let mut output = Vec::new();
+        let mut chunks = 0;
+        loop {
+            match Pin::new(&mut stream).poll_next(&mut cx) {
+                Poll::Ready(Some(Ok(bytes))) => {
+                    assert!(!bytes.is_empty());
+                    output.extend_from_slice(&bytes);
+                    chunks += 1;
+                }
+                Poll::Ready(None) => break,
+                other => panic!("unexpected read result: {other:?}"),
+            }
+        }
+        assert!(chunks > 1);
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn stream_reader_error_terminates_stream() {
+        let reader = ScriptedReader(VecDeque::from([
+            ReadStep::Error,
+            ReadStep::Data(b"unreachable"),
+        ]));
+        let mut stream = StreamReader::new(Box::pin(reader));
+        let mut cx = Context::from_waker(noop_waker_ref());
+        let Poll::Ready(Some(Err(error))) = Pin::new(&mut stream).poll_next(&mut cx) else {
+            panic!("reader error must reach the caller");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "read failed");
+        assert!(matches!(
+            Pin::new(&mut stream).poll_next(&mut cx),
+            Poll::Ready(None)
+        ));
+    }
+
+    #[test]
+    fn poll_read_buf_preserves_prefix_and_ignores_uncommitted_bytes() {
+        let mut reader: Pin<Box<dyn AsyncRead + Send + Sync>> =
+            Box::pin(ScriptedReader(VecDeque::from([
+                ReadStep::Pending,
+                ReadStep::Data(b"data"),
+                ReadStep::Error,
+            ])));
+        let mut buf = BytesMut::with_capacity(32);
+        buf.extend_from_slice(b"prefix:");
+        let mut cx = Context::from_waker(noop_waker_ref());
+        assert!(poll_read_buf(&mut reader, &mut cx, &mut buf).is_pending());
+        assert_eq!(&buf[..], b"prefix:");
+        assert!(matches!(
+            poll_read_buf(&mut reader, &mut cx, &mut buf),
+            Poll::Ready(Ok(4))
+        ));
+        assert_eq!(&buf[..], b"prefix:data");
+        assert!(matches!(
+            poll_read_buf(&mut reader, &mut cx, &mut buf),
+            Poll::Ready(Err(_))
+        ));
+        assert_eq!(&buf[..], b"prefix:data");
+    }
 
     #[test]
     fn test_proxy_uri() {

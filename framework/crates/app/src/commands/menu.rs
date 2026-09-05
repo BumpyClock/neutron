@@ -488,12 +488,15 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[gpui::test]
     fn the_dock_projection_reads_every_placement(cx: &mut gpui::TestAppContext) {
-        use crate::commands::{AppCommandsExt, CommandRegistry};
+        use crate::commands::{CommandRegistry, install_declared_commands};
 
         cx.update(|cx| {
-            cx.register_command(
-                cmd("copy", MenuPlacement::new(EDIT_MENU, 0, 0))
-                    .with_placement(MenuPlacement::new(DOCK_MENU, 0, 0)),
+            install_declared_commands(
+                cx,
+                vec![
+                    cmd("copy", MenuPlacement::new(EDIT_MENU, 0, 0))
+                        .with_placement(MenuPlacement::new(DOCK_MENU, 0, 0)),
+                ],
             )
             .expect("valid command");
 

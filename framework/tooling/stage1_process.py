@@ -274,22 +274,56 @@ def terminate_process_tree(
     return _reap_until(process, deadline) and termination_confirmed
 
 
-def _pump(stream: BinaryIO, output: bytearray) -> None:
-    try:
+class OutputWriteError(RuntimeError):
+    pass
+
+
+class _OutputPump(threading.Thread):
+    def __init__(
+        self,
+        stream: BinaryIO,
+        output: bytearray,
+        sink: BinaryIO | None,
+        *,
+        name: str,
+    ) -> None:
+        super().__init__(daemon=True, name=name)
+        self.stream = stream
+        self.output = output
+        self.sink = sink
+        self.output_error: OutputWriteError | None = None
+
+    def run(self) -> None:
         while True:
-            chunk = stream.read(65536)
+            try:
+                chunk = self.stream.read(65536)
+            except (OSError, ValueError):
+                return
             if not chunk:
                 return
-            output.extend(chunk)
-    except (OSError, ValueError):
-        return
+            if self.sink is None:
+                self.output.extend(chunk)
+                continue
+            try:
+                remaining = memoryview(chunk)
+                while remaining:
+                    written = self.sink.write(remaining)
+                    if written is None or not 0 < written <= len(remaining):
+                        raise OSError("output sink did not accept bytes")
+                    remaining = remaining[written:]
+                self.sink.flush()
+            except Exception as error:
+                self.output_error = OutputWriteError(f"{self.name}: {error}")
+                return
 
 
 def start_output_pumps(
     process: ManagedProcess,
     *,
     failure_policy: PumpStartFailurePolicy = PumpStartFailurePolicy.CLEANUP,
-) -> tuple[bytearray, bytearray, tuple[threading.Thread, threading.Thread]]:
+    stdout_sink: BinaryIO | None = None,
+    stderr_sink: BinaryIO | None = None,
+) -> tuple[bytearray, bytearray, tuple[_OutputPump, _OutputPump]]:
     started_threads: list[threading.Thread] = []
     stdout = bytearray()
     stderr = bytearray()
@@ -297,16 +331,16 @@ def start_output_pumps(
         if process.stdout is None or process.stderr is None:
             raise ValueError("managed process must expose stdout and stderr pipes")
         threads = (
-            threading.Thread(
-                target=_pump,
-                args=(process.stdout, stdout),
-                daemon=True,
+            _OutputPump(
+                process.stdout,
+                stdout,
+                stdout_sink,
                 name="stage1-stdout-pump",
             ),
-            threading.Thread(
-                target=_pump,
-                args=(process.stderr, stderr),
-                daemon=True,
+            _OutputPump(
+                process.stderr,
+                stderr,
+                stderr_sink,
                 name="stage1-stderr-pump",
             ),
         )
@@ -457,7 +491,14 @@ def run_capture(
     stdin: BinaryIO | int = subprocess.DEVNULL,
     environment: Mapping[str, str] | None = None,
     cwd: str | PathLike[str] | None = None,
+    stdout_sink: BinaryIO | None = None,
+    stderr_sink: BinaryIO | None = None,
 ) -> CaptureResult:
+    """Capture bytes, or write and flush each stream to its caller-owned binary sink.
+
+    A supplied sink replaces that stream's in-memory capture. Sink operations must
+    return promptly so output can drain within the shared cleanup deadline.
+    """
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be greater than zero")
     if cleanup_seconds <= 0:
@@ -475,10 +516,15 @@ def run_capture(
         environment=environment,
         cwd=cwd,
     )
-    stdout, stderr, threads = start_output_pumps(process)
+    stdout, stderr, threads = start_output_pumps(
+        process, stdout_sink=stdout_sink, stderr_sink=stderr_sink
+    )
     timed_out = time.monotonic() >= execution_deadline
-    if not timed_out:
-        timed_out = not _observe_until(process, execution_deadline)
+    while not timed_out and process.poll() is None:
+        if any(thread.output_error is not None for thread in threads):
+            break
+        time.sleep(min(_POLL_INTERVAL_SECONDS, _seconds_left(execution_deadline)))
+        timed_out = time.monotonic() >= execution_deadline
     if cleanup_deadline is None:
         cleanup_deadline = time.monotonic() + cleanup_seconds
 
@@ -491,6 +537,13 @@ def run_capture(
         )
         output_drained = join_output_pumps(process, threads, deadline=cleanup_deadline)
         cleanup_timed_out = not process_stopped or not output_drained
+        for thread in threads:
+            if thread.output_error is not None:
+                if cleanup_timed_out:
+                    raise OutputWriteError(
+                        f"{thread.output_error}; process cleanup was not confirmed"
+                    ) from thread.output_error
+                raise thread.output_error
         return CaptureResult(
             returncode=process.returncode,
             stdout=bytes(stdout),

@@ -214,9 +214,15 @@ fn run_git(root: &Path, args: &[&str]) -> String {
 }
 
 fn errors(root: &Path, compatibility: &Compatibility) -> String {
-    validate(&root.join("framework"), root, compatibility, true)
-        .errors
-        .join("\n")
+    validate(
+        &root.join("framework"),
+        root,
+        compatibility,
+        true,
+        &root.join("absent-longbridge-checkout"),
+    )
+    .errors
+    .join("\n")
 }
 
 #[test]
@@ -226,13 +232,47 @@ fn accepts_coherent_fixture() {
 }
 
 #[test]
+fn accepts_longbridge_provenance_from_injected_checkout() {
+    let (directory, compatibility) = fixture();
+    let framework = directory.path().join("framework");
+    let (checkout, cursor, cursor_tree, target, target_tree, _, _) = git_fixture();
+    fs::write(
+        framework.join("UPSTREAM.md"),
+        format!(
+            "Longbridge audit used these identities:\n- Recorded cursor: `{cursor}`\n- Recorded cursor tree: `{cursor_tree}`\n- Audited target: `{target}`\n- Audited target tree: `{target_tree}`\n- Audited target parent: `{cursor}`\n\n## Accepted adaptations\n- `{target}`\n"
+        ),
+    )
+    .unwrap();
+
+    let report = validate(
+        &framework,
+        directory.path(),
+        &compatibility,
+        true,
+        checkout.path(),
+    );
+
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Longbridge object validation skipped"))
+    );
+}
+
+#[test]
 fn rejects_missing_longbridge_provenance_document() {
     let directory = TempDir::new().unwrap();
     let framework = directory.path().join("framework");
     fs::create_dir(&framework).unwrap();
     let mut report = Validation::default();
 
-    validate_longbridge_provenance(&framework, &mut report);
+    validate_longbridge_provenance_with_checkout(
+        &framework,
+        &directory.path().join("absent-longbridge-checkout"),
+        &mut report,
+    );
 
     assert_eq!(
         report.errors,
@@ -256,7 +296,11 @@ fn rejects_non_hex_longbridge_identity() {
     .unwrap();
     let mut report = Validation::default();
 
-    validate_longbridge_provenance(&framework, &mut report);
+    validate_longbridge_provenance_with_checkout(
+        &framework,
+        &directory.path().join("absent-longbridge-checkout"),
+        &mut report,
+    );
 
     assert_eq!(
         report.errors,
@@ -274,7 +318,11 @@ fn rejects_missing_longbridge_marker() {
     fs::write(framework.join("UPSTREAM.md"), "# Framework upstream\n").unwrap();
     let mut report = Validation::default();
 
-    validate_longbridge_provenance(&framework, &mut report);
+    validate_longbridge_provenance_with_checkout(
+        &framework,
+        &directory.path().join("absent-longbridge-checkout"),
+        &mut report,
+    );
 
     assert_eq!(
         report.errors,
@@ -296,7 +344,11 @@ fn rejects_missing_longbridge_tree_identities() {
     .unwrap();
     let mut report = Validation::default();
 
-    validate_longbridge_provenance(&framework, &mut report);
+    validate_longbridge_provenance_with_checkout(
+        &framework,
+        &directory.path().join("absent-longbridge-checkout"),
+        &mut report,
+    );
 
     assert!(
         report

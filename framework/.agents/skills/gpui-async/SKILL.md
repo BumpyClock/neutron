@@ -159,17 +159,6 @@ cx.background_spawn(async move { data })
 
 ## Reference Documentation
 
-### Complete Guides
-- **API Reference**: See [api-reference.md](references/api-reference.md)
-  - Task types, spawning methods, contexts
-  - Executors, cancellation, error handling
-
-- **Patterns**: See [patterns.md](references/patterns.md)
-  - Data fetching, background processing
-  - Polling, debouncing, parallel tasks
-  - Pattern selection guide
-
-- **Best Practices**: See [best-practices.md](references/best-practices.md)
-  - Error handling, cancellation
-  - Performance optimization, testing
-  - Common pitfalls and solutions
+- For async context methods, read the [resolved source](../../../../engine/crates/gpui/src/app/async_context.rs).
+- For entity task patterns, read [entity patterns](../gpui-entity/references/patterns.md).
+- For entity lifetime guidance, read [entity guidance](../gpui-entity/references/best-practices.md).

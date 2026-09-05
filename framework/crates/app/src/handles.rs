@@ -1155,7 +1155,7 @@ mod tests {
         error_reporter: Box<dyn Fn(&RuntimeError, &mut App)>,
     ) -> (AppInfo, AppProxy) {
         use crate::declaration::{DeclaredSurface, Surface, SurfaceKey, SurfaceRole};
-        use crate::liveness::{ExitPolicy, InitialActivation};
+        use crate::liveness::ExitPolicy;
         use crate::module::RuntimeModule as _;
         use crate::windows::{WindowsModule, declared_surface_module};
         use neutron_components_storage::PathLayout;
@@ -1169,7 +1169,7 @@ mod tests {
         let proxy = install(
             cx,
             info.clone(),
-            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Liveness::new(ExitPolicy::Explicit),
             Vec::new(),
             observers,
             Arc::new(PendingEvents::default()),

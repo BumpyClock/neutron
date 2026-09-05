@@ -155,7 +155,4 @@ App (Global)
 
 ## Reference Documentation
 
-- **API Reference**: See [api-reference.md](references/api-reference.md)
-  - Complete context API, methods, conversions
-  - Entity operations, window operations
-  - Async contexts, best practices
+For `Context` methods, read the [resolved source](../../../../engine/crates/gpui/src/app/context.rs).

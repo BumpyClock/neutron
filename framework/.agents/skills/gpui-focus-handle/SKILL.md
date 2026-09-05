@@ -226,7 +226,4 @@ div()
 
 ## Reference Documentation
 
-- **API Reference**: See [api-reference.md](references/api-reference.md)
-  - FocusHandle API, focus management
-  - Events, keyboard navigation
-  - Best practices
+For `FocusHandle` methods, read the [resolved window source](../../../../engine/crates/gpui/src/window.rs).

@@ -227,6 +227,128 @@ fn test_foreground_ordering() {
 }
 
 #[test]
+fn test_nonrandomized_foreground_order_and_background_filter() {
+    let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig {
+        randomize_order: false,
+        ..Default::default()
+    }));
+    let first = scheduler.foreground();
+    let second = scheduler.foreground();
+    let trace = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    for (executor, value) in [(&first, 1), (&second, 2), (&first, 3), (&second, 4)] {
+        let trace = trace.clone();
+        executor
+            .spawn(async move { trace.lock().push(value) })
+            .detach();
+    }
+    scheduler
+        .background()
+        .spawn({
+            let trace = trace.clone();
+            async move { trace.lock().push(5) }
+        })
+        .detach();
+
+    let mut expected_rng = scheduler.rng().lock().clone();
+    assert!(scheduler.tick_background_only());
+    assert_eq!(*trace.lock(), [5]);
+    assert!(!scheduler.tick_background_only());
+    assert_eq!(scheduler.pending_task_counts(), (4, 0));
+    for expected in [1, 2, 3, 4] {
+        assert!(scheduler.tick());
+        assert_eq!(trace.lock().last(), Some(&expected));
+    }
+    assert!(!scheduler.tick());
+    assert_eq!(*trace.lock(), [5, 1, 2, 3, 4]);
+    assert_eq!(
+        scheduler.rng().random::<u64>(),
+        rand::Rng::random::<u64>(&mut expected_rng)
+    );
+}
+
+#[test]
+fn test_nonrandomized_nested_blocked_sessions() {
+    let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig {
+        randomize_order: false,
+        ..Default::default()
+    }));
+    let first = scheduler.foreground();
+    let second = scheduler.foreground();
+    let third = scheduler.foreground();
+    let trace = Rc::new(RefCell::new(Vec::new()));
+    for (executor, value) in [(&first, 1), (&second, 2), (&first, 3), (&third, 4)] {
+        let trace = trace.clone();
+        executor
+            .spawn(async move { trace.borrow_mut().push(value) })
+            .detach();
+    }
+
+    first.block_on(async {
+        second.block_on(async {
+            assert!(scheduler.tick());
+            assert_eq!(*trace.borrow(), [4]);
+            assert!(!scheduler.tick());
+            assert!(!scheduler.tick_background_only());
+            assert_eq!(scheduler.pending_task_counts(), (3, 0));
+        });
+        assert!(scheduler.tick());
+        assert_eq!(*trace.borrow(), [4, 2]);
+        assert!(!scheduler.tick());
+    });
+    scheduler.run();
+    assert_eq!(*trace.borrow(), [4, 2, 1, 3]);
+}
+
+#[test]
+#[ignore = "Manual queue-drain measurement. Run with --release --ignored --nocapture --test-threads=1."]
+fn measure_nonrandomized_queue_drain() {
+    use std::{hint::black_box, time::Instant};
+
+    for queue_len in [1, 32, 1024] {
+        let mut samples = Vec::new();
+        for sample in 0..8 {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..8192 / queue_len {
+                let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig {
+                    randomize_order: false,
+                    capture_pending_traces: false,
+                    ..Default::default()
+                }));
+                let foreground: Vec<_> = (0..8).map(|_| scheduler.foreground()).collect();
+                let background = scheduler.background();
+                for task in 0..queue_len {
+                    if task % 4 == 3 {
+                        background
+                            .spawn(async move {
+                                black_box(task);
+                            })
+                            .detach();
+                    } else {
+                        foreground[task % 8]
+                            .spawn(async move {
+                                black_box(task);
+                            })
+                            .detach();
+                    }
+                }
+                let start = Instant::now();
+                black_box(&scheduler).run();
+                elapsed += start.elapsed();
+                assert_eq!(scheduler.pending_task_counts(), (0, 0));
+            }
+            if sample > 0 {
+                samples.push(elapsed.as_nanos() as f64 / 8192.0);
+            }
+        }
+        samples.sort_by(f64::total_cmp);
+        eprintln!(
+            "queue_len={queue_len} ns/task median={:.2} min={:.2} max={:.2} samples={samples:?}",
+            samples[3], samples[0], samples[6]
+        );
+    }
+}
+
+#[test]
 fn test_timer_ordering() {
     TestScheduler::many(1, async |scheduler| {
         let background = scheduler.background();

@@ -1060,7 +1060,7 @@ mod tests {
     use crate::commands::{CommandId, CommandRegistry, CommandScope, MenuPlan, RuntimeCommand};
     use crate::declaration::Surface;
     use crate::handles::{self, PendingEvents};
-    use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+    use crate::liveness::{ExitPolicy, Liveness};
     use crate::{AppPaths, IdentityRef, PathLayout};
 
     actions!(window_menu_test, [MenuAction]);
@@ -1100,7 +1100,7 @@ mod tests {
         let proxy = handles::install(
             cx,
             info.clone(),
-            Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            Liveness::new(ExitPolicy::Explicit),
             Vec::new(),
             Vec::new(),
             Arc::new(PendingEvents::default()),

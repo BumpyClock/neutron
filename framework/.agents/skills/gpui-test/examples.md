@@ -1,172 +1,35 @@
-## Testing Best Practices
+# Repository test examples
 
-### Test Organization
+Use these production test modules as fixture and assertion references.
+These links identify source tests, not evidence that a command passed in this session.
 
-Group related tests in modules:
+| Contract | Source and test |
+| --- | --- |
+| Pure undo/redo state | [`history.rs`](../../../crates/ui/src/history.rs): `test_history`, `test_unique_history` |
+| Actual input mutation and restoration | [`input/state.rs`](../../../crates/ui/src/input/state.rs): `test_input_undo_redo_restores_multibyte_replacement` |
+| Masked accessibility values | [`input/state.rs`](../../../crates/ui/src/input/state.rs): `test_input_a11y_value_omits_masked_value` |
+| Disabled control event propagation | [`button/button.rs`](../../../crates/ui/src/button/button.rs): `test_disabled_and_loading_buttons_stop_parent_clicks` |
+| Hover after layout changes | [`button/button.rs`](../../../crates/ui/src/button/button.rs): `test_button_hover_reconciles_after_layout_change` |
+| Async prompt completion and cancellation | [`app/test_context.rs`](../../../../engine/crates/gpui/src/app/test_context.rs): `test_simulate_path_prompt_response`, `test_simulate_path_prompt_cancellation` |
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
+## Assertion quality
 
-    mod entity_tests {
-        use super::*;
+Exercise the production operation rather than assign the expected state directly.
+Assert an exact result where the contract defines one.
+For bounded state, test progress, the limit, and the rejected operation.
+A range assertion alone can accept an implementation that does nothing.
+For undo/redo, assert the changed value and each restored value.
+For negative behavior, establish the event path or successful control case in the fixture.
 
-        #[gpui::test]
-        fn test_creation() { /* ... */ }
+Use the existing benchmark infrastructure for performance claims.
+Do not add arbitrary `Instant` thresholds to correctness tests.
+Machine load and build mode are not part of a component correctness contract.
 
-        #[gpui::test]
-        fn test_updates() { /* ... */ }
-    }
+## Test execution
 
-    mod async_tests {
-        use super::*;
+Select commands and required integration checks from [TESTING.md](../../../TESTING.md).
+Select the affected package and test filter before a broad workspace run.
+Use existing feature and platform configuration rather than copy a generic CI workflow.
+`--test-threads=1` controls Rust test concurrency, not GPUI property-test iterations.
 
-        #[gpui::test]
-        async fn test_async_ops() { /* ... */ }
-    }
-
-    mod distributed_tests {
-        use super::*;
-
-        #[gpui::test]
-        fn test_multi_app() { /* ... */ }
-    }
-}
-```
-
-### Setup and Teardown
-
-Use helper functions for common setup:
-
-```rust
-fn create_test_counter(cx: &mut TestAppContext) -> Entity<Counter> {
-    cx.new(|cx| Counter::new(cx))
-}
-
-#[gpui::test]
-fn test_counter_operations(cx: &mut TestAppContext) {
-    let counter = create_test_counter(cx);
-
-    // Test operations
-}
-```
-
-### Assertions
-
-Use descriptive assertions:
-
-```rust
-#[gpui::test]
-fn test_counter_bounds(cx: &mut TestAppContext) {
-    let counter = create_test_counter(cx);
-
-    // Test upper bound
-    for _ in 0..100 {
-        counter.update(cx, |counter, cx| {
-            counter.increment(cx);
-        });
-    }
-
-    let count = counter.read_with(cx, |counter, _| counter.count);
-    assert!(count <= 100, "Counter should not exceed maximum");
-
-    // Test lower bound
-    for _ in 0..200 {
-        counter.update(cx, |counter, cx| {
-            counter.decrement(cx);
-        });
-    }
-
-    let count = counter.read_with(cx, |counter, _| counter.count);
-    assert!(count >= 0, "Counter should not go below minimum");
-}
-```
-
-### Performance Testing
-
-Test performance characteristics:
-
-```rust
-#[gpui::test]
-fn test_operation_performance(cx: &mut TestAppContext) {
-    let component = cx.new(|cx| MyComponent::new(cx));
-
-    let start = std::time::Instant::now();
-
-    // Perform many operations
-    for i in 0..1000 {
-        component.update(cx, |comp, cx| {
-            comp.perform_operation(i, cx);
-        });
-    }
-
-    let elapsed = start.elapsed();
-    assert!(elapsed < Duration::from_millis(100), "Operations should complete quickly");
-}
-```
-
-## Running Tests
-
-### Basic Test Execution
-
-```bash
-# Run all tests
-cargo test
-
-# Run specific test
-cargo test test_counter_operations
-
-# Run tests in a specific module
-cargo test entity_tests::
-
-# Run with output
-cargo test -- --nocapture
-```
-
-### Test Configuration
-
-Enable test-support feature for GPUI tests:
-
-```toml
-[features]
-test-support = ["gpui/test-support"]
-```
-
-```bash
-cargo test --features test-support
-```
-
-### Advanced Test Execution
-
-```bash
-# Run tests with iterations for property testing
-cargo test -- --test-threads=1
-
-# Run tests matching a pattern
-cargo test test_async
-
-# Run tests with backtrace on failure
-RUST_BACKTRACE=1 cargo test
-```
-
-### CI/CD Integration
-
-For continuous integration:
-
-```yaml
-# .github/workflows/test.yml
-name: Tests
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests
-        run: cargo test --features test-support
-```
-
-GPUI's testing framework provides deterministic, fast, and comprehensive testing capabilities that mirror real application behavior while providing the control needed for thorough testing of complex UI and async scenarios.
+Use [API contracts](reference.md) for subscription lifetime, async updates, and scheduler behavior.

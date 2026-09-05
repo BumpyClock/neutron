@@ -9,7 +9,7 @@ use tempfile::TempDir;
 use crate::capabilities::PlatformCapabilities;
 use crate::error::RuntimeOperation;
 use crate::handles::{self, AppInfo, PendingEvents};
-use crate::liveness::{ExitPolicy, InitialActivation, Liveness};
+use crate::liveness::{ExitPolicy, Liveness};
 use crate::module::RuntimeModule;
 
 use super::runtime::{ErasedSettingsEntry, ExitFlushHook};
@@ -156,7 +156,7 @@ fn install_error_reporter(cx: &mut gpui::App, reports: Arc<AtomicUsize>) {
                 .expect("test paths resolve"),
             PlatformCapabilities::detect(),
         ),
-        Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+        Liveness::new(ExitPolicy::Explicit),
         Vec::new(),
         Vec::new(),
         Arc::new(PendingEvents::default()),

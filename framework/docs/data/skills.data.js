@@ -37,7 +37,7 @@ function parseFrontmatter(content) {
 
 export default {
   async load() {
-    const skillsDir = join(__dirname, "../../.claude/skills");
+    const skillsDir = join(__dirname, "../../.agents/skills");
     const skills = [];
     
     try {

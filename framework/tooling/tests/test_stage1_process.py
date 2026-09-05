@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -50,7 +51,7 @@ class Stage1ProcessTests(unittest.TestCase):
         self.assertFalse(result.cleanup_timed_out)
 
     def test_stdin_environment_and_working_directory_are_forwarded(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=FIXTURE.parents[1]) as directory:
             root = Path(directory)
             input_path = root / "stdin.txt"
             input_path.write_text("input payload", encoding="utf-8")
@@ -133,17 +134,25 @@ class Stage1ProcessTests(unittest.TestCase):
             )
 
     def test_timeout_kills_process_group_with_bounded_cleanup(self) -> None:
+        stdout = io.BytesIO()
         started = time.monotonic()
         result = stage1_process.run_capture(
             command("spawn-wait"),
             timeout_seconds=0.2,
             cleanup_seconds=1,
+            stdout_sink=stdout,
         )
         elapsed = time.monotonic() - started
 
         self.assertTrue(result.timed_out)
         self.assertFalse(result.cleanup_timed_out)
         self.assertLess(elapsed, 1.5)
+        self.assertEqual(result.stdout, b"")
+        process_id = int(stdout.getvalue().decode().strip().split("=")[1])
+        deadline = time.monotonic() + 1
+        while process_exists(process_id) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(process_exists(process_id))
         self.assertFalse(
             any(
                 thread.name.startswith("stage1-") and thread.is_alive()
@@ -152,7 +161,7 @@ class Stage1ProcessTests(unittest.TestCase):
         )
 
     def test_root_exit_kills_descendant_that_retains_output_pipe(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory(dir=FIXTURE.parents[1]) as directory:
             pid_file = Path(directory) / "grandchild.pid"
             started = time.monotonic()
             result = stage1_process.run_capture(
@@ -171,6 +180,69 @@ class Stage1ProcessTests(unittest.TestCase):
         while process_exists(process_id) and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertFalse(process_exists(process_id))
+
+
+class Stage1OutputSinkTests(unittest.TestCase):
+    def test_sink_replaces_only_selected_capture_and_handles_short_writes(self) -> None:
+        class ShortWriteSink(io.BytesIO):
+            def write(self, data: bytes) -> int:
+                return super().write(data[:3])
+
+        stdout = ShortWriteSink()
+        result = stage1_process.run_capture(
+            command("success"), timeout_seconds=5, stdout_sink=stdout
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"")
+        self.assertEqual(result.stderr, b"stage1 stderr complete\n")
+        self.assertEqual(stdout.getvalue(), b"stage1 stdout complete\n")
+        self.assertFalse(stdout.closed)
+        self.assertFalse(result.timed_out)
+        self.assertFalse(result.cleanup_timed_out)
+
+    def test_output_errors_fail_promptly_after_process_cleanup(self) -> None:
+        for failure in ("write", "flush", "zero-write"):
+            with self.subTest(failure=failure):
+                sink = mock.Mock(spec=io.BytesIO)
+                sink.write.return_value = 6
+                if failure == "zero-write":
+                    sink.write.return_value = 0
+                    message = "output sink did not accept bytes"
+                else:
+                    getattr(sink, failure).side_effect = OSError(
+                        f"injected {failure} failure"
+                    )
+                    message = f"injected {failure} failure"
+                process = stage1_process.start_process(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; print('ready', flush=True); time.sleep(300)",
+                    ]
+                )
+                started = time.monotonic()
+                with mock.patch.object(
+                    stage1_process, "start_process", return_value=process
+                ):
+                    with self.assertRaisesRegex(
+                        stage1_process.OutputWriteError, message
+                    ):
+                        stage1_process.run_capture(
+                            command("success"),
+                            timeout_seconds=30,
+                            cleanup_seconds=1,
+                            stdout_sink=sink,
+                        )
+
+                self.assertIsNotNone(process.returncode)
+                self.assertLess(time.monotonic() - started, 2)
+                self.assertFalse(
+                    any(
+                        thread.name.startswith("stage1-") and thread.is_alive()
+                        for thread in threading.enumerate()
+                    )
+                )
 
 
 if __name__ == "__main__":

@@ -79,11 +79,13 @@ def main() -> int:
     for path in (args.stdout, args.stderr, args.log):
         ensure_parent(path)
 
-    args.stdout.write_bytes(b"")
-    args.stderr.write_bytes(b"")
     expected_exit_codes = set(args.expected_exit_codes)
 
-    with args.log.open("w", encoding="utf-8") as log:
+    with (
+        args.log.open("w", encoding="utf-8") as log,
+        args.stdout.open("wb", buffering=0) as stdout,
+        args.stderr.open("wb", buffering=0) as stderr,
+    ):
         log_line(log, f"command={command_text(args.command)}")
         log_line(log, f"timeout_seconds={args.timeout_seconds:g}")
         log_line(log, f"cleanup_seconds={args.cleanup_seconds:g}")
@@ -101,15 +103,19 @@ def main() -> int:
                     timeout_seconds=args.timeout_seconds,
                     cleanup_seconds=args.cleanup_seconds,
                     stdin=stdin if stdin is not None else subprocess.DEVNULL,
+                    stdout_sink=stdout,
+                    stderr_sink=stderr,
                 )
+            except stage1_process.OutputWriteError as error:
+                log_line(log, f"could not preserve command output: {error}")
+                return 1
             except OSError as error:
                 message = f"could not start command: {error}\n"
-                args.stderr.write_text(message, encoding="utf-8")
+                stderr.write(message.encode("utf-8"))
+                stderr.flush()
                 log_line(log, message.rstrip())
                 return 127
 
-            args.stdout.write_bytes(result.stdout)
-            args.stderr.write_bytes(result.stderr)
             if result.timed_out:
                 log_line(
                     log,
@@ -124,7 +130,7 @@ def main() -> int:
                     log_line(log, "process termination and output draining confirmed")
                 log_line(
                     log,
-                    f"stdout_bytes={len(result.stdout)} stderr_bytes={len(result.stderr)}",
+                    f"stdout_bytes={stdout.tell()} stderr_bytes={stderr.tell()}",
                 )
                 return 124
 
@@ -134,7 +140,7 @@ def main() -> int:
             )
             log_line(
                 log,
-                f"stdout_bytes={len(result.stdout)} stderr_bytes={len(result.stderr)}",
+                f"stdout_bytes={stdout.tell()} stderr_bytes={stderr.tell()}",
             )
             if result.cleanup_timed_out:
                 log_line(

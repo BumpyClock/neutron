@@ -1,350 +1,73 @@
-## Testing Patterns
+# GPUI test API reference
 
-### Basic Entity Testing
+Use the resolved engine source, not an upstream snippet, to select test APIs.
+The fragments below illustrate API contracts. They are not standalone tests.
+Use [repository tests](examples.md) for complete fixtures and assertions.
 
-Test entity creation, updates, and reads:
+## Subscription lifetime
+
+[`Context::subscribe_self`](../../../../engine/crates/gpui/src/app/context.rs)
+returns a `Subscription`. Retain that handle for the observation period.
+A discarded handle cancels the subscription.
+
+For an entity with a `subscriptions: Vec<gpui::Subscription>` field:
 
 ```rust
-#[gpui::test]
-fn test_counter_entity(cx: &mut TestAppContext) {
-    let counter = cx.new(|cx| Counter::new(cx));
-
-    // Test initial state
-    let initial_count = counter.read_with(cx, |counter, _| counter.count);
-    assert_eq!(initial_count, 0);
-
-    // Test updates
-    counter.update(cx, |counter, cx| {
-        counter.count = 42;
-        cx.notify();
-    });
-
-    let updated_count = counter.read_with(cx, |counter, _| counter.count);
-    assert_eq!(updated_count, 42);
-}
+let subscription = cx.subscribe_self(|this, event: &ValueChanged, cx| {
+    this.received_value = event.new_value;
+    cx.notify();
+});
+component.subscriptions.push(subscription);
 ```
 
-### Event Testing
+Here, `component` is the entity under construction inside `cx.new`.
+`ValueChanged` and the entity fields are illustrative application types.
+[`Subscription::detach`](../../../../engine/crates/gpui/src/subscription.rs)
+keeps the callback active until the subscribed entities are released.
+Detach only when that lifetime matches the contract.
 
-Test event emission and handling:
+## Async entity updates
+
+[`WeakEntity::update`](../../../../engine/crates/gpui/src/app/entity_map.rs)
+returns a synchronous `Result<R>`, not a future.
+Await the task from [`Context::spawn`](../../../../engine/crates/gpui/src/app/context.rs), not the update.
+
+For a component with a `value` field:
 
 ```rust
-#[derive(Clone)]
-struct ValueChanged {
-    new_value: i32,
-}
-
-impl EventEmitter<ValueChanged> for MyComponent {}
-
-#[gpui::test]
-fn test_event_emission(cx: &mut TestAppContext) {
-    let component = cx.new(|cx| {
-        let mut comp = MyComponent::default();
-
-        // Subscribe to self
-        cx.subscribe_self(|this, event: &ValueChanged, cx| {
-            this.received_value = event.new_value;
+fn update_value(&self, cx: &mut gpui::Context<Self>) -> gpui::Task<anyhow::Result<()>> {
+    cx.spawn(async move |this, cx| {
+        this.update(cx, |component, cx| {
+            component.value = 42;
             cx.notify();
-        });
-
-        comp
-    });
-
-    // Emit event
-    component.update(cx, |_, cx| {
-        cx.emit(ValueChanged { new_value: 123 });
-    });
-
-    // Verify event was handled
-    let received = component.read_with(cx, |comp, _| comp.received_value);
-    assert_eq!(received, 123);
+        })?;
+        Ok(())
+    })
 }
 ```
 
-### Action Testing
+Propagate the error when entity release is a failure.
+If entity release is expected cancellation, handle that case explicitly.
+Retain or await tasks whose completion is part of the test contract.
 
-Test action dispatching and handling:
+## Scheduler and timers
 
-```rust
-actions!(my_app, [Increment, Decrement]);
+Trace the concrete context before a timer assertion:
 
-#[gpui::test]
-fn test_action_dispatch(cx: &mut TestAppContext) {
-    let window = cx.update(|cx| {
-        cx.open_window(Default::default(), |_, cx| {
-            cx.new(|cx| MyComponent::new(cx))
-        }).unwrap()
-    });
+- [`TestAppContext::run_until_parked`](../../../../engine/crates/gpui/src/app/test_context.rs)
+  delegates to the background executor.
+- [`BackgroundExecutor::run_until_parked`](../../../../engine/crates/gpui/src/executor.rs)
+  uses the scheduler, which can advance to the next timer when no runnable tasks remain.
+- `BackgroundExecutor::advance_clock` makes timers ready but does not execute tasks.
 
-    let mut cx = VisualTestContext::from_window(window.into(), cx);
-    let counter = window.root(&mut cx).unwrap();
+Do not assume that methods with the same name on other contexts share these semantics.
+For deadline boundaries, establish the pending task and control clock progress through the resolved scheduler API.
+Assert both the state before the deadline and the result after completion.
+Do not use a wall-clock sleep or an arbitrary elapsed-time threshold as a scheduler oracle.
 
-    // Dispatch action via focus handle
-    let focus_handle = counter.read_with(&cx, |counter, _| counter.focus_handle.clone());
-    cx.update(|window, cx| {
-        focus_handle.dispatch_action(&Increment, window, cx);
-    });
+## Context selection
 
-    let count = counter.read_with(&cx, |counter, _| counter.count);
-    assert_eq!(count, 1);
-}
-```
-
-### Async Testing
-
-Test async operations and background tasks:
-
-```rust
-impl MyComponent {
-    fn load_data(&self, cx: &mut Context<Self>) -> Task<i32> {
-        cx.spawn(async move |this, cx| {
-            // Simulate async work
-            this.update(cx, |comp, _| comp.loading = true).await;
-            // Return result
-            42
-        })
-    }
-
-    fn background_update(&self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            // Background work
-            this.update(cx, |comp, _| {
-                comp.value += 10;
-            }).await;
-        }).detach();
-    }
-}
-
-#[gpui::test]
-async fn test_async_operations(cx: &mut TestAppContext) {
-    let component = cx.new(|cx| MyComponent::new(cx));
-
-    // Test awaited task
-    let result = component.update(cx, |comp, cx| comp.load_data(cx)).await;
-    assert_eq!(result, 42);
-
-    // Test detached task
-    component.update(cx, |comp, cx| comp.background_update(cx));
-
-    // Detached tasks don't run until you yield
-    let value_before = component.read_with(cx, |comp, _| comp.value);
-    assert_eq!(value_before, 0);
-
-    // Run pending tasks
-    cx.run_until_parked();
-
-    let value_after = component.read_with(cx, |comp, _| comp.value);
-    assert_eq!(value_after, 10);
-}
-```
-
-### Timer Testing
-
-Test timer-based operations:
-
-```rust
-impl MyComponent {
-    fn delayed_action(&self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(100))
-                .await;
-
-            this.update(cx, |comp, cx| {
-                comp.action_performed = true;
-                cx.notify();
-            }).await;
-        }).detach();
-    }
-}
-
-#[gpui::test]
-async fn test_timers(cx: &mut TestAppContext) {
-    let component = cx.new(|cx| MyComponent::new(cx));
-
-    component.update(cx, |comp, cx| comp.delayed_action(cx));
-
-    // Action shouldn't have completed yet
-    let performed = component.read_with(cx, |comp, _| comp.action_performed);
-    assert!(!performed);
-
-    // Run until parked (timers complete)
-    cx.run_until_parked();
-
-    let performed = component.read_with(cx, |comp, _| comp.action_performed);
-    assert!(performed);
-}
-```
-
-### External I/O Testing
-
-For tests involving external systems, use `allow_parking()`:
-
-```rust
-#[gpui::test]
-async fn test_external_io(cx: &mut TestAppContext) {
-    // Allow parking for external I/O
-    cx.executor().allow_parking();
-
-    // Simulate external operation
-    let (tx, rx) = futures::channel::oneshot::channel();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(10));
-        tx.send(42).ok();
-    });
-
-    let result = rx.await.unwrap();
-    assert_eq!(result, 42);
-}
-```
-
-## Property Testing
-
-Use random data to test edge cases:
-
-```rust
-#[gpui::test(iterations = 10)]
-fn test_counter_random_operations(cx: &mut TestAppContext, mut rng: StdRng) {
-    let counter = cx.new(|cx| Counter::new(cx));
-
-    let mut expected = 0i32;
-    for _ in 0..100 {
-        let delta = rng.random_range(-10..=10);
-        expected += delta;
-
-        counter.update(cx, |counter, cx| {
-            counter.count += delta;
-            cx.notify();
-        });
-    }
-
-    let actual = counter.read_with(cx, |counter, _| counter.count);
-    assert_eq!(actual, expected);
-}
-```
-
-## Distributed Systems Testing
-
-Test multiple app contexts communicating:
-
-```rust
-#[derive(Clone)]
-struct NetworkMessage {
-    from: String,
-    to: String,
-    data: i32,
-}
-
-#[gpui::test]
-fn test_distributed_apps(cx_a: &mut TestAppContext, cx_b: &mut TestAppContext) {
-    // Create components in different app contexts
-    let comp_a = cx_a.new(|_| MyComponent::new("A".to_string()));
-    let comp_b = cx_b.new(|_| MyComponent::new("B".to_string()));
-
-    // Simulate message passing
-    comp_a.update(cx_a, |comp, cx| {
-        comp.send_message("B", 42, cx);
-    });
-
-    // Run async operations
-    cx_a.run_until_parked();
-
-    // Verify message received in other context
-    comp_b.update(cx_b, |comp, _| {
-        comp.receive_messages();
-    });
-
-    let messages = comp_b.read_with(cx_b, |comp, _| comp.messages.clone());
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].data, 42);
-}
-```
-
-### Interleaving Testing
-
-Test concurrent operations with random execution order:
-
-```rust
-#[gpui::test(iterations = 10)]
-fn test_concurrent_operations(
-    cx_a: &mut TestAppContext,
-    cx_b: &mut TestAppContext,
-    mut rng: StdRng,
-) {
-    let comp_a = cx_a.new(|_| MyComponent::new());
-    let comp_b = cx_b.new(|_| MyComponent::new());
-
-    // Perform random operations across contexts
-    for i in 0..20 {
-        if rng.random_bool(0.5) {
-            comp_a.update(cx_a, |comp, cx| {
-                comp.perform_operation(i, cx);
-            });
-        } else {
-            comp_b.update(cx_b, |comp, cx| {
-                comp.perform_operation(i, cx);
-            });
-        }
-    }
-
-    // Run all pending operations
-    cx_a.run_until_parked();
-
-    // Verify final state
-    let state_a = comp_a.read_with(cx_a, |comp, _| comp.state);
-    let state_b = comp_b.read_with(cx_b, |comp, _| comp.state);
-
-    // Assert invariants hold despite execution order
-    assert!(state_a.is_consistent());
-    assert!(state_b.is_consistent());
-}
-```
-
-## Mocking and Isolation
-
-### Network Mocking
-
-Create mock networks for testing distributed features:
-
-```rust
-struct MockNetwork {
-    messages: Arc<Mutex<Vec<NetworkMessage>>>,
-}
-
-impl MockNetwork {
-    fn new() -> Self {
-        Self {
-            messages: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn send(&self, message: NetworkMessage) {
-        self.messages.lock().unwrap().push(message);
-    }
-
-    fn receive_all(&self) -> Vec<NetworkMessage> {
-        self.messages.lock().unwrap().drain(..).collect()
-    }
-}
-
-#[gpui::test]
-fn test_networked_components(cx: &mut TestAppContext) {
-    let network = Arc::new(MockNetwork::new());
-
-    let sender = cx.new(|_| MessageSender::new(network.clone()));
-    let receiver = cx.new(|_| MessageReceiver::new(network));
-
-    // Send message
-    sender.update(cx, |sender, _| {
-        sender.send("Hello");
-    });
-
-    // Receive message
-    receiver.update(cx, |receiver, _| {
-        receiver.receive_all();
-    });
-
-    let received = receiver.read_with(cx, |receiver, _| receiver.messages.clone());
-    assert_eq!(received, vec!["Hello"]);
-}
-```
+Use ordinary `#[test]` for pure state, geometry, validation, and builder contracts.
+Use `#[gpui::test]` when the contract needs entities, subscriptions, executors, or app state.
+Use `VisualTestContext` when the contract needs a window, layout, focus, or input dispatch.
+Headless GPUI tests do not establish native platform conformance.

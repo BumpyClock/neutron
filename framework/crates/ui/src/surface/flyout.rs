@@ -217,17 +217,19 @@ mod tests {
         assert_eq!(FlyoutTokens::item_height_for(Size::Size(px(41.))), px(41.));
     }
 
-    #[test]
-    fn row_radius_stays_concentric_with_the_container() {
-        // The rounded row must be inset from the rounded container by exactly the
-        // edge padding, otherwise the two curves visibly disagree at the corners.
-        for radius in [px(4.), px(6.), px(8.), px(12.)] {
-            let item_radius = (radius - INSET).max(MIN_ITEM_RADIUS);
-            assert!(item_radius >= MIN_ITEM_RADIUS);
-            if radius - INSET >= MIN_ITEM_RADIUS {
-                assert_eq!(item_radius + INSET, radius);
+    #[gpui::test]
+    fn row_radius_stays_concentric_with_the_container(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(crate::Theme::default());
+            for (radius, expected_item_radius) in [(4., 2.), (6., 2.), (8., 4.), (12., 8.)] {
+                crate::Theme::global_mut(cx).radius_lg = px(radius);
+                let tokens = FlyoutTokens::sized(Size::Small, cx);
+                assert_eq!(tokens.radius, px(radius));
+                assert_eq!(tokens.inset, px(4.));
+                assert_eq!(tokens.item_radius, px(expected_item_radius));
+                assert_eq!(tokens.item_height, px(26.));
             }
-        }
+        });
     }
 }
 

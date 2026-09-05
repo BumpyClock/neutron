@@ -391,10 +391,13 @@ impl WebWindowInner {
             return;
         };
 
-        let this = Rc::clone(self);
+        let this = Rc::downgrade(self);
         let observer = observer.clone();
 
         let closure = Closure::<dyn FnMut(JsValue)>::new(move |_event: JsValue| {
+            let Some(this) = this.upgrade() else {
+                return;
+            };
             this.notify_scale.set(true);
             this.observe_canvas(&observer);
             this.watch_dpr_changes(&observer);
@@ -477,6 +480,7 @@ impl Drop for WebWindow {
         if let Some(observer) = &self.resize_observer {
             observer.disconnect();
         }
+        self.inner.mql_handle.borrow_mut().take();
 
         self.inner.clear_active_window();
         let canvas: &web_sys::Element = self.inner.canvas.as_ref();

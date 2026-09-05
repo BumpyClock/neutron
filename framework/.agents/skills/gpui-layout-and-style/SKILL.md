@@ -171,7 +171,4 @@ div()
 
 ## Reference Documentation
 
-- **Complete Guide**: See [reference.md](references/reference.md)
-  - All styling methods
-  - Layout strategies
-  - Theming, responsive design
+For style types and layout behavior, read the [resolved source](../../../../engine/crates/gpui/src/style.rs).

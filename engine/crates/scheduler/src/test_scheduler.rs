@@ -267,66 +267,73 @@ impl TestScheduler {
         let runnable = {
             let state = &mut *self.state.lock();
 
-            // Find candidate tasks:
-            // - For foreground tasks (with session_id), only the first task from each session
-            //   is a candidate (to preserve intra-session ordering)
-            // - For background tasks (no session_id), all are candidates
-            // - Tasks from blocked sessions are excluded
-            // - If background_only is true, skip foreground tasks entirely
-            let mut seen_sessions = HashSet::new();
-            let candidate_indices: Vec<usize> = state
-                .runnables
-                .iter()
-                .enumerate()
-                .filter(|(_, runnable)| {
-                    if let Some(session_id) = runnable.session_id {
-                        // Skip foreground tasks if background_only mode
-                        if background_only {
-                            return false;
-                        }
-                        // Exclude tasks from blocked sessions
-                        if state.blocked_sessions.contains(&session_id) {
-                            return false;
-                        }
-                        // Only include first task from each session (insert returns true if new)
-                        seen_sessions.insert(session_id)
-                    } else {
-                        // Background tasks are always candidates
-                        true
-                    }
-                })
-                .map(|(ix, _)| ix)
-                .collect();
-
-            if candidate_indices.is_empty() {
-                None
-            } else if state.randomize_order {
-                // Use priority-weighted random selection
-                let weights: Vec<u32> = candidate_indices
-                    .iter()
-                    .map(|&ix| state.runnables[ix].priority.weight())
-                    .collect();
-                let total_weight: u32 = weights.iter().sum();
-
-                if total_weight == 0 {
-                    // Fallback to uniform random if all weights are zero
-                    let choice = self.rng.lock().random_range(0..candidate_indices.len());
-                    state.runnables.remove(candidate_indices[choice])
-                } else {
-                    let mut target = self.rng.lock().random_range(0..total_weight);
-                    let mut selected_idx = 0;
-                    for (i, &weight) in weights.iter().enumerate() {
-                        if target < weight {
-                            selected_idx = i;
-                            break;
-                        }
-                        target -= weight;
-                    }
-                    state.runnables.remove(candidate_indices[selected_idx])
-                }
+            if !state.randomize_order {
+                // The first eligible task is also the first task from its session.
+                let index = state.runnables.iter().position(|runnable| {
+                    runnable.session_id.is_none_or(|session_id| {
+                        !background_only && !state.blocked_sessions.contains(&session_id)
+                    })
+                });
+                index.and_then(|index| state.runnables.remove(index))
             } else {
-                // Non-randomized: just take the first candidate task
-                state.runnables.remove(candidate_indices[0])
+                // Find candidate tasks:
+                // - For foreground tasks (with session_id), only the first task from each session
+                //   is a candidate (to preserve intra-session ordering)
+                // - For background tasks (no session_id), all are candidates
+                // - Tasks from blocked sessions are excluded
+                // - If background_only is true, skip foreground tasks entirely
+                let mut seen_sessions = HashSet::new();
+                let candidate_indices: Vec<usize> = state
+                    .runnables
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, runnable)| {
+                        if let Some(session_id) = runnable.session_id {
+                            // Skip foreground tasks if background_only mode
+                            if background_only {
+                                return false;
+                            }
+                            // Exclude tasks from blocked sessions
+                            if state.blocked_sessions.contains(&session_id) {
+                                return false;
+                            }
+                            // Only include first task from each session (insert returns true if new)
+                            seen_sessions.insert(session_id)
+                        } else {
+                            // Background tasks are always candidates
+                            true
+                        }
+                    })
+                    .map(|(ix, _)| ix)
+                    .collect();
+
+                if candidate_indices.is_empty() {
+                    None
+                } else {
+                    // Use priority-weighted random selection
+                    let weights: Vec<u32> = candidate_indices
+                        .iter()
+                        .map(|&ix| state.runnables[ix].priority.weight())
+                        .collect();
+                    let total_weight: u32 = weights.iter().sum();
+
+                    if total_weight == 0 {
+                        // Fallback to uniform random if all weights are zero
+                        let choice = self.rng.lock().random_range(0..candidate_indices.len());
+                        state.runnables.remove(candidate_indices[choice])
+                    } else {
+                        let mut target = self.rng.lock().random_range(0..total_weight);
+                        let mut selected_idx = 0;
+                        for (i, &weight) in weights.iter().enumerate() {
+                            if target < weight {
+                                selected_idx = i;
+                                break;
+                            }
+                            target -= weight;
+                        }
+                        state.runnables.remove(candidate_indices[selected_idx])
+                    }
+                }
             }
         };
 

@@ -339,10 +339,62 @@ pub struct VirtualListFrameState {
 #[derive(Default, Clone)]
 pub struct ItemSizeLayout {
     items_sizes: Rc<Vec<Size<Pixels>>>,
+    geometry_inputs: Option<(Axis, Pixels)>,
+    extent: Pixels,
     content_size: Size<Pixels>,
-    sizes: Vec<Pixels>,
-    origins: Vec<Pixels>,
+    sizes: Rc<Vec<Pixels>>,
+    origins: Rc<Vec<Pixels>>,
     last_layout_bounds: Bounds<Pixels>,
+}
+
+impl ItemSizeLayout {
+    fn update_items(
+        &mut self,
+        item_sizes: &Rc<Vec<Size<Pixels>>>,
+        axis: Axis,
+        gap: Pixels,
+        longest_item_size: Size<Pixels>,
+    ) {
+        let same_storage = Rc::ptr_eq(&self.items_sizes, item_sizes);
+        let geometry_changed = self.geometry_inputs != Some((axis, gap))
+            || (!same_storage && self.items_sizes != *item_sizes);
+        if !same_storage {
+            self.items_sizes = item_sizes.clone();
+        }
+        if geometry_changed {
+            self.geometry_inputs = Some((axis, gap));
+            self.sizes = Rc::new(
+                item_sizes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, size)| {
+                        let size = size.along(axis);
+                        if i + 1 == item_sizes.len() {
+                            size
+                        } else {
+                            size + gap
+                        }
+                    })
+                    .collect(),
+            );
+            self.origins = Rc::new(
+                self.sizes
+                    .iter()
+                    .scan(px(0.), |cumulative, size| {
+                        let pos = *cumulative;
+                        *cumulative += *size;
+                        Some(pos)
+                    })
+                    .collect(),
+            );
+            self.extent = px(self.sizes.iter().map(|size| size.as_f32()).sum::<f32>());
+        }
+        self.content_size = if axis.is_horizontal() {
+            size(self.extent, longest_item_size.height)
+        } else {
+            size(longest_item_size.width, self.extent)
+        };
+    }
 }
 
 impl IntoElement for VirtualList {
@@ -350,6 +402,118 @@ impl IntoElement for VirtualList {
 
     fn into_element(self) -> Self::Element {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_geometry_is_shared_across_frames_and_replaced_on_resize() {
+        let items = Rc::new(vec![size(px(80.), px(20.)); 10_000]);
+        let mut cached = ItemSizeLayout::default();
+        cached.update_items(&items, Axis::Vertical, px(2.), size(px(80.), px(20.)));
+        let frame = cached.clone();
+
+        assert!(Rc::ptr_eq(&cached.sizes, &frame.sizes));
+        assert!(Rc::ptr_eq(&cached.origins, &frame.origins));
+        assert_eq!(frame.origins[9_999], px(219_978.));
+        assert_eq!(frame.content_size, size(px(80.), px(219_998.)));
+
+        let equal_items = Rc::new(items.as_ref().clone());
+        cached.update_items(&equal_items, Axis::Vertical, px(2.), size(px(80.), px(20.)));
+        assert!(Rc::ptr_eq(&cached.items_sizes, &equal_items));
+        assert!(Rc::ptr_eq(&cached.sizes, &frame.sizes));
+        assert!(Rc::ptr_eq(&cached.origins, &frame.origins));
+
+        let resized = Rc::new(vec![size(px(120.), px(30.)), size(px(120.), px(40.))]);
+        cached.update_items(&resized, Axis::Vertical, px(2.), size(px(120.), px(40.)));
+        assert!(!Rc::ptr_eq(&cached.sizes, &frame.sizes));
+        assert!(!Rc::ptr_eq(&cached.origins, &frame.origins));
+        assert_eq!(cached.sizes.as_slice(), &[px(32.), px(40.)]);
+        assert_eq!(cached.origins.as_slice(), &[px(0.), px(32.)]);
+        assert_eq!(cached.content_size, size(px(120.), px(72.)));
+        assert_eq!(frame.sizes.len(), 10_000);
+        assert_eq!(frame.content_size, size(px(80.), px(219_998.)));
+
+        cached.update_items(
+            &Rc::new(Vec::new()),
+            Axis::Vertical,
+            px(2.),
+            Size::default(),
+        );
+        assert!(cached.sizes.is_empty());
+        assert!(cached.origins.is_empty());
+        assert_eq!(cached.content_size, Size::default());
+    }
+
+    #[test]
+    fn cached_geometry_preserves_axis_and_final_gap() {
+        let items = Rc::new(vec![
+            size(px(30.), px(10.)),
+            size(px(20.), px(20.)),
+            size(px(10.), px(30.)),
+        ]);
+        for (axis, sizes, origins, content) in [
+            (
+                Axis::Vertical,
+                [px(12.), px(22.), px(30.)],
+                [px(0.), px(12.), px(34.)],
+                size(px(90.), px(64.)),
+            ),
+            (
+                Axis::Horizontal,
+                [px(32.), px(22.), px(10.)],
+                [px(0.), px(32.), px(54.)],
+                size(px(64.), px(50.)),
+            ),
+        ] {
+            let mut layout = ItemSizeLayout::default();
+            layout.update_items(&items, axis, px(2.), size(px(90.), px(50.)));
+            assert_eq!(layout.sizes.as_slice(), &sizes);
+            assert_eq!(layout.origins.as_slice(), &origins);
+            assert_eq!(layout.content_size, content);
+        }
+    }
+
+    #[test]
+    fn cached_geometry_tracks_layout_inputs_with_unchanged_items() {
+        let items = Rc::new(vec![size(px(30.), px(10.)), size(px(50.), px(20.))]);
+        let mut layout = ItemSizeLayout::default();
+        layout.update_items(&items, Axis::Vertical, px(2.), size(px(100.), px(60.)));
+        assert_eq!(layout.sizes.as_slice(), &[px(12.), px(20.)]);
+        assert_eq!(layout.origins.as_slice(), &[px(0.), px(12.)]);
+        assert_eq!(layout.content_size, size(px(100.), px(32.)));
+
+        layout.update_items(&items, Axis::Vertical, px(5.), size(px(100.), px(60.)));
+        assert_eq!(layout.sizes.as_slice(), &[px(15.), px(20.)]);
+        assert_eq!(layout.origins.as_slice(), &[px(0.), px(15.)]);
+        assert_eq!(layout.content_size, size(px(100.), px(35.)));
+
+        layout.update_items(&items, Axis::Horizontal, px(5.), size(px(100.), px(60.)));
+        assert_eq!(layout.sizes.as_slice(), &[px(35.), px(50.)]);
+        assert_eq!(layout.origins.as_slice(), &[px(0.), px(35.)]);
+        assert_eq!(layout.content_size, size(px(85.), px(60.)));
+
+        let horizontal_frame = layout.clone();
+        layout.update_items(&items, Axis::Horizontal, px(5.), size(px(120.), px(90.)));
+        assert_eq!(layout.content_size, size(px(85.), px(90.)));
+        assert!(Rc::ptr_eq(&layout.sizes, &horizontal_frame.sizes));
+        assert!(Rc::ptr_eq(&layout.origins, &horizontal_frame.origins));
+
+        layout.update_items(&items, Axis::Vertical, px(5.), size(px(120.), px(90.)));
+        let vertical_frame = layout.clone();
+        layout.update_items(&items, Axis::Vertical, px(5.), size(px(140.), px(80.)));
+        assert_eq!(layout.content_size, size(px(140.), px(35.)));
+        assert!(Rc::ptr_eq(&layout.sizes, &vertical_frame.sizes));
+        assert!(Rc::ptr_eq(&layout.origins, &vertical_frame.origins));
+
+        let frame = layout.clone();
+        layout.update_items(&items, Axis::Vertical, px(5.), size(px(140.), px(80.)));
+        assert_eq!(layout.content_size, frame.content_size);
+        assert!(Rc::ptr_eq(&layout.sizes, &frame.sizes));
+        assert!(Rc::ptr_eq(&layout.origins, &frame.origins));
     }
 }
 
@@ -394,119 +558,66 @@ impl Element for VirtualList {
                             .along(self.axis)
                             .to_pixels(font_size.into(), rem_size);
 
-                        if state.items_sizes != self.item_sizes {
-                            state.items_sizes = self.item_sizes.clone();
-                            // Prepare each item's size by axis
-                            state.sizes = self
-                                .item_sizes
-                                .iter()
-                                .enumerate()
-                                .map(|(i, size)| {
-                                    let size = size.along(self.axis);
-                                    if i + 1 == self.items_count {
-                                        size
-                                    } else {
-                                        size + gap
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-
-                            // Prepare each item's origin by axis (prefix sums)
-                            state.origins = state
-                                .sizes
-                                .iter()
-                                .scan(px(0.), |cumulative, size| {
-                                    let pos = *cumulative;
-                                    *cumulative += *size;
-                                    Some(pos)
-                                })
-                                .collect::<Vec<_>>();
-
-                            state.content_size = if self.axis.is_horizontal() {
-                                Size {
-                                    width: px(state
-                                        .sizes
-                                        .iter()
-                                        .map(|size| size.as_f32())
-                                        .sum::<f32>()),
-                                    height: longest_item_size.height,
-                                }
-                            } else {
-                                Size {
-                                    width: longest_item_size.width,
-                                    height: px(state
-                                        .sizes
-                                        .iter()
-                                        .map(|size| size.as_f32())
-                                        .sum::<f32>()),
-                                }
-                            };
-                        }
+                        state.update_items(&self.item_sizes, self.axis, gap, longest_item_size);
 
                         (state.clone(), state)
                     },
                 );
 
                 let axis = self.axis;
-                let layout_id =
-                    match self.sizing_behavior {
-                        ListSizingBehavior::Infer => {
-                            window.with_text_style(style.text_style().cloned(), |window| {
-                                let size_layout = size_layout.clone();
+                let layout_id = match self.sizing_behavior {
+                    ListSizingBehavior::Infer => {
+                        window.with_text_style(style.text_style().cloned(), |window| {
+                            let content_size = size_layout.content_size;
 
-                                window.request_measured_layout(style, {
-                                    move |known_dimensions, available_space, _, _| {
-                                        let mut size = Size::default();
-                                        if axis.is_horizontal() {
-                                            size.width = known_dimensions.width.unwrap_or(
-                                                match available_space.width {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.width
-                                                    }
-                                                },
-                                            );
-                                            size.height = known_dimensions.width.unwrap_or(
-                                                match available_space.height {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.height
-                                                    }
-                                                },
-                                            );
-                                        } else {
-                                            size.width = known_dimensions.width.unwrap_or(
-                                                match available_space.width {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.width
-                                                    }
-                                                },
-                                            );
-                                            size.height = known_dimensions.height.unwrap_or(
-                                                match available_space.height {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.height
-                                                    }
-                                                },
-                                            );
-                                        }
-
-                                        size
+                            window.request_measured_layout(style, {
+                                move |known_dimensions, available_space, _, _| {
+                                    let mut size = Size::default();
+                                    if axis.is_horizontal() {
+                                        size.width =
+                                            known_dimensions.width.unwrap_or(match available_space
+                                                .width
+                                            {
+                                                AvailableSpace::Definite(x) => x,
+                                                AvailableSpace::MinContent
+                                                | AvailableSpace::MaxContent => content_size.width,
+                                            });
+                                        size.height =
+                                            known_dimensions.width.unwrap_or(match available_space
+                                                .height
+                                            {
+                                                AvailableSpace::Definite(x) => x,
+                                                AvailableSpace::MinContent
+                                                | AvailableSpace::MaxContent => content_size.height,
+                                            });
+                                    } else {
+                                        size.width =
+                                            known_dimensions.width.unwrap_or(match available_space
+                                                .width
+                                            {
+                                                AvailableSpace::Definite(x) => x,
+                                                AvailableSpace::MinContent
+                                                | AvailableSpace::MaxContent => content_size.width,
+                                            });
+                                        size.height = known_dimensions.height.unwrap_or(
+                                            match available_space.height {
+                                                AvailableSpace::Definite(x) => x,
+                                                AvailableSpace::MinContent
+                                                | AvailableSpace::MaxContent => content_size.height,
+                                            },
+                                        );
                                     }
-                                })
+
+                                    size
+                                }
                             })
-                        }
-                        ListSizingBehavior::Auto => window
-                            .with_text_style(style.text_style().cloned(), |window| {
-                                window.request_layout(style, None, cx)
-                            }),
-                    };
+                        })
+                    }
+                    ListSizingBehavior::Auto => window
+                        .with_text_style(style.text_style().cloned(), |window| {
+                            window.request_layout(style, None, cx)
+                        }),
+                };
 
                 layout_id
             },

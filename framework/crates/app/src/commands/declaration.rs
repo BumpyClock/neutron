@@ -649,12 +649,10 @@ mod tests {
     fn a_collision_on_a_later_command_installs_nothing(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             // A pre-registered command outside the declaration.
-            cx.register_command(super::super::RuntimeCommand::new(
-                BETA,
-                "Existing",
-                crate::commands::CommandScope::Window,
-                Beta,
-            ))
+            crate::commands::Commands::register_command(
+                cx,
+                Command::window(BETA, Beta).label("Existing"),
+            )
             .expect("the pre-existing command registers");
             let before = cx.global::<CommandRegistry>().commands().len();
 

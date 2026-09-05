@@ -449,7 +449,7 @@ pub(crate) struct CommandRegistry {
     sections: HashMap<&'static str, Box<dyn MenuSection>>,
     plan: Option<MenuPlan>,
     /// Set once the module has run its initial binding + projection pass. While
-    /// unset, [`register_command`](AppCommandsExt::register_command) only records
+    /// unset, [`register_command`](Commands::register_command) only records
     /// (the module binds/projects the whole registry in one batch); once set,
     /// later registrations must bind and re-project themselves immediately.
     active: bool,
@@ -584,23 +584,7 @@ impl CommandRegistry {
 /// Registry access on the raw `gpui::App`. The registry global is created lazily
 /// on first mutation, so contributors may register before the menu module's
 /// `init`.
-///
-/// Registration is *dynamic once the module is live*: an application first
-/// reaches `&mut App` from its declared start hook — after the module's initial
-/// binding/projection pass. Commands registered then are bound and re-projected
-/// immediately (late app-tier bindings still sit above the shell defaults and
-/// below any future user overrides).
 pub(crate) trait AppCommandsExt {
-    /// Register a command (creates the registry global if absent). If the menu
-    /// module has already run its initial pass, the command's default binding is
-    /// bound and the menus are re-projected immediately.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CommandError::InvalidBinding`] before mutating the registry
-    /// when the command's default binding is invalid.
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    fn register_command(&mut self, command: RuntimeCommand) -> Result<(), CommandError>;
     /// Register a menu-section provider (creates the registry global if absent).
     /// Re-projects the menus immediately if the menu module is already live.
     fn register_menu_section(&mut self, slot: &'static str, section: impl MenuSection);
@@ -609,25 +593,6 @@ pub(crate) trait AppCommandsExt {
 }
 
 impl AppCommandsExt for App {
-    fn register_command(&mut self, command: RuntimeCommand) -> Result<(), CommandError> {
-        menus::validate_command_binding(&command)?;
-        let id = command.id();
-        // Decide what to do about keybindings/menus *before* the registry mutates
-        // (we need to know whether this id already existed).
-        let effect = self
-            .command_registry()
-            .map_or(RegistrationEffect::None, |registry| {
-                RegistrationEffect::of(registry.is_active(), registry.get(id).is_some())
-            });
-        ensure_registry(self).register(command)?;
-        match effect {
-            RegistrationEffect::None => {}
-            RegistrationEffect::Append => menus::bind_and_reproject(self, id)?,
-            RegistrationEffect::Rebuild => menus::rebuild_bindings_and_reproject(self)?,
-        }
-        Ok(())
-    }
-
     fn register_menu_section(&mut self, slot: &'static str, section: impl MenuSection) {
         ensure_registry(self).set_section(slot, section);
         if self.global::<CommandRegistry>().is_active() {
@@ -663,31 +628,6 @@ pub(crate) fn has_projected_menus(cx: &App) -> bool {
         return false;
     };
     menu::build_menus(cx, registry).is_some_and(|menus| !menus.is_empty())
-}
-
-/// What a live registration must do about keybindings and menus.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-enum RegistrationEffect {
-    /// Registry not yet live: the module binds/projects the whole registry in one
-    /// batch, so recording is enough.
-    None,
-    /// A brand-new id after go-live: append its binding (no stale chord to clear).
-    Append,
-    /// Replacing an existing id after go-live: rebuild bindings so the replaced
-    /// command's now-stale chord is removed.
-    Rebuild,
-}
-
-impl RegistrationEffect {
-    #[allow(dead_code)] // Exercised only by unit tests; no production caller yet.
-    fn of(active: bool, id_exists: bool) -> Self {
-        match (active, id_exists) {
-            (false, _) => Self::None,
-            (true, false) => Self::Append,
-            (true, true) => Self::Rebuild,
-        }
-    }
 }
 
 /// Create the registry global if absent, then return it mutably.
@@ -925,6 +865,9 @@ pub(crate) fn register_declared_section(
 pub trait Commands {
     /// Register a new typed command.
     ///
+    /// After the menu module activates, this also installs the default binding
+    /// and refreshes the menus immediately.
+    ///
     /// # Errors
     ///
     /// Returns [`CommandError::Duplicate`] if the command's id is already
@@ -1092,28 +1035,6 @@ mod tests {
         // Slot order preserved: "a" still precedes "b".
         assert_eq!(reg.commands()[0].id(), CommandId("a"));
         assert_eq!(reg.commands()[1].id(), CommandId("b"));
-    }
-
-    #[test]
-    fn registration_effect_routes_by_liveness_and_existing_id() {
-        // Before go-live: batch pass handles everything.
-        assert_eq!(
-            RegistrationEffect::of(false, false),
-            RegistrationEffect::None
-        );
-        assert_eq!(
-            RegistrationEffect::of(false, true),
-            RegistrationEffect::None
-        );
-        // After go-live: new id appends, existing id rebuilds (drops stale chord).
-        assert_eq!(
-            RegistrationEffect::of(true, false),
-            RegistrationEffect::Append
-        );
-        assert_eq!(
-            RegistrationEffect::of(true, true),
-            RegistrationEffect::Rebuild
-        );
     }
 
     #[test]

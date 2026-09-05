@@ -7,6 +7,23 @@ export PYTHONDONTWRITEBYTECODE=1
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
+if [ "$#" -gt 0 ]; then
+    case "$1" in
+        -h|--help)
+            printf '%s\n' \
+                "Usage: script/stage1" \
+                "Run local headless lifecycle and Python tooling checks." \
+                "This command does not produce native or exact-source Stage 1 evidence." \
+                "The complete native matrix is defined in .github/workflows/stage1.yml."
+            exit 0
+            ;;
+        *)
+            printf '%s\n' "error: unsupported argument '$1'; use --help" >&2
+            exit 2
+            ;;
+    esac
+fi
+
+printf '%s\n' "Local Stage 1 preflight: headless lifecycle and tooling only; no native evidence."
 cargo test --locked -p neutron-components-app --test headless --features test-support
-python3 -m unittest discover -s framework/tooling -p 'test_*.py'
-python3 -m unittest discover -s framework/tooling/tests -p 'test_*.py'
+./script/test --tooling

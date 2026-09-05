@@ -198,7 +198,4 @@ let user_entity = cx.new(|_| UserState { ... });
 
 ## Reference Documentation
 
-- **API Reference**: See [api-reference.md](references/api-reference.md)
-  - Global trait, set_global, update_global
-  - Interior mutability patterns
-  - Best practices and anti-patterns
+For `set_global` and `update_global`, read the [resolved app source](../../../../engine/crates/gpui/src/app.rs).

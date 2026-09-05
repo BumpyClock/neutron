@@ -1,6 +1,5 @@
 use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
+    collections::HashMap,
     slice,
     sync::{Arc, OnceLock},
 };
@@ -28,13 +27,16 @@ use windows::{
             DispatcherQueueOptions,
         },
     },
-    core::{IUnknown, Interface},
+    core::Interface,
 };
 use windows_numerics::Vector2;
 
 use crate::directx_renderer::shader_resources::{RawShaderBytes, ShaderModule, ShaderTarget};
 use crate::*;
 use gpui::*;
+
+mod retained;
+use retained::{BackdropProjection, DirectXRetainedLayer, RetainedBackdrop, RetainedLayerSprite};
 
 pub(crate) const DISABLE_DIRECT_COMPOSITION: &str = "GPUI_DISABLE_DIRECT_COMPOSITION";
 const RENDER_TARGET_FORMAT: DXGI_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -86,6 +88,9 @@ pub(crate) struct DirectXRenderer {
     /// meaning we lost all the allocated gpu textures and scene resources.
     skip_draws: bool,
     first_presentation_observer: Option<FirstPresentationObserver>,
+    retained_layers: HashMap<RetainedLayerKey, DirectXRetainedLayer>,
+    retained_backdrop: Option<RetainedBackdrop>,
+    isolated_layer: bool,
 }
 
 /// Direct3D objects
@@ -113,6 +118,7 @@ struct DirectXResources {
     // Backdrop copy texture
     backdrop_texture: Option<ID3D11Texture2D>,
     backdrop_srv: Option<ID3D11ShaderResourceView>,
+    backdrop_view: Option<ID3D11RenderTargetView>,
     backdrop_size: Option<Size<DevicePixels>>,
     backdrop_blur: Option<BackdropBlurResources>,
 
@@ -144,6 +150,9 @@ struct DirectXRenderPipelines {
     mono_sprites: PipelineState<MonochromeSprite>,
     subpixel_sprites: PipelineState<SubpixelSprite>,
     poly_sprites: PipelineState<PolychromeSprite>,
+    retained_layer: PipelineState<RetainedLayerSprite>,
+    backdrop_projection: PipelineState<BackdropProjection>,
+    backdrop_underlay: PipelineState<BackdropProjection>,
 }
 
 #[derive(Clone, Copy)]
@@ -162,51 +171,6 @@ struct DirectComposition {
     comp_device: IDCompositionDevice,
     comp_target: IDCompositionTarget,
     comp_visual: IDCompositionVisual,
-    retained_compositor: RetainedCompositor,
-    retained_layers_enabled: bool,
-}
-
-fn retained_layer_id(id: &GlobalElementId) -> RetainedLayerId {
-    let mut hasher = DefaultHasher::new();
-    id.hash(&mut hasher);
-    RetainedLayerId(hasher.finish())
-}
-
-fn retained_layer_state(layer: &gpui::RetainedLayer, order: usize) -> RetainedLayerState {
-    RetainedLayerState {
-        order: order.min(u32::MAX as usize) as u32,
-        transform: matrix_from_transformation(layer.transform),
-        opacity: layer.opacity,
-    }
-}
-
-fn retained_layer_clip(mask: &ContentMask<ScaledPixels>) -> Option<RetainedLayerClip> {
-    if mask.corner_radii == Corners::default() {
-        return None;
-    }
-
-    let bottom_right = mask.rounded_bounds.bottom_right();
-    Some(RetainedLayerClip {
-        left: mask.rounded_bounds.origin.x.0,
-        top: mask.rounded_bounds.origin.y.0,
-        right: bottom_right.x.0,
-        bottom: bottom_right.y.0,
-        top_left_radius: mask.corner_radii.top_left.0,
-        top_right_radius: mask.corner_radii.top_right.0,
-        bottom_right_radius: mask.corner_radii.bottom_right.0,
-        bottom_left_radius: mask.corner_radii.bottom_left.0,
-    })
-}
-
-fn matrix_from_transformation(transform: TransformationMatrix) -> windows_numerics::Matrix3x2 {
-    windows_numerics::Matrix3x2 {
-        M11: transform.rotation_scale[0][0],
-        M12: transform.rotation_scale[1][0],
-        M21: transform.rotation_scale[0][1],
-        M22: transform.rotation_scale[1][1],
-        M31: transform.translation[0],
-        M32: transform.translation[1],
-    }
 }
 
 impl DirectXRendererDevices {
@@ -288,6 +252,9 @@ impl DirectXRenderer {
             height: 1,
             skip_draws: false,
             first_presentation_observer: None,
+            retained_layers: HashMap::new(),
+            retained_backdrop: None,
+            isolated_layer: false,
         })
     }
 
@@ -300,6 +267,10 @@ impl DirectXRenderer {
     }
 
     fn pre_draw(&self, clear_color: &[f32; 4]) -> Result<()> {
+        self.bind_render_target(Some(clear_color))
+    }
+
+    fn bind_render_target(&self, clear_color: Option<&[f32; 4]>) -> Result<()> {
         let resources = self.resources.as_ref().expect("resources missing");
         let device_context = &self
             .devices
@@ -315,17 +286,20 @@ impl DirectXRenderer {
                 grayscale_enhanced_contrast: self.font_info.grayscale_enhanced_contrast,
                 subpixel_enhanced_contrast: self.font_info.subpixel_enhanced_contrast,
                 is_bgr: self.font_info.is_bgr as u32,
-                _pad: [0; 3],
+                isolated_layer: self.isolated_layer as u32,
+                _pad: [0; 2],
             }],
         )?;
         unsafe {
-            device_context.ClearRenderTargetView(
-                resources
-                    .render_target_view
-                    .as_ref()
-                    .context("missing render target view")?,
-                clear_color,
-            );
+            if let Some(clear_color) = clear_color {
+                device_context.ClearRenderTargetView(
+                    resources
+                        .render_target_view
+                        .as_ref()
+                        .context("missing render target view")?,
+                    clear_color,
+                );
+            }
             device_context
                 .OMSetRenderTargets(Some(slice::from_ref(&resources.render_target_view)), None);
             device_context.RSSetViewports(Some(slice::from_ref(&resources.viewport)));
@@ -349,100 +323,6 @@ impl DirectXRenderer {
         Ok(())
     }
 
-    fn update_clean_retained_layers(&mut self, scene: &Scene) -> Result<bool> {
-        if !self.supports_retained_layer_scene(scene)
-            || scene
-                .retained_layers
-                .iter()
-                .any(|layer| layer.content_dirty)
-        {
-            return Ok(false);
-        }
-
-        let Some(direct_composition) = self.direct_composition.as_mut() else {
-            return Ok(false);
-        };
-        let active_layers = Self::retained_layer_ids(scene);
-        if !direct_composition
-            .retained_compositor
-            .contains_layers(&active_layers)
-        {
-            return Ok(false);
-        }
-
-        direct_composition.enable_retained_layers()?;
-        for (order, layer) in scene.retained_layers.iter().enumerate() {
-            direct_composition.retained_compositor.update_layer_state(
-                retained_layer_id(&layer.id),
-                retained_layer_state(layer, order),
-            )?;
-        }
-        direct_composition
-            .retained_compositor
-            .retain_layers(&active_layers)?;
-        direct_composition.commit()?;
-        Ok(true)
-    }
-
-    fn update_retained_layer_cache(&mut self, scene: &Scene) -> Result<()> {
-        let supports_retained_layer_scene = self.supports_retained_layer_scene(scene);
-        let Some(direct_composition) = self.direct_composition.as_mut() else {
-            return Ok(());
-        };
-        let swap_chain = self
-            .resources
-            .as_ref()
-            .context("resources missing")?
-            .swap_chain
-            .clone();
-
-        if !supports_retained_layer_scene {
-            direct_composition.disable_retained_layers(&swap_chain)?;
-            return Ok(());
-        }
-
-        direct_composition.enable_retained_layers()?;
-        direct_composition
-            .retained_compositor
-            .set_root_clip(retained_layer_clip(&scene.retained_layers[0].content_mask))?;
-        let active_layers = Self::retained_layer_ids(scene);
-        for (order, layer) in scene.retained_layers.iter().enumerate() {
-            direct_composition.retained_compositor.set_layer(
-                retained_layer_id(&layer.id),
-                retained_layer_state(layer, order),
-                RetainedLayerContent::SwapChain(&swap_chain),
-            )?;
-        }
-        direct_composition
-            .retained_compositor
-            .retain_layers(&active_layers)?;
-        direct_composition.commit()
-    }
-
-    fn supports_retained_layer_scene(&self, scene: &Scene) -> bool {
-        let [layer] = scene.retained_layers.as_slice() else {
-            return false;
-        };
-        let viewport_bounds = Bounds::new(
-            point(ScaledPixels(0.0), ScaledPixels(0.0)),
-            size(
-                ScaledPixels(self.width.max(1) as f32),
-                ScaledPixels(self.height.max(1) as f32),
-            ),
-        );
-        layer.paint_range == (0..scene.paint_operation_count())
-            && layer.bounds == viewport_bounds
-            && layer.content_mask.bounds == viewport_bounds
-    }
-
-    fn retained_layer_ids(scene: &Scene) -> Vec<RetainedLayerId> {
-        scene
-            .retained_layers
-            .iter()
-            .map(|layer| retained_layer_id(&layer.id))
-            .collect()
-    }
-
     pub(crate) fn handle_device_lost(&mut self, directx_devices: &DirectXDevices) -> Result<()> {
         try_to_recover_from_device_lost(|| {
             self.handle_device_lost_impl(directx_devices)
@@ -458,6 +338,9 @@ impl DirectXRenderer {
         // Rounded backdrop mode is rejected when DirectComposition is disabled,
         // so the stored configuration remains the source of truth here.
         let disable_direct_composition = self.disable_direct_composition;
+        self.retained_layers.clear();
+        self.retained_backdrop = None;
+        self.isolated_layer = false;
 
         unsafe {
             #[cfg(debug_assertions)]
@@ -551,6 +434,15 @@ impl DirectXRenderer {
             // and so likely do not have the textures anymore that are required for drawing
             return Ok(());
         }
+        self.draw_frame(scene, background_appearance)?;
+        self.present()
+    }
+
+    fn draw_frame(
+        &mut self,
+        scene: &Scene,
+        background_appearance: WindowBackgroundAppearance,
+    ) -> Result<()> {
         let viewport_size = size(
             DevicePixels(self.width as i32),
             DevicePixels(self.height as i32),
@@ -564,14 +456,32 @@ impl DirectXRenderer {
                 resources.discard_backdrop_resources();
             }
         }
-        if self.update_clean_retained_layers(scene)? {
-            return Ok(());
-        }
+        let plan = RetainedScenePlan::new(scene)?;
+        let dependent = self.prepare_retained_scene(scene, &plan)?;
         self.pre_draw(&match background_appearance {
             WindowBackgroundAppearance::Opaque => [1.0f32; 4],
             _ => [0.0f32; 4],
         })?;
 
+        let result = if scene.retained_layers.is_empty() {
+            self.draw_scene(scene)
+        } else {
+            self.draw_retained_range(
+                scene,
+                &plan,
+                &dependent,
+                0..scene.paint_operation_count(),
+                &plan.roots,
+                Point::default(),
+            )
+        };
+        if result.is_err() {
+            self.retained_layers.clear();
+        }
+        result
+    }
+
+    fn draw_scene(&mut self, scene: &Scene) -> Result<()> {
         self.upload_scene_buffers(scene)?;
 
         for batch in scene.batches() {
@@ -583,8 +493,8 @@ impl DirectXRenderer {
                         Ok(())
                     } else {
                         let viewport_size = size(
-                            DevicePixels(self.width as i32),
-                            DevicePixels(self.height as i32),
+                            DevicePixels(self.resources.as_ref().context("resources missing")?.viewport.Width as i32),
+                            DevicePixels(self.resources.as_ref().context("resources missing")?.viewport.Height as i32),
                         );
                         for blurs in backdrop_blur_clusters(blurs, viewport_size) {
                             let Some(mut scratch_bounds) =
@@ -649,7 +559,11 @@ impl DirectXRenderer {
                     for path_range in path_ranges {
                         let paths = &paths[path_range];
                         if let Some(mut scratch_bounds) =
-                            Self::path_scratch_bounds(paths, self.width, self.height)
+                            Self::path_scratch_bounds(
+                                paths,
+                                self.resources.as_ref().context("resources missing")?.viewport.Width as u32,
+                                self.resources.as_ref().context("resources missing")?.viewport.Height as u32,
+                            )
                         {
                             let devices = self.devices.as_ref().context("devices missing")?;
                             let texture_size = self
@@ -696,8 +610,7 @@ impl DirectXRenderer {
                 scene.surfaces.len(),
             ))?;
         }
-        self.present()?;
-        self.update_retained_layer_cache(scene)
+        Ok(())
     }
 
     pub(crate) fn resize(&mut self, new_size: Size<DevicePixels>) -> Result<()> {
@@ -708,6 +621,7 @@ impl DirectXRenderer {
         }
         self.width = width;
         self.height = height;
+        self.retained_layers.clear();
 
         // Clear the render target before resizing
         let devices = self.devices.as_ref().context("devices missing")?;
@@ -892,6 +806,7 @@ impl DirectXRenderer {
         resources.render_target.take();
         resources.render_target_view.take();
         resources.swap_chain = swap_chain;
+        self.retained_layers.clear();
         resources
             .recreate_resources(devices, width, height)
             .context("Recreating DirectX resources for transparency")?;
@@ -1023,6 +938,9 @@ impl DirectXRenderer {
                     .device_context
                     .OMSetRenderTargets(Some(&[Some(render_target_view.clone())]), None);
             }
+        }
+        if self.retained_backdrop.is_some() {
+            self.fill_retained_backdrop(scratch_bounds)?;
         }
         Ok(())
     }
@@ -1604,6 +1522,7 @@ impl DirectXResources {
             path_intermediate_size: None,
             backdrop_texture: None,
             backdrop_srv: None,
+            backdrop_view: None,
             backdrop_size: None,
             backdrop_blur: None,
             viewport,
@@ -1638,6 +1557,7 @@ impl DirectXResources {
     fn discard_backdrop_resources(&mut self) {
         self.backdrop_texture = None;
         self.backdrop_srv = None;
+        self.backdrop_view = None;
         self.backdrop_size = None;
         self.backdrop_blur = None;
     }
@@ -1698,7 +1618,10 @@ impl DirectXResources {
         if let Some(current_size) = self.backdrop_size
             && self.backdrop_texture.is_some()
         {
-            if can_reuse_backdrop_texture(current_size, size) {
+            if can_reuse_backdrop_texture(current_size, size)
+                && current_size.width.0 as f32 <= self.viewport.Width
+                && current_size.height.0 as f32 <= self.viewport.Height
+            {
                 return Ok(Some(current_size));
             }
             return self.create_backdrop_resources(
@@ -1747,11 +1670,12 @@ impl DirectXResources {
         self.discard_backdrop_resources();
         let width = size.width.0 as u32;
         let height = size.height.0 as u32;
-        let (backdrop_texture, backdrop_srv) =
-            create_backdrop_texture_and_srv(&devices.device, width, height)?;
+        let (backdrop_texture, backdrop_view, backdrop_srv) =
+            create_backdrop_blur_texture_and_views(&devices.device, width, height)?;
         let backdrop_blur = create_backdrop_blur_resources(&devices.device, width, height)?;
         self.backdrop_texture = Some(backdrop_texture);
         self.backdrop_srv = backdrop_srv;
+        self.backdrop_view = backdrop_view;
         self.backdrop_size = Some(size);
         self.backdrop_blur = Some(backdrop_blur);
         Ok(Some(size))
@@ -1837,6 +1761,27 @@ impl DirectXRenderPipelines {
             16,
             create_blend_state(device)?,
         )?;
+        let retained_layer = PipelineState::new(
+            device,
+            "retained_layer_pipeline",
+            ShaderModule::RetainedLayer,
+            1,
+            create_blend_state_for_path_rasterization(device)?,
+        )?;
+        let backdrop_projection = PipelineState::new(
+            device,
+            "backdrop_projection_pipeline",
+            ShaderModule::BackdropProjection,
+            1,
+            create_blend_state_without_blending(device)?,
+        )?;
+        let backdrop_underlay = PipelineState::new(
+            device,
+            "backdrop_underlay_pipeline",
+            ShaderModule::BackdropProjection,
+            1,
+            create_blend_state_for_destination_over(device)?,
+        )?;
 
         Ok(Self {
             shadow_pipeline,
@@ -1850,6 +1795,9 @@ impl DirectXRenderPipelines {
             mono_sprites,
             subpixel_sprites,
             poly_sprites,
+            retained_layer,
+            backdrop_projection,
+            backdrop_underlay,
         })
     }
 }
@@ -1859,59 +1807,20 @@ impl DirectComposition {
         let comp_device = get_comp_device(dxgi_device)?;
         let comp_target = unsafe { comp_device.CreateTargetForHwnd(hwnd, true) }?;
         let comp_visual = unsafe { comp_device.CreateVisual() }?;
-        let retained_compositor = RetainedCompositor::new(comp_device.clone(), comp_visual.clone());
-
         Ok(Self {
             comp_device,
             comp_target,
             comp_visual,
-            retained_compositor,
-            retained_layers_enabled: false,
         })
     }
 
     pub fn set_swap_chain(&mut self, swap_chain: &IDXGISwapChain1) -> Result<()> {
         unsafe {
-            self.retained_compositor.retain_layers(&[])?;
-            self.retained_compositor.set_root_clip(None)?;
             self.comp_visual.SetContent(swap_chain)?;
             self.comp_target.SetRoot(&self.comp_visual)?;
             self.comp_device.Commit()?;
         }
-        self.retained_layers_enabled = false;
         Ok(())
-    }
-
-    pub fn enable_retained_layers(&mut self) -> Result<()> {
-        if self.retained_layers_enabled {
-            return Ok(());
-        }
-
-        unsafe {
-            self.comp_visual.SetContent(None::<&IUnknown>)?;
-            self.comp_target.SetRoot(&self.comp_visual)?;
-        }
-        self.retained_layers_enabled = true;
-        Ok(())
-    }
-
-    pub fn disable_retained_layers(&mut self, swap_chain: &IDXGISwapChain1) -> Result<()> {
-        if !self.retained_layers_enabled {
-            return Ok(());
-        }
-
-        self.retained_compositor.retain_layers(&[])?;
-        self.retained_compositor.set_root_clip(None)?;
-        unsafe {
-            self.comp_visual.SetContent(swap_chain)?;
-            self.comp_target.SetRoot(&self.comp_visual)?;
-        }
-        self.retained_layers_enabled = false;
-        self.commit()
-    }
-
-    pub fn commit(&self) -> Result<()> {
-        self.retained_compositor.commit()
     }
 }
 
@@ -2127,7 +2036,8 @@ struct GlobalParams {
     grayscale_enhanced_contrast: f32,
     subpixel_enhanced_contrast: f32,
     is_bgr: u32,
-    _pad: [u32; 3],
+    isolated_layer: u32,
+    _pad: [u32; 2],
 }
 
 #[derive(Debug, Default)]
@@ -2146,10 +2056,20 @@ struct PipelineState<T> {
     buffer_size: usize,
     view: Option<ID3D11ShaderResourceView>,
     blend_state: ID3D11BlendState,
+    isolated_blend_state: ID3D11BlendState,
+    isolated: bool,
     _marker: std::marker::PhantomData<T>,
 }
 
 impl<T> PipelineState<T> {
+    fn active_blend_state(&self) -> &ID3D11BlendState {
+        if self.isolated {
+            &self.isolated_blend_state
+        } else {
+            &self.blend_state
+        }
+    }
+
     fn new(
         device: &ID3D11Device,
         label: &'static str,
@@ -2167,6 +2087,14 @@ impl<T> PipelineState<T> {
         };
         let buffer = create_buffer(device, std::mem::size_of::<T>(), buffer_size)?;
         let view = create_buffer_view(device, &buffer)?;
+        let isolated_blend_state = if matches!(
+            shader_module,
+            ShaderModule::PathSprite | ShaderModule::RetainedLayer
+        ) {
+            create_blend_state_for_path_rasterization(device)?
+        } else {
+            create_isolated_blend_state(device)?
+        };
 
         Ok(PipelineState {
             label,
@@ -2176,6 +2104,8 @@ impl<T> PipelineState<T> {
             buffer_size,
             view,
             blend_state,
+            isolated_blend_state,
+            isolated: false,
             _marker: std::marker::PhantomData,
         })
     }
@@ -2220,7 +2150,7 @@ impl<T> PipelineState<T> {
             &self.vertex,
             &self.fragment,
             global_params,
-            &self.blend_state,
+            self.active_blend_state(),
         );
         unsafe {
             device_context.DrawInstanced(vertex_count, instance_count, 0, 0);
@@ -2245,7 +2175,7 @@ impl<T> PipelineState<T> {
             &self.vertex,
             &self.fragment,
             global_params,
-            &self.blend_state,
+            self.active_blend_state(),
         );
         unsafe {
             device_context.PSSetSamplers(0, Some(sampler));
@@ -2276,7 +2206,7 @@ impl<T> PipelineState<T> {
             &self.vertex,
             &self.fragment,
             global_params,
-            &self.blend_state,
+            self.active_blend_state(),
         );
         unsafe {
             device_context.DrawInstanced(vertex_count, instance_count, 0, 0);
@@ -2304,7 +2234,7 @@ impl<T> PipelineState<T> {
             &self.vertex,
             &self.fragment,
             global_params,
-            &self.blend_state,
+            self.active_blend_state(),
         );
         unsafe {
             device_context.PSSetSamplers(0, Some(sampler));
@@ -2466,39 +2396,6 @@ fn create_path_intermediate_texture(
     unsafe { device.CreateShaderResourceView(&texture, None, Some(&mut shader_resource_view))? };
 
     Ok((texture, Some(shader_resource_view.unwrap())))
-}
-
-#[inline]
-fn create_backdrop_texture_and_srv(
-    device: &ID3D11Device,
-    width: u32,
-    height: u32,
-) -> Result<(ID3D11Texture2D, Option<ID3D11ShaderResourceView>)> {
-    let texture = unsafe {
-        let mut output = None;
-        let desc = D3D11_TEXTURE2D_DESC {
-            Width: width,
-            Height: height,
-            MipLevels: 1,
-            ArraySize: 1,
-            Format: RENDER_TARGET_FORMAT,
-            SampleDesc: DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            Usage: D3D11_USAGE_DEFAULT,
-            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
-            CPUAccessFlags: 0,
-            MiscFlags: 0,
-        };
-        device.CreateTexture2D(&desc, None, Some(&mut output))?;
-        output.unwrap()
-    };
-
-    let mut srv = None;
-    unsafe { device.CreateShaderResourceView(&texture, None, Some(&mut srv))? };
-
-    Ok((texture, srv))
 }
 
 #[inline]
@@ -2666,6 +2563,40 @@ fn create_blend_state(device: &ID3D11Device) -> Result<ID3D11BlendState> {
     desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
     desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
     desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
+    unsafe {
+        let mut state = None;
+        device.CreateBlendState(&desc, Some(&mut state))?;
+        Ok(state.unwrap())
+    }
+}
+
+fn create_isolated_blend_state(device: &ID3D11Device) -> Result<ID3D11BlendState> {
+    let mut desc = D3D11_BLEND_DESC::default();
+    desc.RenderTarget[0].BlendEnable = true.into();
+    desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+    desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
+    unsafe {
+        let mut state = None;
+        device.CreateBlendState(&desc, Some(&mut state))?;
+        Ok(state.unwrap())
+    }
+}
+
+fn create_blend_state_for_destination_over(device: &ID3D11Device) -> Result<ID3D11BlendState> {
+    let mut desc = D3D11_BLEND_DESC::default();
+    desc.RenderTarget[0].BlendEnable = true.into();
+    desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    desc.RenderTarget[0].SrcBlend = D3D11_BLEND_INV_DEST_ALPHA;
+    desc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_INV_DEST_ALPHA;
     desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
     desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
     unsafe {
@@ -2906,6 +2837,8 @@ pub(crate) mod shader_resources {
         SubpixelSprite,
         PolychromeSprite,
         EmojiRasterization,
+        RetainedLayer,
+        BackdropProjection,
     }
 
     #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -2994,6 +2927,14 @@ pub(crate) mod shader_resources {
                 ShaderModule::EmojiRasterization => match target {
                     ShaderTarget::Vertex => EMOJI_RASTERIZATION_VERTEX_BYTES,
                     ShaderTarget::Fragment => EMOJI_RASTERIZATION_FRAGMENT_BYTES,
+                },
+                ShaderModule::RetainedLayer => match target {
+                    ShaderTarget::Vertex => RETAINED_LAYER_VERTEX_BYTES,
+                    ShaderTarget::Fragment => RETAINED_LAYER_FRAGMENT_BYTES,
+                },
+                ShaderModule::BackdropProjection => match target {
+                    ShaderTarget::Vertex => BACKDROP_PROJECTION_VERTEX_BYTES,
+                    ShaderTarget::Fragment => BACKDROP_PROJECTION_FRAGMENT_BYTES,
                 },
             };
             Self { inner: bytes }
@@ -3085,6 +3026,8 @@ pub(crate) mod shader_resources {
                 ShaderModule::SubpixelSprite => "subpixel_sprite",
                 ShaderModule::PolychromeSprite => "polychrome_sprite",
                 ShaderModule::EmojiRasterization => "emoji_rasterization",
+                ShaderModule::RetainedLayer => "retained_layer",
+                ShaderModule::BackdropProjection => "backdrop_projection",
             }
         }
     }
@@ -3257,12 +3200,9 @@ mod amd {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{BackdropBlur, Bounds, ContentMask, Corners, ScaledPixels, point, size};
+    use gpui::BackdropBlur;
 
-    use super::{
-        BackdropBlurParams, GlobalParams, RetainedLayerClip, retained_layer_clip,
-        rounded_backdrop_rebuild_requested,
-    };
+    use super::{BackdropBlurParams, GlobalParams, rounded_backdrop_rebuild_requested};
 
     #[test]
     fn global_params_preserve_hlsl_constant_buffer_alignment() {
@@ -3289,46 +3229,6 @@ mod tests {
         assert!(!rounded_backdrop_rebuild_requested(None));
         assert!(rounded_backdrop_rebuild_requested(Some(0.0)));
         assert!(rounded_backdrop_rebuild_requested(Some(12.0)));
-    }
-
-    #[test]
-    fn retained_layer_clip_is_disabled_for_rectangular_masks() {
-        let mask = ContentMask::new(Bounds::new(
-            point(ScaledPixels(0.0), ScaledPixels(0.0)),
-            size(ScaledPixels(100.0), ScaledPixels(80.0)),
-        ));
-
-        assert_eq!(retained_layer_clip(&mask), None);
-    }
-
-    #[test]
-    fn retained_layer_clip_preserves_rounded_mask_geometry() {
-        let mask = ContentMask::rounded(
-            Bounds::new(
-                point(ScaledPixels(2.0), ScaledPixels(3.0)),
-                size(ScaledPixels(100.0), ScaledPixels(80.0)),
-            ),
-            Corners {
-                top_left: ScaledPixels(4.0),
-                top_right: ScaledPixels(5.0),
-                bottom_right: ScaledPixels(6.0),
-                bottom_left: ScaledPixels(7.0),
-            },
-        );
-
-        assert_eq!(
-            retained_layer_clip(&mask),
-            Some(RetainedLayerClip {
-                left: 2.0,
-                top: 3.0,
-                right: 102.0,
-                bottom: 83.0,
-                top_left_radius: 4.0,
-                top_right_radius: 5.0,
-                bottom_right_radius: 6.0,
-                bottom_left_radius: 7.0,
-            })
-        );
     }
 }
 

@@ -5,9 +5,37 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
+selection=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            printf '%s\n' \
+                "Usage: script/check [-p PACKAGE | --package PACKAGE]..." \
+                "Select packages for check and Clippy; no arguments selects the workspace." \
+                "Formatting, workspace resolution, and both domain contracts always run."
+            exit 0
+            ;;
+        -p|--package)
+            if [ "$#" -lt 2 ] || [[ "$2" == -* ]] || [ -z "$2" ]; then
+                printf '%s\n' "error: $1 requires a package name" >&2
+                exit 2
+            fi
+            selection+=(-p "$2")
+            shift 2
+            ;;
+        *)
+            printf '%s\n' "error: unsupported argument '$1'; use --help" >&2
+            exit 2
+            ;;
+    esac
+done
+if [ "${#selection[@]}" -eq 0 ]; then
+    selection=(--workspace)
+fi
+
 cargo fmt --all -- --check
 cargo metadata --locked --format-version 1 >/dev/null
-cargo check --locked --workspace --all-targets
-cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings
+cargo check --locked "${selection[@]}" --all-targets
+cargo clippy --locked "${selection[@]}" --all-targets --all-features -- --deny warnings
 cargo run --locked -p engine-xtask -- fork validate
 cargo run --locked -p framework-xtask -- compatibility check

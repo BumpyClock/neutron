@@ -1,9 +1,12 @@
-use std::{ops::Range, time::Instant};
+use std::{mem, ops::Range, time::Instant};
+
+use collections::FxHashSet;
 
 use crate::{
-    Animation, AnyElement, App, Bounds, ContentMask, EasingBounds, Element, ElementId,
-    GlobalElementId, InspectorElementId, IntoElement, LayoutId, PaintIndex, RetainedLayer,
-    RetainedLayerContentRevision, Transformation, TransformationMatrix, Window,
+    Animation, AnyElement, App, Bounds, ContentMask, EasingBounds, Element, ElementId, EntityId,
+    GlobalElementId, InspectorElementId, IntoElement, LayoutId, PaintIndex, PrepaintStateIndex,
+    RetainedLayer, RetainedLayerContentRevision, TextStyle, Transformation, TransformationMatrix,
+    Window,
 };
 
 /// Compositor properties for a retained layer.
@@ -108,12 +111,16 @@ struct RetainedLayerState {
     content_revision: RetainedLayerContentRevision,
     bounds: Bounds<crate::Pixels>,
     content_mask: ContentMask<crate::Pixels>,
+    text_style: TextStyle,
+    accessed_entities: FxHashSet<EntityId>,
+    has_deferred_draws: bool,
+    prepaint_range: Range<PrepaintStateIndex>,
     paint_range: Range<PaintIndex>,
 }
 
 impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
     type RequestLayoutState = AnyElement;
-    type PrepaintState = ();
+    type PrepaintState = bool;
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -141,14 +148,63 @@ impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
 
     fn prepaint(
         &mut self,
-        _global_id: Option<&GlobalElementId>,
+        global_id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<crate::Pixels>,
+        bounds: Bounds<crate::Pixels>,
         element: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        element.prepaint(window, cx);
+        let global_id = global_id.expect("retained layer element must have a global id");
+        window.with_element_state(
+            global_id,
+            |mut state: Option<RetainedLayerState>, window| {
+                let content_mask = window.content_mask();
+                let text_style = window.text_style();
+                let content_dirty = state.as_ref().is_none_or(|state| {
+                    state.content_revision != self.content_revision
+                        || state.bounds != bounds
+                        || state.content_mask != content_mask
+                        || state.text_style != text_style
+                        // Deferred replay does not update descendant element cache ranges.
+                        || state.has_deferred_draws
+                        || window.refreshing
+                        || window.a11y.is_active()
+                        || window.is_inspector_picking(cx)
+                });
+                let prepaint_start = window.prepaint_index();
+                let deferred_draws_start = window.next_frame.deferred_draws.len();
+                let accessed_entities = if content_dirty {
+                    let refreshing = mem::replace(&mut window.refreshing, true);
+                    let (_, accessed_entities) =
+                        cx.detect_accessed_entities(|cx| element.prepaint(window, cx));
+                    window.refreshing = refreshing;
+                    accessed_entities
+                } else {
+                    // Paint callbacks retain hitbox IDs, so reuse both phases together.
+                    let state = state.as_mut().unwrap();
+                    window.reuse_prepaint(state.prepaint_range.clone());
+                    cx.entities.extend_accessed(&state.accessed_entities);
+                    mem::take(&mut state.accessed_entities)
+                };
+                let prepaint_end = window.prepaint_index();
+                let paint_range = state.map(|state| state.paint_range).unwrap_or_default();
+                (
+                    content_dirty,
+                    RetainedLayerState {
+                        content_revision: self.content_revision,
+                        bounds,
+                        content_mask,
+                        text_style,
+                        accessed_entities,
+                        has_deferred_draws: window.next_frame.deferred_draws.len()
+                            > deferred_draws_start,
+                        prepaint_range: prepaint_start..prepaint_end,
+                        paint_range,
+                    },
+                )
+            },
+        )
     }
 
     fn paint(
@@ -157,7 +213,7 @@ impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<crate::Pixels>,
         element: &mut Self::RequestLayoutState,
-        _prepaint: &mut Self::PrepaintState,
+        content_dirty: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -173,22 +229,15 @@ impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
             .unwrap_or_else(TransformationMatrix::unit);
 
         window.with_element_state(global_id, |state: Option<RetainedLayerState>, window| {
-            let content_dirty = match state.as_ref() {
-                Some(state) => {
-                    state.content_revision != content_revision
-                        || state.bounds != bounds
-                        || state.content_mask != content_mask
-                        // Repaint while accessibility is active so descendants
-                        // re-emit nodes, bounds, and action listeners each frame.
-                        || window.a11y.is_active()
-                }
-                None => true,
-            };
-
+            let mut state = state.expect("retained layer must prepaint before paint");
             let paint_start = window.paint_index();
-            if content_dirty {
-                element.paint(window, cx);
-            } else if let Some(state) = state.as_ref() {
+            if *content_dirty {
+                let refreshing = mem::replace(&mut window.refreshing, true);
+                let (_, accessed_entities) =
+                    cx.detect_accessed_entities(|cx| element.paint(window, cx));
+                state.accessed_entities.extend(accessed_entities);
+                window.refreshing = refreshing;
+            } else {
                 let retained_layers_start = window.next_frame.scene.retained_layers.len();
                 window.reuse_paint(state.paint_range.clone());
                 let mut retained_layers = window
@@ -212,7 +261,7 @@ impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
                 .insert_retained_layer(RetainedLayer {
                     id: global_id.clone(),
                     content_revision,
-                    content_dirty,
+                    content_dirty: *content_dirty,
                     bounds: bounds.scale(window.scale_factor()),
                     content_mask: content_mask.scale(window.scale_factor()),
                     transform,
@@ -220,15 +269,8 @@ impl<E: IntoElement + 'static> Element for RetainedLayerElement<E> {
                     paint_range: paint_start.scene_index()..paint_end.scene_index(),
                 });
 
-            (
-                (),
-                RetainedLayerState {
-                    content_revision,
-                    bounds,
-                    content_mask,
-                    paint_range: paint_start..paint_end,
-                },
-            )
+            state.paint_range = paint_start..paint_end;
+            ((), state)
         });
     }
 }

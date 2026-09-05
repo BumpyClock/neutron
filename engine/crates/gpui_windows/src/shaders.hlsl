@@ -6,7 +6,8 @@ cbuffer GlobalParams: register(b0) {
     float grayscale_enhanced_contrast;
     float subpixel_enhanced_contrast;
     uint is_bgr;
-    uint3 global_pad;
+    uint isolated_layer;
+    uint2 global_pad;
 };
 
 Texture2D<float4> t_sprite: register(t0);
@@ -1412,13 +1413,73 @@ SubpixelSpriteFragmentOutput subpixel_sprite_fragment(MonochromeSpriteFragmentIn
     if (is_bgr) {
         sample = sample.bgr;
     }
-    float3 alpha_corrected = apply_contrast_and_gamma_correction3(sample, input.color.rgb, subpixel_enhanced_contrast, gamma_ratios);
     float mask_alpha = content_mask_alpha(input.position.xy, sprite.content_mask);
 
     SubpixelSpriteFragmentOutput output;
+    if (isolated_layer != 0u) {
+        // A transparent group cannot preserve destination-dependent subpixel coverage.
+        float coverage = dot(sample, GRAYSCALE_FACTORS);
+        coverage = apply_contrast_and_gamma_correction(coverage, input.color.rgb, grayscale_enhanced_contrast, gamma_ratios);
+        output.foreground = float4(input.color.rgb, input.color.a * coverage * mask_alpha);
+        output.alpha = 0.0;
+        return output;
+    }
+    float3 alpha_corrected = apply_contrast_and_gamma_correction3(sample, input.color.rgb, subpixel_enhanced_contrast, gamma_ratios);
     output.foreground = float4(input.color.rgb, 1.0f);
     output.alpha = float4(input.color.a * alpha_corrected * mask_alpha, 1.0f);
     return output;
+}
+
+struct RetainedLayerSprite {
+    float2 positions[4];
+    ContentMask content_mask;
+    float opacity;
+    uint3 pad;
+};
+
+struct RetainedLayerVertexOutput {
+    float4 position: SV_Position;
+    float2 uv: TEXCOORD0;
+    nointerpolation uint layer_id: TEXCOORD1;
+    float4 clip_distance: SV_ClipDistance;
+};
+
+StructuredBuffer<RetainedLayerSprite> retained_layers: register(t1);
+
+RetainedLayerVertexOutput retained_layer_vertex(uint vertex_id: SV_VertexID, uint layer_id: SV_InstanceID) {
+    RetainedLayerSprite layer = retained_layers[layer_id];
+    float2 position = layer.positions[vertex_id];
+    RetainedLayerVertexOutput output;
+    output.position = to_device_position_impl(position);
+    output.uv = float2(float(vertex_id & 1u), 0.5 * float(vertex_id & 2u));
+    output.layer_id = layer_id;
+    output.clip_distance = distance_from_clip_rect_impl(position, layer.content_mask.bounds);
+    return output;
+}
+
+float4 retained_layer_fragment(RetainedLayerVertexOutput input): SV_Target {
+    RetainedLayerSprite layer = retained_layers[input.layer_id];
+    float alpha = layer.opacity * content_mask_alpha(input.position.xy, layer.content_mask);
+    // The UNORM texture already contains premultiplied color in the target color space.
+    return t_sprite.Sample(s_sprite, input.uv) * alpha;
+}
+
+struct BackdropProjection {
+    float2 uvs[4];
+};
+
+StructuredBuffer<BackdropProjection> backdrop_projections: register(t1);
+
+BackdropBlurPassVertexOutput backdrop_projection_vertex(uint vertex_id: SV_VertexID, uint projection_id: SV_InstanceID) {
+    float2 unit_vertex = float2(float(vertex_id & 1u), 0.5 * float(vertex_id & 2u));
+    BackdropBlurPassVertexOutput output;
+    output.position = float4(unit_vertex * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    output.uv = backdrop_projections[projection_id].uvs[vertex_id];
+    return output;
+}
+
+float4 backdrop_projection_fragment(BackdropBlurPassVertexOutput input): SV_Target {
+    return t_sprite.Sample(s_sprite, input.uv);
 }
 
 /*

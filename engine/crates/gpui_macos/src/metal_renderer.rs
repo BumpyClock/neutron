@@ -1233,6 +1233,7 @@ impl MetalRenderer {
     fn localize_retained_layer_scene(scene: &mut Scene, origin: Point<ScaledPixels>) {
         for shadow in &mut scene.shadows {
             Self::localize_bounds(&mut shadow.bounds, origin);
+            Self::localize_bounds(&mut shadow.element_bounds, origin);
             Self::localize_content_mask(&mut shadow.content_mask, origin);
         }
         for blur in &mut scene.backdrop_blurs {
@@ -3096,5 +3097,41 @@ mod tests {
         });
 
         assert_eq!(MetalRenderer::retained_layers_for_scene(&scene).len(), 1);
+    }
+
+    #[test]
+    fn retained_layer_localizes_inset_shadow_geometry() {
+        let origin = Point::new(ScaledPixels(40.0), ScaledPixels(60.0));
+        let bounds = Bounds::new(origin, Size::new(ScaledPixels(100.0), ScaledPixels(80.0)));
+        let element_bounds = Bounds::new(
+            Point::new(ScaledPixels(45.0), ScaledPixels(67.0)),
+            Size::new(ScaledPixels(90.0), ScaledPixels(66.0)),
+        );
+        let mut scene = scene_with_retained_primitive(Shadow {
+            order: 0,
+            blur_radius: ScaledPixels(8.0),
+            bounds,
+            corner_radii: Corners::all(ScaledPixels(4.0)),
+            element_bounds,
+            element_corner_radii: Corners::all(ScaledPixels(4.0)),
+            content_mask: ContentMask::new(bounds),
+            color: gpui::Hsla::default(),
+            inset: 1,
+            pad: 0,
+        });
+
+        MetalRenderer::localize_retained_layer_scene(&mut scene, origin);
+
+        let shadow = &scene.shadows[0];
+        assert_eq!(
+            shadow.bounds.origin,
+            Point::new(ScaledPixels(0.0), ScaledPixels(0.0))
+        );
+        assert_eq!(
+            shadow.element_bounds.origin,
+            Point::new(ScaledPixels(5.0), ScaledPixels(7.0))
+        );
+        assert_eq!(shadow.element_bounds.size, element_bounds.size);
+        assert_eq!(shadow.content_mask.bounds, shadow.bounds);
     }
 }

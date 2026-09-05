@@ -681,19 +681,12 @@ fn release_check(root: &Path, require_registry: bool) -> Result<(), String> {
 fn source_gate_issues(root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
     for (name, args) in SOURCE_GATES {
-        let output = Command::new("cargo").args(*args).current_dir(root).output();
-        let Ok(output) = output else {
-            errors.push(format!("source gate {name} could not start"));
-            continue;
-        };
-        if !output.status.success() {
-            errors.push(format!(
-                "source gate {name} failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-            continue;
+        println!("source gate: {name}");
+        match Command::new("cargo").args(*args).current_dir(root).status() {
+            Ok(status) if status.success() => println!("source gate passed: {name}"),
+            Ok(status) => errors.push(format!("source gate {name} failed: {status}")),
+            Err(error) => errors.push(format!("source gate {name} could not start: {error}")),
         }
-        println!("source gate passed: {name}");
     }
     errors
 }

@@ -24,7 +24,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: 1.95.0
-          components: rustfmt, clippy
+          components: rustfmt
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-dependencies
@@ -34,7 +34,6 @@ jobs:
       - run: cargo run --locked -p engine-xtask -- fork validate
       - run: cargo run --locked -p engine-xtask -- publish-plan
       - run: cargo check --locked --workspace --all-targets
-      - run: cargo clippy --locked --workspace --all-targets --all-features -- --deny warnings
       - run: cargo test --locked -p scheduler
       - run: cargo test --locked -p bumpyclock-gpui --features bench,profiler --lib
       - name: Test release-only accessibility duplicate handling
@@ -130,4 +129,3 @@ jobs:
           key: wasm
       - run: cargo +nightly -Zbuild-std=std,panic_abort check --locked --target wasm32-unknown-unknown -p gpui_platform
       - run: cargo +nightly -Zbuild-std=std,panic_abort check --locked --target wasm32-unknown-unknown -p bumpyclock-gpui --example a11y --example view_example
-

@@ -174,7 +174,4 @@ div().on_action(cx.listener(Self::on_action_save))
 
 ## Reference Documentation
 
-- **Complete Guide**: See [reference.md](references/reference.md)
-  - Action definition, keybinding, dispatch
-  - Focus-based routing, best practices
-  - Performance, accessibility
+For action definitions, read the [resolved source](../../../../engine/crates/gpui/src/action.rs).

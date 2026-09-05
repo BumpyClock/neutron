@@ -87,7 +87,7 @@ fn test_startup(
                 .expect("test paths resolve"),
             PlatformCapabilities::detect(),
         ),
-        liveness: Liveness::new(ExitPolicy::Explicit, InitialActivation::Regular),
+        liveness: Liveness::new(ExitPolicy::Explicit),
         initial_activation: InitialActivation::Regular,
         modules: vec![Box::new(RecordingModule {
             log: Arc::clone(&log),

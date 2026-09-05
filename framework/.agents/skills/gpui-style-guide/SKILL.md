@@ -529,13 +529,8 @@ div()
 
 ## Reference Documentation
 
-- **Component Examples**: See [component-examples.md](references/component-examples.md)
-  - Full component implementations
-  - Common patterns in action
-
-- **Trait Patterns**: See [trait-patterns.md](references/trait-patterns.md)
-  - Detailed trait implementation guides
-  - Custom trait design patterns
+- For a complete component, read the [button source](../../../crates/ui/src/button/button.rs).
+- For custom elements, read [element patterns](../gpui-element/references/patterns.md).
 
 ## Quick Checklist
 

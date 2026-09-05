@@ -276,7 +276,7 @@ impl RuntimePlan {
 
         // ---- The main-thread startup sequence ----
         let error_cell: Arc<Mutex<Option<AppShellError>>> = Arc::new(Mutex::new(None));
-        let liveness = Liveness::new(exit_policy, initial_activation);
+        let liveness = Liveness::new(exit_policy);
         // Retained for the running shell's lifetime (issues #3/#6/#29):
         // `Startup` uses it for the initial primary open, and a clone is
         // stashed on `ShellState` (see `handles::set_launch_runtime`) so a
@@ -775,7 +775,7 @@ mod tests {
                     .expect("test paths resolve"),
                 PlatformCapabilities::detect(),
             ),
-            liveness: Liveness::new(ExitPolicy::Explicit, InitialActivation::Passive),
+            liveness: Liveness::new(ExitPolicy::Explicit),
             initial_activation: InitialActivation::Passive,
             modules,
             observers: vec![recording_observer(log, false)],

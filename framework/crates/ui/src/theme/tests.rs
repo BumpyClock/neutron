@@ -2,13 +2,14 @@ use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use gpui::Hsla;
 
 use super::{
-    Colorize as _, ThemeColor, ThemeConfig, ThemeMaterial, ThemeSet,
-    contrast::{MIN_TEXT_CONTRAST, contrast_adjusted, contrast_ratio},
+    Colorize as _, Theme, ThemeColor, ThemeConfig, ThemeSet,
+    contrast::{MIN_TEXT_CONTRAST, contrast_ratio},
     try_parse_color,
 };
 
@@ -210,65 +211,81 @@ fn bundled_themes_meet_text_contrast_floor() {
     );
 }
 
-/// The flyout material composited over `background`, as
-/// [`crate::flyout_material_color`] resolves it at runtime. Derives the base color
-/// through [`crate::surface::flyout_base_color`] — the same function the renderer
-/// uses — so these tests measure the surface that is actually painted.
-fn flyout_material(config: &ThemeConfig, colors: &ThemeColor) -> Hsla {
-    let mut material = ThemeMaterial::default();
-    material.apply_config(config.material.as_ref(), &ThemeMaterial::default());
-
-    let is_dark = config.mode.is_dark();
-    let opacity = if is_dark {
-        material.flyout_dark_opacity
-    } else {
-        material.flyout_light_opacity
-    };
-    crate::surface::flyout_base_color(colors.popover, is_dark).opacity(opacity)
+fn install_theme(config: &ThemeConfig, cx: &mut gpui::App) {
+    let mut theme = Theme::default();
+    theme.apply_config(&Rc::new(config.clone()));
+    theme.mode = config.mode;
+    cx.set_global(theme);
 }
 
-/// Flyout materials (popover, menu, select popup, command palette, editor popovers)
-/// sit *above* the window background and are lighter than it in dark mode, so text
-/// on a flyout has less contrast than the same text on `background`. This checks the
-/// two text roles used inside flyouts against the flyout material itself rather than
-/// against `background`, which is what [`bundled_themes_meet_text_contrast_floor`]
-/// covers.
-///
-/// Both text roles are the corrected ones the runtime paints:
-/// [`crate::flyout_primary_foreground`] (usually `popover.foreground` untouched;
-/// corrected only in deliberately dim themes such as Alduin) and
-/// [`crate::flyout_secondary_foreground`], which corrects `muted.foreground` —
-/// raw, that token is sub-AA on the flyout material in every bundled dark theme.
-#[test]
-fn bundled_themes_meet_flyout_text_contrast_floor() {
+#[gpui::test]
+fn flyout_roles_preserve_distinct_readable_theme_tokens(cx: &mut gpui::TestAppContext) {
+    cx.update(|cx| {
+        for (mode, surface, label, secondary, accent, opacity) in [
+            (
+                super::ThemeMode::Dark,
+                gpui::hsla(0., 0., 0.1, 1.),
+                gpui::hsla(0., 0., 1., 1.),
+                gpui::hsla(0.1, 0.4, 0.9, 1.),
+                gpui::hsla(0.6, 0.3, 0.8, 1.),
+                0.37,
+            ),
+            (
+                super::ThemeMode::Light,
+                gpui::hsla(0., 0., 1., 1.),
+                gpui::hsla(0., 0., 0., 1.),
+                gpui::hsla(0.1, 0.4, 0.1, 1.),
+                gpui::hsla(0.6, 0.3, 0.2, 1.),
+                0.63,
+            ),
+        ] {
+            let mut theme = Theme::default();
+            theme.mode = mode;
+            theme.background = surface;
+            theme.popover = surface;
+            theme.foreground = surface;
+            theme.popover_foreground = label;
+            theme.muted_foreground = secondary;
+            theme.primary = accent;
+            theme.material.flyout_dark_opacity = 0.37;
+            theme.material.flyout_light_opacity = 0.63;
+            cx.set_global(theme);
+
+            let material = crate::flyout_material_color(cx);
+            assert_eq!(material.a, opacity);
+            for foreground in [label, secondary, accent] {
+                assert!(contrast_ratio(foreground, material, surface) >= 4.5);
+            }
+            assert_eq!(crate::flyout_primary_foreground(cx), label);
+            assert_eq!(crate::flyout_secondary_foreground(cx), secondary);
+            assert_eq!(crate::flyout_accent_foreground(cx), accent);
+        }
+    });
+}
+
+#[gpui::test]
+fn bundled_themes_meet_flyout_text_contrast_floor(cx: &mut gpui::TestAppContext) {
     let mut failures = Vec::new();
 
     for (path, config) in bundled_theme_configs() {
-        let colors = resolve_colors(&config);
-        let flyout = flyout_material(&config, &colors);
+        let (colors, flyout, primary, secondary, accent) = cx.update(|cx| {
+            install_theme(&config, cx);
+            (
+                Theme::global(cx).colors,
+                crate::flyout_material_color(cx),
+                crate::flyout_primary_foreground(cx),
+                crate::flyout_secondary_foreground(cx),
+                crate::flyout_accent_foreground(cx),
+            )
+        });
 
         for (name, foreground) in [
-            (
-                "flyout label",
-                contrast_adjusted(
-                    colors.popover_foreground,
-                    flyout,
-                    colors.background,
-                    MIN_TEXT_CONTRAST,
-                ),
-            ),
-            (
-                "flyout secondary",
-                contrast_adjusted(
-                    colors.muted_foreground,
-                    flyout,
-                    colors.background,
-                    MIN_TEXT_CONTRAST,
-                ),
-            ),
+            ("flyout label", primary),
+            ("flyout secondary", secondary),
+            ("flyout accent", accent),
         ] {
             let ratio = contrast_ratio(foreground, flyout, colors.background);
-            if !ratio.is_finite() || ratio < MIN_TEXT_CONTRAST {
+            if !ratio.is_finite() || ratio < 4.5 {
                 failures.push(format!(
                     "{} / {} / {name}: {ratio:.2}:1",
                     path.display(),
@@ -291,26 +308,25 @@ fn bundled_themes_meet_flyout_text_contrast_floor() {
 ///
 /// Note it is not every dark theme — Catppuccin Macchiato and macOS Classic Dark
 /// already clear the floor on their own flyout materials and are returned unchanged.
-#[test]
-fn bundled_theme_flyout_secondary_corrects_only_where_needed() {
+#[gpui::test]
+fn bundled_theme_flyout_secondary_corrects_only_where_needed(cx: &mut gpui::TestAppContext) {
     let mut dark_needing_correction = 0;
 
     for (path, config) in bundled_theme_configs() {
-        let colors = resolve_colors(&config);
-        let flyout = flyout_material(&config, &colors);
-        let corrected = contrast_adjusted(
-            colors.muted_foreground,
-            flyout,
-            colors.background,
-            MIN_TEXT_CONTRAST,
-        );
+        let (colors, flyout, corrected) = cx.update(|cx| {
+            install_theme(&config, cx);
+            (
+                Theme::global(cx).colors,
+                crate::flyout_material_color(cx),
+                crate::flyout_secondary_foreground(cx),
+            )
+        });
 
-        if corrected == colors.muted_foreground {
-            // Left alone only when it already passes.
-            assert!(
-                contrast_ratio(colors.muted_foreground, flyout, colors.background)
-                    >= MIN_TEXT_CONTRAST,
-                "{} / {}: sub-AA secondary was left uncorrected",
+        if contrast_ratio(colors.muted_foreground, flyout, colors.background) >= 4.5 {
+            assert_eq!(
+                corrected,
+                colors.muted_foreground,
+                "{} / {}: readable secondary should remain unchanged",
                 path.display(),
                 config.name
             );

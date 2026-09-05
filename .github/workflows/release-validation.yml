@@ -28,10 +28,7 @@ jobs:
           status=$?
           set -e
           cat release-validation.log
-          if [ "$status" -eq 0 ]; then
-            exit 0
-          fi
-          rg -q 'root \[patch\.crates-io\]|identity selection blocked|not published' release-validation.log
+          exit "$status"
       - name: Upload release validation report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

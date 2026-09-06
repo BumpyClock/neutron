@@ -16,10 +16,11 @@ framework policy into `engine/`.
 
 ## Validation
 
-Run `../script/check` for root format, metadata, compile, lint, fork, and
-compatibility checks. Run `../script/test` for unit, doctest, and tooling tests.
-Run `../script/release-check` for package and release gates. Build the docs site
-from `docs/` with `bun install --frozen-lockfile` and `bun run build`.
+Select affected tests under `TESTING.md` and the root validation policy.
+Use `../script/check` for integration checks and `../script/test` for broader test coverage when the change requires them.
+Use `../script/release-check` for package metadata or release readiness changes.
+For documentation-site changes, build from `docs/` with `bun install --frozen-lockfile` and `bun run build`.
+Reuse valid results rather than repeat checks for each commit or PR update.
 
 Tests are required for behavior changes. Test complex state transitions,
 geometry, lifecycle, accessibility, and builder contracts. Use ordinary Rust

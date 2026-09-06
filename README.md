@@ -8,6 +8,7 @@ Neutron is a Rust-native desktop application SDK. It combines a GPU-accelerated 
 - `framework/` owns application policy and reusable components: AppShell, lifecycle, commands, menus, settings, themes, storage, managed windows, conformance, and release tooling.
 - `MIGRATION.md` records immutable source and destination snapshot facts.
 - `AGENTS.md` defines repository policy. `CLAUDE.md` points to that policy.
+- `docs/CONSOLIDATION.md` preserves the migration procedures and exact-source acceptance gates for consolidation work.
 
 Engine crates must not depend on framework crates. Framework crates may depend on public engine crates through root-workspace path dependencies with exact versions. The root workspace is the product workspace. The app-manifest downstream fixture and the WASM-only `hello_web` example are isolated workspaces by design.
 
@@ -53,4 +54,4 @@ The source repositories remain unchanged. Neutron imports exact committed snapsh
 
 ## Status
 
-This repository is in structural consolidation. Do not publish packages, create releases or tags, or begin Stage 2 feature work until the migration gates in `AGENTS.md` pass.
+This repository is in structural consolidation. Do not publish packages, create releases or tags, or begin Stage 2 feature work until the migration gates in `docs/CONSOLIDATION.md` pass and the owner authorizes that work.

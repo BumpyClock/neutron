@@ -90,6 +90,13 @@ Input::new(&input)
     .mask_toggle() // Shows toggle button to reveal password
 ```
 
+While the value is masked, Copy and Cut leave the clipboard unchanged.
+Cut also leaves the input value unchanged. The context menu disables both actions.
+Word selection and word deletion treat the hidden value as one word.
+
+The reveal toggle restores ordinary Copy, Cut, and word-boundary behavior.
+The mask hides the display. It does not encrypt the stored value.
+
 ### Input Sizes
 
 ```rust

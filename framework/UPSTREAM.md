@@ -1,7 +1,7 @@
 # Framework upstream relationship
 
 Neutron maintains a selective framework fork from
-[`longbridge/gpui-component`](https://github.com/longbridge/gpui-component). Neutron preserves
+[`longbridge/gpui-kit`](https://github.com/longbridge/gpui-kit), formerly `gpui-component`. Neutron preserves
 Longbridge attribution and license notices. This document records semantic adaptations. It does
 not claim a merge, a byte-identical import, or imported Git history.
 
@@ -189,6 +189,48 @@ Windows native runtime, Linux X11 runtime, Linux Wayland runtime, and browser ru
 locally. Stable WASM stops at `wasm_thread` 0.3.3. Linux musl stops because its C and C++ cross
 compilers are absent. All six macOS scenarios passed source-blind validation. The story binary from
 that run also presented an on-screen 1324 by 856 AppKit window.
+
+## September 2026 corrective follow-up
+
+The follow-up review covered
+`334bbed2e8c47d606eb79ab05ddcebd60b823429..cbdf5baa26a5c20ae5c1d7481bffdd1d0d2abd3d`.
+The target tree is `05bdf200f8459bfef80d27654389c692ce7bddb0`.
+The range contains 133 commits. Of those, 78 touch framework production code.
+The review found 20 actionable commits, 20 equivalent local outcomes, 23 optional
+or deferred changes, and 15 excluded or superseded changes.
+
+This corrective batch preserves the recorded August audit identities. It does
+not claim a whole-tree import or exact-source Stage 1 acceptance. Later audits
+must account for this ledger when they compare from the recorded target.
+
+| Upstream commit | Adaptation |
+| --- | --- |
+| `7d0aaf55852add1e0af48cabd7ae6fa3ae791cde` | Block Copy and Cut for masked values in actions and context menus. Hide word boundaries until reveal. |
+| `a42a20dea1afed34859c671d059e8cee4a17300a`, `68a4acd30a51b42632b07187f39af842e06f0451`, `5f5ba08d35c9fb6f42d81a7aff7edba61ba3bc6b` | Add Select semantics and accessible activation. Share dismissal without a confirmation event. |
+| `21e802b88fda778fafee02df8945ad1d7e10cc4e` | Name the dialog close button with the existing localized close label. |
+| `c3937a36dbe97347fd84f453761fc19784374ae2`, `b0a1836b1e2e3053b8998517f1816ab47e4474ae` | Preserve Markdown hard breaks and reflow soft breaks to spaces. |
+| `65db56268651b8f62bdd78192bab6c33bce3a6f7` | Invalidate TextView measurements after a successful parse, even when the block count stays the same. |
+| `3f495d333578f898bd1ee0422c604139afc2f005` | Measure a real list row when the configured index is absent. Preserve the requested index for later data. |
+| `d8376ad5635b963b2e751fbd4e328f9195d565a5` | Notify the view after a scrollbar track jump. |
+| `c1000b1c7e96a6d07bf1c2ce358d43c99129674b` | Give side-dock resize handles placement-specific identities. |
+| `a3f7bb2673ea82fed19921f87edcf1eef1f37bee`, `4a654f45011da1edacb0a2ffa094d901dc97333d` | Preserve divider width and defer the corrective frame after a panel container changes size. |
+| `aa7def675aa17b31ca7b79542c8e7a779ed3e56b`, `19c21d7d01d57e5423a8b108622573d6b74a6421`, `f1539a3b73438232aa1912c77a8c67bc766707f2` | Align table header and body offsets, use symmetric resize targets, and keep column reorder inside fixed-region boundaries. |
+| `ed6cd34910f7ac2ac970cd8c6e719a0dfdfbb723` | Deduplicate ScaleBand categories in first-occurrence order with `PartialEq` compatibility. |
+| `a75ba7d261ef9df283e7f164add4bda7cbac7e63` | Keep sheets inside the client frame, with no inset on tiled edges or server decorations. |
+
+`Select::accessibility_label` names the control independently of its value.
+`SelectItem::title` supplies the committed accessible value even when
+`display_title` supplies a custom visual element.
+
+The hash-index follow-up `c6a68e0cfd5f8b694a5f1a31d33abaad56226a4d` remains
+deferred because its `Eq + Hash` requirement excludes existing `PartialEq` values.
+ScaleBand construction is quadratic and lookup remains linear. No speedup is
+claimed for that adaptation.
+
+[`BumpyClock/neutron#43`](https://github.com/BumpyClock/neutron/issues/43)
+records the hash-index decision, soft-wrap affinity, multi-cursor input, and
+other deferred work. This batch does not import `gpui-base`, `gpui-shell`, the
+crate rename, or a replacement native-menu implementation.
 
 ## Next audit
 

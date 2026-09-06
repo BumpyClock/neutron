@@ -210,6 +210,53 @@ Native Windows, X11, Wayland, and browser sessions did not run. Stable WASM rema
 not installed. Publication plans report documented registry identity, unpublished prerequisite,
 and root-patch blockers. Platform support metadata remains conservative.
 
+## September 2026 corrective follow-up
+
+The follow-up review used Zed target `5a9b9558db01a6b906cec2fb70a797affdc58cdd`,
+tree `7ad6684671c961f52a0ebcf4c91743f353e4c065`. The range after the current
+`fork.toml` cursor contains 210 Zed commits. Of those, 43 touch GPUI crates.
+The scope with extracted utilities and scheduler code contains 48 commits.
+
+This batch adapts selected corrections without a whole-tree import. It does not
+advance the recorded synchronization cursor or claim exact-source Stage 1
+acceptance. Later audits must account for these adaptations before another
+import from the recorded cursor.
+
+| Upstream commit | Adaptation |
+| --- | --- |
+| `1d7e5f1d014acf0d288c6d11be93c31fe647e725` | Convert initial Windows placement with the target display's DPI scale. |
+| `7040aa56693ba7e85241180d031080ca79b725f8` | Clear the color-glyph target before alpha composition. Preserve local pointer and resource safeguards. |
+| `5dd0666dfb627bb7c04b210b730005628f5a229a` | Terminate both X11 `WM_CLASS` strings. |
+| `a49de953a850f7ee1f5d847e7908733c07e516ee` | Route Wayland backend errors through its existing `log` feature. |
+| `ce48461eaadd16c65c31f835511ab96bd3b6e746` | Preserve malformed braced shell variables instead of unchecked string slices. |
+| `4c6c4750d3f87f0b93c937c9bda7b50639c0d07d` | Discover PowerShell explicitly before a Windows restart. Preserve deferred spawn and VSync teardown. |
+| `f66ed399cdde86092af8af3dc7b418abf45f37f8` | Clear pending keys on blur. Preserve context-free `blur()` and `disable_focus()` through deferred notification at the App update boundary. |
+| `4278ff36ef76916c719dfdd1557efd4401206985` | Keep closing punctuation with its prior word. Preserve path and URL break opportunities. |
+| `1ff7cb669b6351eaf2a5b79ccb40f5cd1676b8f8` | Reuse the latest glyph image between bounds and bitmap requests. Bound retention to one image rather than an unbounded map. |
+| `98c6c1403b14463d6274b791f5a5471cdb4345f3` | Gate synchronous executor APIs off WASM. Preserve asynchronous shutdown, timeout, application ownership, and the local scheduler algorithms. |
+| `1f7eae7fb753be69ac8cd80575daf43103c85883` | Separate `bench-support` from GPUI test support and retain `bench` as an alias. Keep profiling opt-in and the headless renderer unavailable. |
+| `c8c07aea5cf82007e524d4fcb31572eb7eeabcd5` | Retain owned TestPlatform menu snapshots. Exercise AppShell projection, replacement, and clear operations without Zed application policy. |
+
+`bench-support` enables the benchmark interfaces without GPUI `test-support`,
+leak detection, or `profiler`. Development dependencies can still enable their
+own test features. The feature bridge in `gpui_platform` does not add a
+headless renderer and requires explicit activation. Ordinary examples do not
+inherit benchmark frame behavior or Criterion through a development dependency.
+Blocking scheduler tests and asynchronous `#[gpui::test]` wrappers are native-only.
+Synchronous tests remain available on WASM.
+
+Deferred work is recorded in
+[`BumpyClock/neutron#43`](https://github.com/BumpyClock/neutron/issues/43).
+That issue includes Windows end-session lifecycle, browser IME and touch,
+font-cache prewarm, typed macOS prompts, renderer image evidence, and layout
+snap compatibility. It also records the source reconciliation required before
+the upstream Apache tracing license change. See [the license audit](LICENSE-AUDIT.md).
+
+The batch preserves stack protection, bundled web fonts, typed unsupported
+errors, overlays, blur, retained layers, and scheduler panic and `Send` contracts.
+The previous native and exact-source evidence does not establish acceptance of
+this changed source.
+
 ## Next sync procedure
 
 1. Clone or update Zed in `/tmp/zed`; never overwrite tracked fork files with an upstream tree.

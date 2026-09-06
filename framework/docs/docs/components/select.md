@@ -64,6 +64,24 @@ Select::new(&state)
     .placeholder("Select a language...")
 ```
 
+### Accessibility
+
+Use `accessibility_label` to name the control independently of its selected value.
+
+```rust
+Select::new(&state)
+    .accessibility_label("Language")
+    .placeholder("Select a language...")
+```
+
+The combobox exposes its committed value, expanded state, and disabled state.
+Its accessible value uses `SelectItem::title` and any `title_prefix`, not the
+custom `display_title` element or the current search query.
+
+Accessible activation opens or dismisses the popup. Dismissal restores the
+committed selection and trigger focus without a confirmation event.
+A disabled Select does not expose an activation action.
+
 ### Searchable
 
 Use `searchable(true)` to enable search functionality within the dropdown.

@@ -573,13 +573,8 @@ impl WindowsWindow {
         }
 
         this.state.border_offset.update(hwnd)?;
-        let placement = retrieve_window_placement(
-            hwnd,
-            display,
-            params.bounds,
-            this.state.scale_factor.get(),
-            &this.state.border_offset,
-        )?;
+        let placement =
+            retrieve_window_placement(hwnd, display, params.bounds, &this.state.border_offset)?;
         if params.show {
             unsafe { SetWindowPlacement(hwnd, &placement)? };
         } else {
@@ -1702,7 +1697,6 @@ fn retrieve_window_placement(
     hwnd: HWND,
     display: WindowsDisplay,
     initial_bounds: Bounds<Pixels>,
-    scale_factor: f32,
     border_offset: &WindowBorderOffset,
 ) -> Result<WINDOWPLACEMENT> {
     let mut placement = WINDOWPLACEMENT {
@@ -1716,7 +1710,9 @@ fn retrieve_window_placement(
     } else {
         display.default_bounds()
     };
-    let bounds = bounds.to_device_pixels(scale_factor);
+    // CW_USEDEFAULT can place the window on a different monitor. These logical bounds
+    // belong to the target display, not the window's initial monitor.
+    let bounds = bounds.to_device_pixels(display.scale_factor());
     placement.rcNormalPosition = calculate_window_rect(bounds, border_offset);
     Ok(placement)
 }

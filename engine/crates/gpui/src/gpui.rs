@@ -40,7 +40,7 @@ pub mod profiler;
     target_os = "windows",
     target_os = "linux",
     target_family = "wasm",
-    feature = "bench"
+    feature = "bench-support"
 ))]
 #[expect(missing_docs)]
 pub mod queue;
@@ -125,6 +125,7 @@ use key_dispatch::*;
 pub use keymap::*;
 pub use path_builder::*;
 pub use platform::*;
+#[cfg(not(target_family = "wasm"))]
 pub use pollster::block_on;
 pub use profiler::*;
 #[cfg(any(
@@ -132,7 +133,7 @@ pub use profiler::*;
     target_os = "windows",
     target_os = "linux",
     target_family = "wasm",
-    feature = "bench"
+    feature = "bench-support"
 ))]
 pub use queue::{PriorityQueueReceiver, PriorityQueueSender};
 pub use refineable::*;

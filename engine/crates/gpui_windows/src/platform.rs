@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::{Context as _, Result, anyhow};
 use futures::channel::oneshot::{self, Receiver};
-use gpui_util::{ResultExt, get_windows_system_shell, new_std_command};
+use gpui_util::{ResultExt, get_powershell, new_std_command};
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
@@ -699,6 +699,10 @@ impl Platform for WindowsPlatform {
             pid,
             app_path.display(),
         );
+        let Some(powershell) = get_powershell() else {
+            log::error!("failed to restart: PowerShell is unavailable");
+            return;
+        };
 
         // Defer spawning to the foreground executor so it runs after the
         // current `AppCell` borrow is released. On Windows, `Command::spawn()`
@@ -713,7 +717,7 @@ impl Platform for WindowsPlatform {
                     clippy::disallowed_methods,
                     reason = "We are restarting ourselves, using std command thus is fine"
                 )]
-                let restart_process = new_std_command(get_windows_system_shell())
+                let restart_process = new_std_command(powershell)
                     .arg("-command")
                     .arg(script)
                     .spawn();

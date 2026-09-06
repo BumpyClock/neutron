@@ -92,6 +92,11 @@ impl WindowsDisplay {
         WindowsDisplay::new(Self::display_id_for_monitor(monitor))
     }
 
+    /// Returns this monitor's DPI scale, independent of the window's initial monitor.
+    pub(crate) fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
     /// Check if the center point of given bounds is inside this monitor
     pub fn check_given_bounds(&self, bounds: Bounds<Pixels>) -> bool {
         let center = bounds.center();

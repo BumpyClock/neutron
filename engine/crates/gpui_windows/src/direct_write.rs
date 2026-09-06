@@ -998,24 +998,6 @@ impl DirectWriteState {
         }
 
         let gpu_state = &self.gpu_state;
-        let params_buffer = {
-            let desc = D3D11_BUFFER_DESC {
-                ByteWidth: std::mem::size_of::<GlyphLayerTextureParams>() as u32,
-                Usage: D3D11_USAGE_DYNAMIC,
-                BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
-                CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
-                MiscFlags: 0,
-                StructureByteStride: 0,
-            };
-
-            let mut buffer = None;
-            unsafe {
-                gpu_state
-                    .device
-                    .CreateBuffer(&desc, None, Some(&mut buffer))
-            }?;
-            buffer
-        };
 
         let render_target_texture = {
             let mut texture = None;
@@ -1061,6 +1043,42 @@ impl DirectWriteState {
             rtv
         };
 
+        Self::composite_color_layers(
+            gpu_state,
+            &glyph_layers,
+            bitmap_size,
+            &render_target_texture,
+            &render_target_view,
+        )
+    }
+
+    fn composite_color_layers(
+        gpu_state: &GPUState,
+        glyph_layers: &[GlyphLayerTexture],
+        bitmap_size: Size<DevicePixels>,
+        render_target_texture: &ID3D11Texture2D,
+        render_target_view: &Option<ID3D11RenderTargetView>,
+    ) -> Result<Vec<u8>> {
+        // The caller must retain exclusive access to the shared immediate context.
+        let params_buffer = {
+            let desc = D3D11_BUFFER_DESC {
+                ByteWidth: std::mem::size_of::<GlyphLayerTextureParams>() as u32,
+                Usage: D3D11_USAGE_DYNAMIC,
+                BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32,
+                CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
+                MiscFlags: 0,
+                StructureByteStride: 0,
+            };
+
+            let mut buffer = None;
+            unsafe {
+                gpu_state
+                    .device
+                    .CreateBuffer(&desc, None, Some(&mut buffer))
+            }?;
+            buffer
+        };
+
         let staging_texture = {
             let mut texture = None;
             let desc = D3D11_TEXTURE2D_DESC {
@@ -1097,8 +1115,14 @@ impl DirectWriteState {
             device_context.PSSetConstantBuffers(0, Some(std::slice::from_ref(&params_buffer)))
         };
         unsafe {
-            device_context.OMSetRenderTargets(Some(std::slice::from_ref(&render_target_view)), None)
+            device_context.OMSetRenderTargets(Some(std::slice::from_ref(render_target_view)), None)
         };
+        if let Some(render_target_view) = render_target_view.as_ref() {
+            // SAFETY: The view belongs to this device and remains valid for the call.
+            unsafe {
+                device_context.ClearRenderTargetView(render_target_view, &[0.0, 0.0, 0.0, 0.0]);
+            }
+        }
         unsafe { device_context.PSSetSamplers(0, Some(std::slice::from_ref(&gpu_state.sampler))) };
         unsafe { device_context.OMSetBlendState(&gpu_state.blend_state, None, 0xffffffff) };
 
@@ -1131,7 +1155,7 @@ impl DirectWriteState {
                     .Unmap(params_buffer.as_ref().unwrap(), 0);
             };
 
-            let texture = [Some(layer.texture_view)];
+            let texture = [Some(layer.texture_view.clone())];
             unsafe { device_context.PSSetShaderResources(0, Some(&texture)) };
 
             let viewport = [D3D11_VIEWPORT {
@@ -1147,7 +1171,7 @@ impl DirectWriteState {
             unsafe { device_context.Draw(4, 0) };
         }
 
-        unsafe { device_context.CopyResource(&staging_texture, &render_target_texture) };
+        unsafe { device_context.CopyResource(&staging_texture, render_target_texture) };
 
         let mapped_data = {
             let mut mapped_data = D3D11_MAPPED_SUBRESOURCE::default();
@@ -1931,7 +1955,18 @@ const DEFAULT_LOCALE_NAME: PCWSTR = windows::core::w!("en-US");
 
 #[cfg(test)]
 mod tests {
+    use super::{DirectWriteState, GPUState, GlyphLayerTexture};
     use crate::direct_write::{ClusterAnalyzer, slice_from_nullable};
+    use crate::directx_devices::DirectXDevices;
+    use anyhow::Result;
+    use gpui::{DevicePixels, Rgba, bounds, point, size};
+    use windows::Win32::Graphics::{
+        Direct3D11::{
+            D3D11_BIND_RENDER_TARGET, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
+            D3D11_USAGE_DEFAULT,
+        },
+        Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
+    };
 
     #[test]
     fn test_cluster_map() {
@@ -1980,5 +2015,101 @@ mod tests {
     fn nullable_slice_rejects_null_nonempty_array() {
         let result = unsafe { slice_from_nullable::<u8>(std::ptr::null(), 1, "null array") };
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn color_emoji_composites_over_cleared_texture() -> Result<()> {
+        let devices = DirectXDevices::new()?;
+        let gpu_state = GPUState::new(&devices)?;
+
+        const SIZE: u32 = 32;
+        // Opaque red exposes stale destination data beneath and outside the glyph layers.
+        let poison = [0u8, 0, 255, 255].repeat((SIZE * SIZE) as usize);
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: SIZE,
+            Height: SIZE,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let initial_data = D3D11_SUBRESOURCE_DATA {
+            pSysMem: poison.as_ptr().cast(),
+            SysMemPitch: SIZE * 4,
+            SysMemSlicePitch: 0,
+        };
+        let mut texture = None;
+        // SAFETY: The buffer contains SIZE rows of SIZE BGRA pixels and outlives the call.
+        unsafe {
+            gpu_state
+                .device
+                .CreateTexture2D(&desc, Some(&initial_data), Some(&mut texture))?;
+        }
+        let texture = texture.unwrap();
+        let mut render_target_view = None;
+        // SAFETY: The texture has the render-target bind flag and belongs to this device.
+        unsafe {
+            gpu_state.device.CreateRenderTargetView(
+                &texture,
+                None,
+                Some(&mut render_target_view),
+            )?;
+        }
+
+        let layers = [
+            GlyphLayerTexture::new(
+                &gpu_state,
+                Rgba {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                },
+                bounds(point(0, 0), size(4, 4)),
+                &[255; 16],
+            )?,
+            GlyphLayerTexture::new(
+                &gpu_state,
+                Rgba {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+                bounds(point(4, 0), size(4, 4)),
+                &[255; 16],
+            )?,
+        ];
+        let rasterized = DirectWriteState::composite_color_layers(
+            &gpu_state,
+            &layers,
+            size(DevicePixels(SIZE as i32), DevicePixels(SIZE as i32)),
+            &texture,
+            &render_target_view,
+        )?;
+
+        assert_eq!(rasterized.len(), (SIZE * SIZE * 4) as usize);
+        for y in 0..SIZE as usize {
+            for x in 0..SIZE as usize {
+                let offset = (y * SIZE as usize + x) * 4;
+                let pixel = &rasterized[offset..offset + 4];
+                if y < 4 && x < 4 {
+                    assert_eq!(pixel, &[255, 255, 255, 255], "opaque layer at {x},{y}");
+                } else if y < 4 && x < 8 {
+                    assert_eq!(&pixel[..3], &[0, 255, 0], "blended layer at {x},{y}");
+                    assert!((127..=128).contains(&pixel[3]), "alpha at {x},{y}");
+                } else {
+                    assert_eq!(pixel, &[0, 0, 0, 0], "uncovered texel at {x},{y}");
+                }
+            }
+        }
+        Ok(())
     }
 }

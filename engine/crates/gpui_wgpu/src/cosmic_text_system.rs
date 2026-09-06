@@ -44,6 +44,10 @@ struct CosmicTextSystemState {
     font_system: FontSystem,
     scratch: ShapeBuffer,
     swash_scale_context: ScaleContext,
+    // Bounds precede bitmap requests. Keep only the latest image when an atlas hit skips the bitmap.
+    pending_glyph_image: Option<(RenderGlyphParams, swash::scale::image::Image)>,
+    #[cfg(test)]
+    rendered_glyph_count: usize,
     /// Contains all already loaded fonts, including all faces. Indexed by `FontId`.
     loaded_fonts: Vec<LoadedFont>,
     /// Caches the `FontId`s associated with a specific family to avoid iterating the font database
@@ -67,6 +71,9 @@ impl CosmicTextSystem {
             font_system,
             scratch: ShapeBuffer::default(),
             swash_scale_context: ScaleContext::new(),
+            pending_glyph_image: None,
+            #[cfg(test)]
+            rendered_glyph_count: 0,
             loaded_fonts: Vec::new(),
             font_ids_by_family_cache: HashMap::default(),
             system_font_fallback: system_font_fallback.to_string(),
@@ -83,6 +90,9 @@ impl CosmicTextSystem {
             font_system,
             scratch: ShapeBuffer::default(),
             swash_scale_context: ScaleContext::new(),
+            pending_glyph_image: None,
+            #[cfg(test)]
+            rendered_glyph_count: 0,
             loaded_fonts: Vec::new(),
             font_ids_by_family_cache: HashMap::default(),
             system_font_fallback: system_font_fallback.to_string(),
@@ -336,11 +346,15 @@ impl CosmicTextSystemState {
     }
 
     fn raster_bounds(&mut self, params: &RenderGlyphParams) -> Result<Bounds<DevicePixels>> {
-        let image = self.render_glyph_image(params)?;
-        Ok(Bounds {
+        let image = self.take_or_render_glyph_image(params)?;
+        let bounds: Bounds<DevicePixels> = Bounds {
             origin: point(image.placement.left.into(), (-image.placement.top).into()),
             size: size(image.placement.width.into(), image.placement.height.into()),
-        })
+        };
+        if bounds.size.width.0 != 0 && bounds.size.height.0 != 0 {
+            self.pending_glyph_image = Some((params.clone(), image));
+        }
+        Ok(bounds)
     }
 
     #[profiling::function]
@@ -350,10 +364,11 @@ impl CosmicTextSystemState {
         glyph_bounds: Bounds<DevicePixels>,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)> {
         if glyph_bounds.size.width.0 == 0 || glyph_bounds.size.height.0 == 0 {
+            self.pending_glyph_image = None;
             anyhow::bail!("glyph bounds are empty");
         }
 
-        let mut image = self.render_glyph_image(params)?;
+        let mut image = self.take_or_render_glyph_image(params)?;
         let bitmap_size = glyph_bounds.size;
         match image.content {
             swash::scale::image::Content::Color | swash::scale::image::Content::SubpixelMask => {
@@ -375,10 +390,24 @@ impl CosmicTextSystemState {
         }
     }
 
+    fn take_or_render_glyph_image(
+        &mut self,
+        params: &RenderGlyphParams,
+    ) -> Result<swash::scale::image::Image> {
+        match self.pending_glyph_image.take() {
+            Some((pending_params, image)) if pending_params == *params => Ok(image),
+            _ => self.render_glyph_image(params),
+        }
+    }
+
     fn render_glyph_image(
         &mut self,
         params: &RenderGlyphParams,
     ) -> Result<swash::scale::image::Image> {
+        #[cfg(test)]
+        {
+            self.rendered_glyph_count += 1;
+        }
         let loaded_font = &self.loaded_fonts[params.font_id.0];
         let font_ref = loaded_font.font.as_swash();
         let pixel_size = f32::from(params.font_size);
@@ -1082,6 +1111,158 @@ mod tests {
             font_id,
         }];
         Ok(text_system.layout_line(text, gpui::px(14.0), &runs))
+    }
+
+    fn glyph_params(text_system: &CosmicTextSystem) -> Result<RenderGlyphParams> {
+        let font_id = text_system.font_id(&font("IBM Plex Sans"))?;
+        Ok(RenderGlyphParams {
+            font_id,
+            glyph_id: text_system.glyph_for_char(font_id, 'A').unwrap(),
+            font_size: gpui::px(16.0),
+            subpixel_variant: point(0, 0),
+            scale_factor: 1.0,
+            is_emoji: false,
+            subpixel_rendering: false,
+            dilation: 0,
+        })
+    }
+
+    #[test]
+    fn glyph_image_reused_between_bounds_and_bitmap() -> Result<()> {
+        let text_system = text_system()?;
+        let mut params = glyph_params(&text_system)?;
+        for subpixel_rendering in [false, true] {
+            params.subpixel_rendering = subpixel_rendering;
+            let renders_before = text_system.0.read().rendered_glyph_count;
+            let bounds = text_system.glyph_raster_bounds(&params)?;
+            assert!(bounds.size.width.0 > 0 && bounds.size.height.0 > 0);
+            assert_eq!(text_system.glyph_raster_bounds(&params)?, bounds);
+            assert_eq!(
+                text_system.0.read().rendered_glyph_count,
+                renders_before + 1
+            );
+
+            let cached = text_system.rasterize_glyph(&params, bounds)?;
+            assert_eq!(
+                text_system.0.read().rendered_glyph_count,
+                renders_before + 1
+            );
+            assert!(text_system.0.read().pending_glyph_image.is_none());
+            let uncached = text_system.rasterize_glyph(&params, bounds)?;
+            assert_eq!(
+                text_system.0.read().rendered_glyph_count,
+                renders_before + 2
+            );
+            assert_eq!(cached, uncached);
+            assert_eq!(cached.0, bounds.size);
+            let channels = if subpixel_rendering { 4 } else { 1 };
+            assert_eq!(
+                cached.1.len(),
+                bounds.size.width.0 as usize * bounds.size.height.0 as usize * channels,
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn glyph_image_cache_replaces_bounds_only_requests_and_rejects_mismatches() -> Result<()> {
+        let text_system = text_system()?;
+        let params = glyph_params(&text_system)?;
+        let bounds = text_system.glyph_raster_bounds(&params)?;
+        let expected = text_system.rasterize_glyph(&params, bounds)?;
+
+        let mut variants = vec![params.clone(); 8];
+        variants[0].glyph_id = text_system.glyph_for_char(params.font_id, 'B').unwrap();
+        variants[1].font_size = gpui::px(18.0);
+        variants[2].subpixel_variant = point(1, 1);
+        variants[3].scale_factor = 2.0;
+        variants[4].is_emoji = true;
+        variants[5].subpixel_rendering = true;
+        variants[6].dilation = 1;
+        let mut alternate_font = font("IBM Plex Sans");
+        alternate_font.features = FontFeatures::disable_ligatures();
+        variants[7].font_id = text_system.font_id(&alternate_font)?;
+        assert_ne!(variants[7].font_id, params.font_id);
+
+        for variant in variants {
+            text_system.glyph_raster_bounds(&params)?;
+            text_system.glyph_raster_bounds(&variant)?;
+            assert_eq!(
+                text_system.0.read().pending_glyph_image.as_ref().unwrap().0,
+                variant,
+            );
+            let renders_before = text_system.0.read().rendered_glyph_count;
+            assert_eq!(text_system.rasterize_glyph(&params, bounds)?, expected);
+            assert_eq!(
+                text_system.0.read().rendered_glyph_count,
+                renders_before + 1
+            );
+            assert!(text_system.0.read().pending_glyph_image.is_none());
+        }
+
+        text_system.glyph_raster_bounds(&params)?;
+        let mut invalid_params = params;
+        invalid_params.glyph_id = GlyphId(u32::MAX);
+        assert!(text_system.glyph_raster_bounds(&invalid_params).is_err());
+        assert!(text_system.0.read().pending_glyph_image.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn glyph_image_cache_preserves_color_conversion_and_empty_bounds() -> Result<()> {
+        use swash::scale::image::{Content, Image};
+
+        let text_system = text_system()?;
+        let mut params = glyph_params(&text_system)?;
+        let mut state = text_system.0.write();
+        let bounds = Bounds {
+            origin: point(0.into(), 0.into()),
+            size: size(1.into(), 1.into()),
+        };
+
+        for content in [Content::Color, Content::SubpixelMask, Content::Mask] {
+            params.subpixel_rendering = true;
+            let data = if content == Content::Mask {
+                vec![40]
+            } else {
+                vec![10, 20, 30, 40]
+            };
+            state.pending_glyph_image = Some((
+                params.clone(),
+                Image {
+                    content,
+                    data,
+                    ..Default::default()
+                },
+            ));
+            let bitmap = state.rasterize_glyph(&params, bounds)?;
+            assert_eq!(
+                bitmap,
+                (
+                    bounds.size,
+                    if content == Content::Mask {
+                        vec![40, 40, 40, 40]
+                    } else {
+                        vec![30, 20, 10, 40]
+                    }
+                )
+            );
+            assert_eq!(state.rendered_glyph_count, 0);
+        }
+
+        state.pending_glyph_image = Some((params.clone(), Image::default()));
+        let empty_bounds = state.raster_bounds(&params)?;
+        assert_eq!(empty_bounds.size, size(0.into(), 0.into()));
+        assert!(state.pending_glyph_image.is_none());
+        assert_eq!(
+            state
+                .rasterize_glyph(&params, empty_bounds)
+                .unwrap_err()
+                .to_string(),
+            "glyph bounds are empty",
+        );
+        assert_eq!(state.rendered_glyph_count, 0);
+        Ok(())
     }
 
     #[test]

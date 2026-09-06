@@ -770,7 +770,7 @@ mod tests {
     }
 
     #[crate::test]
-    fn test_pending_input_observers_notified_on_focus_change(cx: &mut TestAppContext) {
+    fn test_pending_input_observers_notified_on_focus_change_and_blur(cx: &mut TestAppContext) {
         #[derive(Clone)]
         struct CustomElement {
             focus_handle: FocusHandle,
@@ -928,6 +928,8 @@ mod tests {
         cx.update(|cx| {
             cx.bind_keys([KeyBinding::new("ctrl-b", TestAction, Some("Terminal"))]);
             cx.bind_keys([KeyBinding::new("ctrl-b h", TestAction, Some("Terminal"))]);
+            cx.bind_keys([KeyBinding::new("ctrl-d", TestAction, None)]);
+            cx.bind_keys([KeyBinding::new("ctrl-d h", TestAction, None)]);
         });
 
         let (test, cx) = cx.add_window_view(|_, cx| CustomElement::new(cx));
@@ -935,6 +937,8 @@ mod tests {
 
         let pending_input_changed_count = Rc::new(RefCell::new(0usize));
         let pending_input_changed_count_for_observer = pending_input_changed_count.clone();
+        let observed_pending = Rc::new(RefCell::new(None));
+        let observed_pending_for_observer = observed_pending.clone();
 
         struct PendingInputObserver {
             _subscription: Subscription,
@@ -942,8 +946,10 @@ mod tests {
 
         let _observer = cx.update(|window, cx| {
             cx.new(|cx| PendingInputObserver {
-                _subscription: cx.observe_pending_input(window, move |_, _, _| {
+                _subscription: cx.observe_pending_input(window, move |_, window, _| {
                     *pending_input_changed_count_for_observer.borrow_mut() += 1;
+                    *observed_pending_for_observer.borrow_mut() =
+                        window.pending_input_keystrokes().map(|keys| keys.to_vec());
                 }),
             })
         });
@@ -974,6 +980,52 @@ mod tests {
             let count_after_focus_change = *pending_input_changed_count.borrow();
             assert!(count_after_focus_change > *count_after_pending_for_assertion.borrow());
         });
+
+        cx.update(|window, cx| window.focus(&focus_handle, cx));
+        cx.simulate_keystrokes("ctrl-b");
+        assert!(observed_pending.borrow().is_some());
+        let count_before_blur = *pending_input_changed_count.borrow();
+        cx.update(|window, cx| {
+            assert!(window.has_pending_keystrokes());
+            _observer.update(cx, |_, _| window.blur());
+            assert!(!window.has_pending_keystrokes());
+            assert!(window.pending_input_is_none());
+            assert_eq!(*pending_input_changed_count.borrow(), count_before_blur);
+        });
+        assert_eq!(*pending_input_changed_count.borrow(), count_before_blur + 1);
+        assert!(observed_pending.borrow().is_none());
+
+        // Global bindings can leave pending input with no focus, including disabled focus.
+        for disable_focus in [false, true] {
+            if disable_focus {
+                cx.update(|window, cx| window.focus(&focus_handle, cx));
+                cx.simulate_keystrokes("ctrl-b");
+                let count_before_disable = *pending_input_changed_count.borrow();
+                cx.update(|window, _| {
+                    assert!(window.has_pending_keystrokes());
+                    window.disable_focus();
+                    assert!(window.pending_input_is_none());
+                    assert_eq!(*pending_input_changed_count.borrow(), count_before_disable);
+                });
+                assert_eq!(
+                    *pending_input_changed_count.borrow(),
+                    count_before_disable + 1
+                );
+                assert!(observed_pending.borrow().is_none());
+            }
+            cx.simulate_keystrokes("ctrl-d");
+            let count_before_blur = *pending_input_changed_count.borrow();
+            cx.update(|window, cx| {
+                assert!(window.focused(cx).is_none());
+                assert!(window.has_pending_keystrokes());
+                window.blur();
+                window.blur();
+                assert!(window.pending_input_is_none());
+                assert_eq!(*pending_input_changed_count.borrow(), count_before_blur);
+            });
+            assert_eq!(*pending_input_changed_count.borrow(), count_before_blur + 1);
+            assert!(observed_pending.borrow().is_none());
+        }
     }
 
     #[crate::test]
@@ -1170,6 +1222,7 @@ mod tests {
                 window.blur();
                 assert!(!window.has_pending_keystrokes());
                 assert!(window.pending_input_keystrokes().is_none());
+                assert!(window.pending_input_is_none());
             });
             let prefers_ime = input_handler
                 .as_mut()

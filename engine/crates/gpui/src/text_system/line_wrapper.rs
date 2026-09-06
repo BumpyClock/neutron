@@ -723,6 +723,8 @@ impl LineWrapper {
         // `2^3`, `a~b`, `a=1`, `Self::new`, etc. Trailing punctuation like `,`, `.`, `:`, `;`
         // is included so it stays attached to the preceding word when wrapping.
         matches!(c, '-' | '_' | '.' | '\'' | '\u{2018}' | '\u{2019}' | '$' | '%' | '@' | '#' | '^' | '~' | ',' | '=' | ':' | ';') ||
+        // Attach closing punctuation to the prior word. Keep `/` and `?` as path and URL break opportunities.
+        matches!(c, '!' | ')' | ']' | '}' | '"' | '\u{201d}' | '\u{00bb}' | '\u{2026}') ||
         // `⋯` character is special used in Zed, to keep this at the end of the line.
         matches!(c, '⋯') ||
 
@@ -1184,6 +1186,32 @@ mod tests {
                 Boundary::new(18, 0)
             ],
         );
+    }
+
+    #[test]
+    fn test_wrap_line_keeps_closing_punctuation_with_word() {
+        let mut wrapper = build_wrapper();
+
+        for closing in ['!', ')', ']', '}', '"', '\u{201d}', '\u{00bb}', '\u{2026}'] {
+            let text = format!("aa word{closing}");
+            assert_eq!(
+                wrapper
+                    .wrap_line(&[LineFragment::text(&text)], px(72.))
+                    .collect::<Vec<_>>(),
+                &[Boundary::new(3, 0)],
+                "{text:?}",
+            );
+        }
+
+        for text in ["aaa/bbbb", "aaa?bbbb"] {
+            assert_eq!(
+                wrapper
+                    .wrap_line(&[LineFragment::text(text)], px(72.))
+                    .collect::<Vec<_>>(),
+                &[Boundary::new(3, 0)],
+                "{text:?}",
+            );
+        }
     }
 
     #[test]
@@ -1880,6 +1908,14 @@ mod tests {
         assert_word("more⋯");
         assert_word("won\u{2019}t");
         assert_word("\u{2018}twas");
+        assert_word("plz!");
+        assert_word("see)");
+        assert_word("item]");
+        assert_word("block}");
+        assert_word("quoted\"");
+        assert_word("quoted\u{201d}");
+        assert_word("quoted\u{00bb}");
+        assert_word("well\u{2026}");
 
         // Space
         assert_not_word("foo bar");

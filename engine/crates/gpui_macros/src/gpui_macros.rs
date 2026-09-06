@@ -153,6 +153,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
 /// as many `TestAppContext` instances as you need.
 /// The output contains a `#[test]` annotation so this can be used with any existing
 /// test harness (`cargo test` or `cargo-nextest`).
+/// Asynchronous tests use the native blocking runner and are excluded on WASM.
+/// Synchronous tests remain available on WASM.
 ///
 /// ```
 /// #[gpui::test]

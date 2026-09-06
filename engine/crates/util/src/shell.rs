@@ -120,7 +120,8 @@ pub fn get_windows_bash() -> Option<String> {
     (*BASH).clone()
 }
 
-pub fn get_windows_system_shell() -> String {
+/// Returns a PowerShell executable, or `None` if PowerShell is unavailable.
+pub fn get_powershell() -> Option<String> {
     use std::path::PathBuf;
 
     fn find_pwsh_in_programfiles(find_alternate: bool, find_preview: bool) -> Option<PathBuf> {
@@ -159,7 +160,7 @@ pub fn get_windows_system_shell() -> String {
                 };
 
                 let exe_path = entry.path().join("pwsh.exe");
-                if exe_path.exists() {
+                if exe_path.is_file() {
                     Some((version, exe_path))
                 } else {
                     None
@@ -172,41 +173,34 @@ pub fn get_windows_system_shell() -> String {
     fn find_pwsh_in_msix(find_preview: bool) -> Option<PathBuf> {
         let msix_app_dir =
             PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Microsoft\\WindowsApps");
-        if !msix_app_dir.exists() {
-            return None;
-        }
-
-        let prefix = if find_preview {
-            "Microsoft.PowerShellPreview_"
+        let package_family_name = if find_preview {
+            "Microsoft.PowerShellPreview_8wekyb3d8bbwe"
         } else {
-            "Microsoft.PowerShell_"
+            "Microsoft.PowerShell_8wekyb3d8bbwe"
         };
-        msix_app_dir
-            .read_dir()
-            .ok()?
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                if !matches!(entry.file_type(), Ok(ft) if ft.is_dir()) {
-                    return None;
-                }
-
-                if !entry.file_name().to_string_lossy().starts_with(prefix) {
-                    return None;
-                }
-
-                let exe_path = entry.path().join("pwsh.exe");
-                exe_path.exists().then_some(exe_path)
-            })
-            .next()
+        let pwsh_exe = msix_app_dir.join(package_family_name).join("pwsh.exe");
+        pwsh_exe.exists().then_some(pwsh_exe)
     }
 
     fn find_pwsh_in_scoop() -> Option<PathBuf> {
         let pwsh_exe =
             PathBuf::from(std::env::var_os("USERPROFILE")?).join("scoop\\shims\\pwsh.exe");
-        pwsh_exe.exists().then_some(pwsh_exe)
+        pwsh_exe.is_file().then_some(pwsh_exe)
     }
 
-    static SYSTEM_SHELL: LazyLock<String> = LazyLock::new(|| {
+    fn find_pwsh_in_dotnet_tools() -> Option<PathBuf> {
+        let pwsh_exe =
+            PathBuf::from(std::env::var_os("USERPROFILE")?).join(".dotnet\\tools\\pwsh.exe");
+        pwsh_exe.is_file().then_some(pwsh_exe)
+    }
+
+    fn find_windows_powershell() -> Option<PathBuf> {
+        let system_root = PathBuf::from(std::env::var_os("SystemRoot")?);
+        let powershell = system_root.join("System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+        powershell.is_file().then_some(powershell)
+    }
+
+    static POWERSHELL: LazyLock<Option<String>> = LazyLock::new(|| {
         let locations = [
             || find_pwsh_in_programfiles(false, false),
             || find_pwsh_in_programfiles(true, false),
@@ -215,8 +209,10 @@ pub fn get_windows_system_shell() -> String {
             || find_pwsh_in_msix(true),
             || find_pwsh_in_programfiles(true, true),
             || find_pwsh_in_scoop(),
+            || find_pwsh_in_dotnet_tools(),
             || which::which_global("pwsh.exe").ok(),
             || which::which_global("powershell.exe").ok(),
+            || find_windows_powershell(),
         ];
 
         locations
@@ -224,13 +220,22 @@ pub fn get_windows_system_shell() -> String {
             .find_map(|f| f())
             .map(|p| p.to_string_lossy().trim().to_owned())
             .inspect(|shell| log::info!("Found powershell in: {}", shell))
-            .unwrap_or_else(|| {
-                log::warn!("Powershell not found, falling back to `cmd`");
-                "cmd.exe".to_string()
-            })
     });
 
-    (*SYSTEM_SHELL).clone()
+    (*POWERSHELL).clone()
+}
+
+/// Returns PowerShell when available, otherwise the system `cmd.exe` path.
+pub fn get_windows_system_shell() -> String {
+    static CMD: LazyLock<String> = LazyLock::new(|| {
+        log::warn!("Powershell not found, falling back to `cmd`");
+        let system_root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::path::PathBuf::from(system_root)
+            .join("System32\\cmd.exe")
+            .to_string_lossy()
+            .into_owned()
+    });
+    get_powershell().unwrap_or_else(|| (*CMD).clone())
 }
 
 impl fmt::Display for ShellKind {
@@ -339,13 +344,13 @@ impl ShellKind {
 
     fn to_cmd_variable(input: &str) -> String {
         if let Some(var_str) = input.strip_prefix("${") {
-            if var_str.find(':').is_none() {
-                // If the input starts with "${", remove the trailing "}"
-                format!("%{}%", &var_str[..var_str.len() - 1])
-            } else {
+            match var_str.strip_suffix('}') {
+                Some(var_name) if !var_name.is_empty() && !var_name.contains(':') => {
+                    format!("%{var_name}%")
+                }
                 // `${SOME_VAR:-SOME_DEFAULT}`, we currently do not handle this situation,
                 // which will result in the task failing to run in such cases.
-                input.into()
+                _ => input.into(),
             }
         } else if let Some(var_str) = input.strip_prefix('$') {
             // If the input starts with "$", directly append to "$env:"
@@ -358,13 +363,13 @@ impl ShellKind {
 
     fn to_powershell_variable(input: &str) -> String {
         if let Some(var_str) = input.strip_prefix("${") {
-            if var_str.find(':').is_none() {
-                // If the input starts with "${", remove the trailing "}"
-                format!("$env:{}", &var_str[..var_str.len() - 1])
-            } else {
+            match var_str.strip_suffix('}') {
+                Some(var_name) if !var_name.is_empty() && !var_name.contains(':') => {
+                    format!("$env:{var_name}")
+                }
                 // `${SOME_VAR:-SOME_DEFAULT}`, we currently do not handle this situation,
                 // which will result in the task failing to run in such cases.
-                input.into()
+                _ => input.into(),
             }
         } else if let Some(var_str) = input.strip_prefix('$') {
             // If the input starts with "$", directly append to "$env:"
@@ -801,6 +806,48 @@ impl ShellKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_to_shell_variable() {
+        for (shell_kind, expected) in [
+            (ShellKind::PowerShell, "$env:FOO"),
+            (ShellKind::Pwsh, "$env:FOO"),
+            (ShellKind::Cmd, "%FOO%"),
+            (ShellKind::Nushell, "$env.FOO"),
+        ] {
+            assert_eq!(shell_kind.to_shell_variable("${FOO}"), expected);
+            assert_eq!(shell_kind.to_shell_variable("$FOO"), expected);
+        }
+        assert_eq!(ShellKind::Posix.to_shell_variable("${FOO}"), "${FOO}");
+
+        for (shell_kind, expected) in [
+            (ShellKind::PowerShell, "$env:日本"),
+            (ShellKind::Pwsh, "$env:日本"),
+            (ShellKind::Cmd, "%日本%"),
+            (ShellKind::Nushell, "$env.日本"),
+        ] {
+            assert_eq!(shell_kind.to_shell_variable("${日本}"), expected);
+        }
+
+        for shell_kind in [ShellKind::PowerShell, ShellKind::Pwsh, ShellKind::Cmd] {
+            assert_eq!(shell_kind.to_shell_variable("${FOO:-bar}"), "${FOO:-bar}");
+        }
+    }
+
+    #[test]
+    fn test_to_shell_variable_malformed_is_passed_through() {
+        for input in ["", "${", "${FOO", "${café", "${}", "${日本"] {
+            for shell_kind in [
+                ShellKind::PowerShell,
+                ShellKind::Pwsh,
+                ShellKind::Cmd,
+                ShellKind::Nushell,
+                ShellKind::Posix,
+            ] {
+                assert_eq!(shell_kind.to_shell_variable(input), input, "{shell_kind}");
+            }
+        }
+    }
 
     // Examples
     // WSL

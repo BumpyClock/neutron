@@ -78,8 +78,14 @@ impl TestScheduler {
 
     fn with_seed<R>(seed: u64, f: impl AsyncFnOnce(Arc<TestScheduler>) -> R) -> R {
         let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig::with_seed(seed)));
+        let output = std::cell::Cell::new(None);
         let future = f(scheduler.clone());
-        let result = scheduler.foreground().block_on(future);
+        let future = async {
+            output.set(Some(future.await));
+        };
+        let mut future = std::pin::pin!(future);
+        scheduler.block_until(None, future.as_mut(), None);
+        let result = output.take().expect("test future did not complete");
         scheduler.run(); // Ensure spawned tasks finish up before returning in tests
         result
     }
@@ -496,7 +502,7 @@ fn assert_correct_thread(expected: &Thread, state: &Arc<Mutex<SchedulerState>>) 
     }
 }
 
-impl Scheduler for TestScheduler {
+impl TestScheduler {
     /// Block until the given future completes, with an optional timeout. If the
     /// future is unable to make progress at any moment before the timeout and
     /// no other tasks or timers remain, we panic unless parking is allowed. If
@@ -504,7 +510,7 @@ impl Scheduler for TestScheduler {
     /// is provided. This is to allow testing a mix of deterministic and
     /// non-deterministic async behavior, such as when interacting with I/O in
     /// an otherwise deterministic test.
-    fn block(
+    fn block_until(
         &self,
         session_id: Option<SessionId>,
         mut future: Pin<&mut dyn Future<Output = ()>>,
@@ -570,6 +576,18 @@ impl Scheduler for TestScheduler {
         }
 
         completed
+    }
+}
+
+impl Scheduler for TestScheduler {
+    #[cfg(not(target_family = "wasm"))]
+    fn block(
+        &self,
+        session_id: Option<SessionId>,
+        future: Pin<&mut dyn Future<Output = ()>>,
+        timeout: Option<Duration>,
+    ) -> bool {
+        self.block_until(session_id, future, timeout)
     }
 
     fn schedule_local(&self, session_id: SessionId, runnable: Runnable<RunnableMeta>) {

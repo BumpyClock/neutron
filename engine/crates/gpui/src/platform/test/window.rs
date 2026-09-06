@@ -1,11 +1,14 @@
+#[cfg(any(test, feature = "test-support"))]
+use crate::DevicePixels;
 use crate::{
-    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DevicePixels,
-    DispatchEventResult, GpuSpecs, Pixels, PlatformAtlas, PlatformDisplay,
-    PlatformHeadlessRenderer, PlatformInput, PlatformInputHandler, PlatformWindow, Point,
-    PromptButton, RequestFrameOptions, Scene, Size, TestPlatform, TileId, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams,
+    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DispatchEventResult, GpuSpecs,
+    Pixels, PlatformAtlas, PlatformDisplay, PlatformHeadlessRenderer, PlatformInput,
+    PlatformInputHandler, PlatformWindow, Point, PromptButton, RequestFrameOptions, Scene, Size,
+    TestPlatform, TileId, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
+    WindowControlArea, WindowParams,
 };
 use collections::HashMap;
+#[cfg(any(test, feature = "test-support"))]
 use image::RgbaImage;
 use parking_lot::Mutex;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
@@ -22,6 +25,10 @@ pub(crate) struct TestWindowState {
     pub(crate) edited: bool,
     platform: Weak<TestPlatform>,
     sprite_atlas: Arc<dyn PlatformAtlas>,
+    #[cfg_attr(
+        not(any(test, feature = "test-support")),
+        expect(dead_code, reason = "Retain the owner of the benchmark sprite atlas.")
+    )]
     renderer: Option<Box<dyn PlatformHeadlessRenderer>>,
     pub(crate) should_close_handler: Option<Box<dyn FnMut() -> bool>>,
     hit_test_window_control_callback: Option<Box<dyn FnMut() -> Option<WindowControlArea>>>,
@@ -101,6 +108,7 @@ impl TestWindow {
         self.0.lock().input_region.clone()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn simulate_resize(&mut self, size: Size<Pixels>) {
         let scale_factor = self.scale_factor();
         let mut lock = self.0.lock();
@@ -115,6 +123,7 @@ impl TestWindow {
     }
 
     /// Simulates moving the window to a display with a different scale factor.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn simulate_scale_factor(&mut self, scale_factor: f32) {
         assert!(scale_factor.is_finite() && scale_factor > 0.0);
         let mut lock = self.0.lock();
@@ -138,6 +147,7 @@ impl TestWindow {
         self.0.lock().active_status_change_callback = Some(callback);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn simulate_appearance_change(&self, appearance: WindowAppearance) {
         let mut lock = self.0.lock();
         lock.appearance = appearance;
@@ -149,6 +159,7 @@ impl TestWindow {
         self.0.lock().appearance_change_callback = Some(callback);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub fn simulate_input(&mut self, event: PlatformInput) -> bool {
         let mut lock = self.0.lock();
         if matches!(event, PlatformInput::MouseMove(_))

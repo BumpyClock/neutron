@@ -182,6 +182,7 @@ fn generate_test_function(
         }
 
         parse_quote! {
+            #[cfg(not(target_family = "wasm"))]
             #[test]
             fn #outer_fn_name() {
                 #inner_fn

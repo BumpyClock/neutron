@@ -9,12 +9,14 @@ use futures::{
 };
 use std::{
     cell::{Cell, RefCell},
-    collections::{BTreeSet, HashSet},
+    collections::HashSet,
     pin::Pin,
     rc::Rc,
     sync::Arc,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
+#[cfg(not(target_family = "wasm"))]
+use std::{collections::BTreeSet, task::Waker};
 
 #[test]
 fn test_foreground_executor_spawn() {
@@ -267,6 +269,7 @@ fn test_nonrandomized_foreground_order_and_background_filter() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_nonrandomized_nested_blocked_sessions() {
     let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig {
         randomize_order: false,
@@ -514,6 +517,7 @@ async fn capture_execution_order(config: TestSchedulerConfig) -> Vec<String> {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_block() {
     let scheduler = Arc::new(TestScheduler::new(TestSchedulerConfig::default()));
     let (tx, rx) = oneshot::channel();
@@ -532,6 +536,7 @@ fn test_block() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 #[should_panic(expected = "Parking forbidden.")]
 fn test_parking_panics() {
     let config = TestSchedulerConfig {
@@ -546,6 +551,7 @@ fn test_parking_panics() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_block_with_parking() {
     let config = TestSchedulerConfig {
         allow_parking: true,
@@ -585,6 +591,7 @@ fn test_helper_methods() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_block_with_timeout() {
     // Test case: future completes within timeout
     TestScheduler::once(async |scheduler| {
@@ -671,6 +678,7 @@ fn test_block_with_timeout() {
 
 // When calling block, we shouldn't make progress on foreground-spawned futures with the same session id.
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_block_does_not_progress_same_session_foreground() {
     let mut task2_made_progress_once = false;
     TestScheduler::many(if cfg!(miri) { 5 } else { 1000 }, async |scheduler| {
@@ -696,10 +704,12 @@ fn test_block_does_not_progress_same_session_foreground() {
     );
 }
 
+#[cfg(not(target_family = "wasm"))]
 struct Yield {
     polls: usize,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl Future for Yield {
     type Output = ();
 
@@ -715,6 +725,7 @@ impl Future for Yield {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_nondeterministic_wake_detection() {
     let config = TestSchedulerConfig {
         allow_parking: false,
@@ -775,6 +786,7 @@ fn test_nondeterministic_wake_detection() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_nondeterministic_wake_allowed_with_parking() {
     let config = TestSchedulerConfig {
         allow_parking: true,
@@ -822,6 +834,7 @@ fn test_nondeterministic_wake_allowed_with_parking() {
 }
 
 #[test]
+#[cfg(not(target_family = "wasm"))]
 fn test_nondeterministic_waker_drop_detection() {
     let config = TestSchedulerConfig {
         allow_parking: false,

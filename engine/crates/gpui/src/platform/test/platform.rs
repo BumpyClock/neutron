@@ -1,12 +1,14 @@
 use crate::{
     AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DevicePixels,
-    DummyKeyboardMapper, ForegroundExecutor, Keymap, NoopTextSystem, PathPromptOptions, Platform,
-    PlatformDisplay, PlatformHeadlessRenderer, PlatformKeyboardLayout, PlatformKeyboardMapper,
-    PlatformTextSystem, PromptButton, ScreenCaptureFrame, ScreenCaptureSource, ScreenCaptureStream,
-    SourceMetadata, Task, TestDisplay, TestWindow, ThermalState, WindowAppearance, WindowParams,
-    size,
+    DummyKeyboardMapper, ForegroundExecutor, Keymap, Platform, PlatformDisplay,
+    PlatformHeadlessRenderer, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
+    PromptButton, ScreenCaptureFrame, ScreenCaptureSource, ScreenCaptureStream, SourceMetadata,
+    Task, TestDisplay, TestWindow, ThermalState, WindowAppearance, WindowParams, size,
 };
+#[cfg(any(test, feature = "test-support"))]
+use crate::{NoopTextSystem, PathPromptOptions};
 use anyhow::Result;
+#[cfg(any(test, feature = "test-support"))]
 use collections::VecDeque;
 use futures::channel::oneshot;
 use parking_lot::Mutex;
@@ -31,7 +33,9 @@ pub(crate) struct TestPlatform {
     current_primary_item: Mutex<Option<ClipboardItem>>,
     #[cfg(target_os = "macos")]
     current_find_pasteboard_item: Mutex<Option<ClipboardItem>>,
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) prompts: RefCell<TestPrompts>,
+    menus: RefCell<Vec<crate::OwnedMenu>>,
     screen_capture_sources: RefCell<Vec<TestScreenCaptureSource>>,
     pub opened_url: RefCell<Option<String>>,
     pub text_system: Arc<dyn PlatformTextSystem>,
@@ -87,6 +91,7 @@ impl ScreenCaptureStream for TestScreenCaptureStream {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 struct TestPrompt {
     msg: String,
     detail: Option<String>,
@@ -94,6 +99,7 @@ struct TestPrompt {
     tx: oneshot::Sender<usize>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Default)]
 pub(crate) struct TestPrompts {
     multiple_choice: VecDeque<TestPrompt>,
@@ -105,6 +111,7 @@ pub(crate) struct TestPrompts {
 }
 
 impl TestPlatform {
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(executor: BackgroundExecutor, foreground_executor: ForegroundExecutor) -> Rc<Self> {
         Self::with_platform(
             executor,
@@ -114,6 +121,7 @@ impl TestPlatform {
         )
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     #[allow(dead_code)]
     pub fn with_text_system(
         executor: BackgroundExecutor,
@@ -134,7 +142,9 @@ impl TestPlatform {
         Rc::new_cyclic(|weak| TestPlatform {
             background_executor: executor,
             foreground_executor,
+            #[cfg(any(test, feature = "test-support"))]
             prompts: Default::default(),
+            menus: Default::default(),
             screen_capture_sources: Default::default(),
             active_cursor: Default::default(),
             cursor_hidden_until_mouse_moves: Default::default(),
@@ -164,6 +174,7 @@ impl TestPlatform {
         })
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn simulate_new_path_selection(
         &self,
         select_path: impl FnOnce(&std::path::Path) -> Option<std::path::PathBuf>,
@@ -177,6 +188,7 @@ impl TestPlatform {
         tx.send(Ok(select_path(&path))).ok();
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn simulate_path_prompt_response(
         &self,
         select_paths: impl FnOnce(&PathPromptOptions) -> Option<Vec<PathBuf>>,
@@ -200,10 +212,12 @@ impl TestPlatform {
         tx.send(Ok(selection)).ok();
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn did_prompt_for_paths(&self) -> bool {
         !self.prompts.borrow().paths.is_empty()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     #[track_caller]
     pub(crate) fn simulate_prompt_answer(&self, response: &str) {
         let prompt = self
@@ -221,10 +235,12 @@ impl TestPlatform {
         prompt.tx.send(ix).ok();
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn has_pending_prompt(&self) -> bool {
         !self.prompts.borrow().multiple_choice.is_empty()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn pending_prompt(&self) -> Option<(String, String)> {
         let prompts = self.prompts.borrow();
         let prompt = prompts.multiple_choice.front()?;
@@ -234,10 +250,12 @@ impl TestPlatform {
         ))
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_screen_capture_sources(&self, sources: Vec<TestScreenCaptureSource>) {
         *self.screen_capture_sources.borrow_mut() = sources;
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn prompt(
         &self,
         msg: &str,
@@ -256,6 +274,17 @@ impl TestPlatform {
                 tx,
             });
         rx
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    pub(crate) fn prompt(
+        &self,
+        _msg: &str,
+        _detail: Option<&str>,
+        _answers: &[PromptButton],
+    ) -> oneshot::Receiver<usize> {
+        // Benchmarks cannot answer prompts. Cancel the receiver instead of retaining an unanswerable request.
+        oneshot::channel().1
     }
 
     pub(crate) fn set_active_window(&self, window: Option<TestWindow>) {
@@ -280,10 +309,12 @@ impl TestPlatform {
             .detach();
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn did_prompt_for_new_path(&self) -> bool {
         !self.prompts.borrow().new_path.is_empty()
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn simulate_mouse_move(&self) {
         *self.cursor_hidden_until_mouse_moves.lock() = false;
     }
@@ -379,15 +410,24 @@ impl Platform for TestPlatform {
             return Ok(());
         }
 
+        #[cfg(all(not(target_family = "wasm"), any(test, feature = "test-support")))]
         self.foreground_executor
             .block_test(quit_receiver)
             .expect("TestPlatform quit signal was dropped before quit");
-
-        let callback = self.quit_callback.borrow_mut().take();
-        if let Some(mut callback) = callback {
-            callback();
+        #[cfg(not(all(not(target_family = "wasm"), any(test, feature = "test-support"))))]
+        {
+            drop(quit_receiver);
+            anyhow::bail!("a blocking test run requires native test support");
         }
-        Ok(())
+
+        #[cfg(all(not(target_family = "wasm"), any(test, feature = "test-support")))]
+        {
+            let callback = self.quit_callback.borrow_mut().take();
+            if let Some(mut callback) = callback {
+                callback();
+            }
+            Ok(())
+        }
     }
 
     fn quit(&self) {
@@ -488,6 +528,7 @@ impl Platform for TestPlatform {
         *self.open_urls_callback.borrow_mut() = Some(callback);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     fn prompt_for_paths(
         &self,
         options: crate::PathPromptOptions,
@@ -497,6 +538,15 @@ impl Platform for TestPlatform {
         rx
     }
 
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn prompt_for_paths(
+        &self,
+        _options: crate::PathPromptOptions,
+    ) -> oneshot::Receiver<Result<Option<Vec<PathBuf>>>> {
+        oneshot::channel().1
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     fn prompt_for_new_path(
         &self,
         directory: &std::path::Path,
@@ -508,6 +558,15 @@ impl Platform for TestPlatform {
             .new_path
             .push_back((directory.to_path_buf(), tx));
         rx
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn prompt_for_new_path(
+        &self,
+        _directory: &Path,
+        _suggested_name: Option<&str>,
+    ) -> oneshot::Receiver<Result<Option<PathBuf>>> {
+        oneshot::channel().1
     }
 
     fn can_select_mixed_files_and_dirs(&self) -> bool {
@@ -530,7 +589,14 @@ impl Platform for TestPlatform {
         *self.system_wake_callback.borrow_mut() = Some(callback);
     }
 
-    fn set_menus(&self, _menus: Vec<crate::Menu>, _keymap: &Keymap) {}
+    fn set_menus(&self, menus: Vec<crate::Menu>, _keymap: &Keymap) {
+        *self.menus.borrow_mut() = menus.into_iter().map(crate::Menu::owned).collect();
+    }
+
+    fn get_menus(&self) -> Option<Vec<crate::OwnedMenu>> {
+        Some(self.menus.borrow().clone())
+    }
+
     fn set_dock_menu(&self, _menu: Vec<crate::MenuItem>, _keymap: &Keymap) {}
 
     fn add_recent_document(&self, _paths: &Path) {}
@@ -616,6 +682,7 @@ impl Platform for TestPlatform {
 
 impl TestScreenCaptureSource {
     /// Create a fake screen capture source, for testing.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new() -> Self {
         Self {}
     }
@@ -630,5 +697,68 @@ impl PlatformKeyboardLayout for TestKeyboardLayout {
 
     fn name(&self) -> &str {
         "zed.keyboard.example"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Menu, MenuItem, OwnedMenuItem, TestAppContext};
+
+    #[derive(Clone, PartialEq, crate::Action)]
+    #[action(no_json, no_register)]
+    struct SelectItem {
+        id: usize,
+    }
+
+    #[gpui::test]
+    fn menus_preserve_projection_and_return_independent_snapshots(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            assert!(cx.get_menus().unwrap().is_empty());
+            cx.set_menus(vec![
+                Menu::new("Application").disabled(true).items([
+                    MenuItem::separator(),
+                    MenuItem::submenu(
+                        Menu::new("Items").items([MenuItem::action(
+                            "Select item",
+                            SelectItem { id: 7 },
+                        )
+                        .checked(true)
+                        .disabled(true)]),
+                    ),
+                ]),
+            ]);
+
+            let mut snapshot = cx.get_menus().unwrap();
+            assert_eq!(snapshot.len(), 1);
+            assert_eq!(snapshot[0].name.as_ref(), "Application");
+            assert!(snapshot[0].disabled);
+            assert!(matches!(snapshot[0].items[0], OwnedMenuItem::Separator));
+            let OwnedMenuItem::Submenu(submenu) = &snapshot[0].items[1] else {
+                panic!("expected the projected submenu");
+            };
+            assert_eq!(submenu.name.as_ref(), "Items");
+            let OwnedMenuItem::Action {
+                name,
+                action,
+                checked,
+                disabled,
+                ..
+            } = &submenu.items[0]
+            else {
+                panic!("expected the projected action");
+            };
+            assert_eq!(name, "Select item");
+            assert_eq!(action.as_any().downcast_ref::<SelectItem>().unwrap().id, 7);
+            assert!(*checked);
+            assert!(*disabled);
+
+            snapshot[0].items.clear();
+            assert_eq!(cx.get_menus().unwrap()[0].items.len(), 2);
+            cx.set_menus(vec![Menu::new("Replacement")]);
+            assert_eq!(cx.get_menus().unwrap()[0].name.as_ref(), "Replacement");
+            assert_eq!(snapshot[0].name.as_ref(), "Application");
+            cx.set_menus(Vec::new());
+            assert!(cx.get_menus().unwrap().is_empty());
+        });
     }
 }

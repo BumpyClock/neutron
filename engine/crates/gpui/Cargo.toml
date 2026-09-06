@@ -27,7 +27,8 @@ test-support = [
   "wayland-conformance",
   "x11",
 ]
-bench = ["test-support", "dep:criterion", "dep:hdrhistogram"]
+bench-support = ["dep:criterion", "dep:hdrhistogram"]
+bench = ["bench-support"]
 inspector = ["gpui_macros/inspector"]
 leak-detection = ["backtrace"]
 wayland = []
@@ -244,4 +245,4 @@ path = "examples/view_example/view_example_main.rs"
 [[bench]]
 name = "scene_construction"
 harness = false
-required-features = ["bench"]
+required-features = ["bench-support"]

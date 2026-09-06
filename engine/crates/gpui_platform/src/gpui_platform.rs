@@ -141,8 +141,8 @@ pub fn current_platform(headless: bool) -> Rc<dyn Platform> {
         .expect("failed to initialize current platform; use try_current_platform to handle errors")
 }
 
-/// Returns a new [`HeadlessRenderer`] for the current platform, if available.
-#[cfg(feature = "test-support")]
+/// Returns a compatible headless renderer when available. This fork currently returns `None`.
+#[cfg(any(feature = "test-support", feature = "bench-support"))]
 pub fn current_headless_renderer() -> Option<Box<dyn gpui::PlatformHeadlessRenderer>> {
     // This standalone fork benchmarks scene construction without a native renderer. The fork's
     // Metal renderer also carries retained-layer and backdrop-blur state that the upstream
@@ -153,6 +153,12 @@ pub fn current_headless_renderer() -> Option<Box<dyn gpui::PlatformHeadlessRende
 #[cfg(test)]
 mod api_tests {
     use super::*;
+
+    #[cfg(any(feature = "test-support", feature = "bench-support"))]
+    #[test]
+    fn default_headless_renderer_is_unavailable() {
+        assert!(current_headless_renderer().is_none());
+    }
 
     #[test]
     fn platform_constructor_signatures_remain_compatible() {

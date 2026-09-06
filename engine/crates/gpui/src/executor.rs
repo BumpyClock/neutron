@@ -1,4 +1,5 @@
 use crate::{App, PlatformDispatcher, PlatformScheduler};
+#[cfg(not(target_family = "wasm"))]
 use futures::channel::mpsc;
 use futures::prelude::*;
 use gpui_util::{TryFutureExt, TryFutureExtBacktrace};
@@ -6,12 +7,12 @@ use scheduler::Scheduler;
 use std::{
     future::Future,
     marker::PhantomData,
-    mem,
-    pin::Pin,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(not(target_family = "wasm"))]
+use std::{mem, pin::Pin};
 
 pub use scheduler::{FallibleTask, LocalExecutor as SchedulerLocalExecutor, Priority, Task};
 
@@ -121,8 +122,10 @@ impl BackgroundExecutor {
         }
     }
 
-    /// Scoped lets you start a number of tasks and waits
-    /// for all of them to complete before returning.
+    /// Runs background tasks that may borrow their environment and waits for completion.
+    ///
+    /// Cancellation synchronously waits for task futures to be destroyed before borrowed data can expire.
+    #[cfg(not(target_family = "wasm"))]
     pub async fn scoped<'scope, F>(&self, scheduler: F)
     where
         F: FnOnce(&mut Scope<'scope>),
@@ -138,8 +141,10 @@ impl BackgroundExecutor {
         }
     }
 
-    /// Scoped lets you start a number of tasks and waits
-    /// for all of them to complete before returning.
+    /// Runs prioritized background tasks that may borrow their environment and waits for completion.
+    ///
+    /// Cancellation synchronously waits for task futures to be destroyed before borrowed data can expire.
+    #[cfg(not(target_family = "wasm"))]
     pub async fn scoped_priority<'scope, F>(&self, priority: Priority, scheduler: F)
     where
         F: FnOnce(&mut Scope<'scope>),
@@ -341,7 +346,7 @@ impl ForegroundExecutor {
     }
 
     /// Used by the test harness to run an async test in a synchronous fashion.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(all(not(target_family = "wasm"), any(test, feature = "test-support")))]
     #[track_caller]
     pub fn block_test<R>(&self, future: impl Future<Output = R>) -> R {
         use std::cell::Cell;
@@ -364,11 +369,13 @@ impl ForegroundExecutor {
 
     /// Block the current thread until the given future resolves.
     /// Consider using `block_with_timeout` instead.
+    #[cfg(not(target_family = "wasm"))]
     pub fn block_on<R>(&self, future: impl Future<Output = R>) -> R {
         self.inner.block_on(future)
     }
 
     /// Block the current thread until the given future resolves or the timeout elapses.
+    #[cfg(not(target_family = "wasm"))]
     pub fn block_with_timeout<R, Fut: Future<Output = R>>(
         &self,
         duration: Duration,
@@ -389,6 +396,7 @@ impl ForegroundExecutor {
 }
 
 /// Scope manages a set of tasks that are enqueued and waited on together. See [`BackgroundExecutor::scoped`].
+#[cfg(not(target_family = "wasm"))]
 pub struct Scope<'a> {
     executor: BackgroundExecutor,
     priority: Priority,
@@ -398,6 +406,7 @@ pub struct Scope<'a> {
     lifetime: PhantomData<&'a ()>,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl<'a> Scope<'a> {
     fn new(executor: BackgroundExecutor, priority: Priority) -> Self {
         let (tx, rx) = mpsc::channel(1);
@@ -439,6 +448,7 @@ impl<'a> Scope<'a> {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl Drop for Scope<'_> {
     fn drop(&mut self) {
         self.tx.take().unwrap();

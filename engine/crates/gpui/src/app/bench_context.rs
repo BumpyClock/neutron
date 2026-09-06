@@ -30,13 +30,8 @@ use crate::{
 /// by `#[gpui::bench]` use the current platform's text system, so text-heavy
 /// benchmark measurements include production shaping and glyph rasterization.
 ///
-/// `headless_renderer_factory` supplies a renderer for benchmark windows, e.g.
-/// `gpui_platform::current_headless_renderer`. When present, scenes drawn by
-/// benchmarks are rasterized through the real sprite atlas and submitted to
-/// the GPU on present, so quad/sprite regressions show up in measurements.
-/// When `None`, presenting discards the scene. Currently only macOS provides
-/// a headless renderer (Metal), so GPU submission is excluded from benchmark
-/// measurements on other platforms.
+/// The optional renderer factory supplies a sprite atlas for benchmark windows.
+/// The fork's default factory returns `None`, so benchmarks measure CPU scene construction, not GPU submission.
 pub fn bench_platform(
     headless_renderer_factory: Option<Box<dyn Fn() -> Option<Box<dyn PlatformHeadlessRenderer>>>>,
     text_system: Arc<dyn PlatformTextSystem>,
@@ -326,7 +321,8 @@ impl<'a, 'measurement> BenchAppContext<'a, 'measurement> {
         );
         let foreground_executor = platform.foreground_executor();
         let asset_source = Arc::new(());
-        let http_client = http_client::FakeHttpClient::with_404_response();
+        let http_client: Arc<dyn http_client::HttpClient> =
+            Arc::new(http_client::BlockedHttpClient::new());
         let app = App::new_app(platform, asset_source, http_client);
 
         Self {

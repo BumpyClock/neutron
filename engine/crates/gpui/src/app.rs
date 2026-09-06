@@ -23,7 +23,7 @@ use slotmap::SlotMap;
 
 use crate::util::{ResultExt, debug_panic};
 pub use async_context::*;
-#[cfg(feature = "bench")]
+#[cfg(feature = "bench-support")]
 pub use bench_context::{BenchAppContext, BenchReport, BenchWindowContext, bench_platform};
 use collections::{FxHashMap, FxHashSet, HashMap, TypeIdHashMap, TypeIdHashSet, VecDeque};
 pub use context::*;
@@ -52,7 +52,7 @@ use crate::{
 };
 
 mod async_context;
-#[cfg(feature = "bench")]
+#[cfg(feature = "bench-support")]
 mod bench_context;
 mod context;
 mod entity_map;
@@ -1725,7 +1725,7 @@ impl App {
                     }
                 }
             } else {
-                #[cfg(any(test, feature = "test-support", feature = "bench"))]
+                #[cfg(any(test, feature = "test-support", feature = "bench-support"))]
                 for window in self
                     .windows
                     .values()
@@ -1891,6 +1891,7 @@ impl App {
 
             cx.window_update_stack.push(window.handle.id);
             let result = update(root_view, &mut window, cx);
+            window.defer_pending_input_changed(cx);
             fn trail(id: WindowId, window: Box<Window>, cx: &mut App) -> Option<()> {
                 cx.window_update_stack.pop();
 
@@ -2469,11 +2470,8 @@ impl App {
     pub(crate) fn clear_pending_keystrokes(&mut self) {
         for window in self.windows() {
             window
-                .update(self, |_, window, cx| {
-                    if window.pending_input_keystrokes().is_some() {
-                        window.clear_pending_keystrokes();
-                        window.pending_input_changed(cx);
-                    }
+                .update(self, |_, window, _| {
+                    window.clear_pending_keystrokes();
                 })
                 .ok();
         }

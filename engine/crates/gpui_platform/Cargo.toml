@@ -18,6 +18,7 @@ path = "src/gpui_platform.rs"
 [features]
 default = ["wayland", "x11"]
 font-kit = ["gpui_macos/font-kit"]
+bench-support = ["gpui/bench-support"]
 test-support = [
   "gpui/test-support",
   "gpui_linux/wayland-conformance",

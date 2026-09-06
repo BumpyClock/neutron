@@ -1102,6 +1102,7 @@ pub struct Window {
     focus_enabled: bool,
     pub(crate) focus_generation: u64,
     pending_input: Option<PendingInput>,
+    pending_input_notification: bool,
     pending_modifier: ModifierState,
     pub(crate) pending_input_observers: SubscriberSet<(), AnyObserver>,
     prompt: Option<RenderablePromptHandle>,
@@ -1719,6 +1720,7 @@ impl Window {
             focus_enabled: true,
             focus_generation: 0,
             pending_input: None,
+            pending_input_notification: false,
             pending_modifier: ModifierState::default(),
             pending_input_observers: SubscriberSet::new(),
             prompt: None,
@@ -2000,23 +2002,15 @@ impl Window {
         self.focus = Some(handle.id);
         self.focus_generation = self.focus_generation.wrapping_add(1);
         self.clear_pending_keystrokes();
-
-        // Avoid re-entrant entity updates by deferring observer notifications to the end of the
-        // current effect cycle, and only for this window.
-        let window_handle = self.handle;
-        cx.defer(move |cx| {
-            window_handle
-                .update(cx, |_, window, cx| {
-                    window.pending_input_changed(cx);
-                })
-                .ok();
-        });
+        self.defer_pending_input_changed(cx);
 
         self.refresh();
     }
 
     /// Remove focus from all elements within this context's window.
     pub fn blur(&mut self) {
+        self.clear_pending_keystrokes();
+
         if !self.focus_enabled {
             return;
         }
@@ -2822,7 +2816,7 @@ impl Window {
     }
 
     /// Presents the most recently drawn frame if it has not been presented.
-    #[cfg(feature = "bench")]
+    #[cfg(feature = "bench-support")]
     pub fn present_if_needed(&self) {
         if self.needs_present.get() {
             self.present();
@@ -5137,6 +5131,21 @@ impl Window {
             .retain(&(), |callback| callback(self, cx));
     }
 
+    pub(crate) fn defer_pending_input_changed(&mut self, cx: &mut App) {
+        if !mem::take(&mut self.pending_input_notification) {
+            return;
+        }
+
+        // App drains this flag after a window update so blur can retain its context-free API.
+        // Defer observer callbacks to avoid reentrant entity updates.
+        let window_handle = self.handle;
+        cx.defer(move |cx| {
+            window_handle
+                .update(cx, |_, window, cx| window.pending_input_changed(cx))
+                .ok();
+        });
+    }
+
     fn dispatch_key_down_up_event(
         &mut self,
         event: &dyn Any,
@@ -5201,7 +5210,14 @@ impl Window {
     }
 
     pub(crate) fn clear_pending_keystrokes(&mut self) {
-        self.pending_input.take();
+        if self.pending_input.take().is_some() {
+            self.pending_input_notification = true;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_input_is_none(&self) -> bool {
+        self.pending_input.is_none()
     }
 
     /// Returns the currently pending input keystrokes that might result in a multi-stroke key binding.

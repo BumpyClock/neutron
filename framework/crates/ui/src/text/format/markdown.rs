@@ -71,8 +71,9 @@ fn parse_paragraph(paragraph: &mut Paragraph, node: &mdast::Node, cx: &mut NodeC
             });
         }
         Node::Text(val) => {
-            text = val.value.clone();
-            paragraph.push_str(&val.value)
+            // Soft breaks reflow to spaces. Explicit hard breaks have their own AST node.
+            text = val.value.replace("\r\n", " ").replace(['\n', '\r'], " ");
+            paragraph.push_str(&text)
         }
         Node::Emphasis(val) => {
             let mut child_paragraph = Paragraph::default();
@@ -145,6 +146,10 @@ fn parse_paragraph(paragraph: &mut Paragraph, node: &mdast::Node, cx: &mut NodeC
                 alt: Some(raw.alt.clone().into()),
                 ..Default::default()
             });
+        }
+        Node::Break(_) => {
+            text.push('\n');
+            paragraph.push(InlineNode::new("\n"));
         }
         Node::InlineMath(raw) => {
             text = raw.value.clone();
@@ -438,6 +443,90 @@ fn ast_to_node(
                 tracing::warn!("unsupported node: {:#?}", value);
             }
             BlockNode::Unknown
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_paragraph_source(source: &str) -> Paragraph {
+        let document = parse(
+            source,
+            &mut NodeContext::default(),
+            &HighlightTheme::default_light(),
+        )
+        .unwrap();
+        assert_eq!(document.source.as_ref(), source);
+        assert_eq!(document.blocks.len(), 1);
+        let BlockNode::Paragraph(paragraph) = document.blocks.into_iter().next().unwrap() else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(
+            paragraph.span,
+            Some(Span {
+                start: 0,
+                end: source.len(),
+            })
+        );
+        paragraph
+    }
+
+    #[test]
+    fn test_soft_break_reflows_to_space() {
+        for ending in ["\n", "\r\n", "\r"] {
+            for (first, second) in [("first line", "second line"), ("你好", "世界")] {
+                let paragraph = parse_paragraph_source(&format!("{first}{ending}{second}"));
+                assert_eq!(paragraph.children.len(), 1);
+                assert_eq!(
+                    paragraph.children[0].text.as_ref(),
+                    format!("{first} {second}")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_hard_break_renders_newline() {
+        for ending in ["\n", "\r\n", "\r"] {
+            for marker in ["  ", "\\"] {
+                let paragraph = parse_paragraph_source(&format!("first{marker}{ending}second"));
+                let texts: Vec<_> = paragraph
+                    .children
+                    .iter()
+                    .map(|child| child.text.as_ref())
+                    .collect();
+                assert_eq!(texts, ["first", "\n", "second"]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_soft_break_preserves_explicit_breaks() {
+        let paragraph = parse_paragraph_source("a\nb  \nc<br>d");
+        let texts: Vec<_> = paragraph
+            .children
+            .iter()
+            .map(|child| child.text.as_ref())
+            .collect();
+        assert_eq!(texts, ["a b", "\n", "c", "\n", "d"]);
+    }
+
+    #[test]
+    fn test_breaks_preserve_inline_marks() {
+        for (source, expected) in [
+            ("**你好\n世界**", "你好 世界"),
+            ("**first  \nsecond**", "first\nsecond"),
+            ("**first\\\nsecond**", "first\nsecond"),
+        ] {
+            let paragraph = parse_paragraph_source(source);
+            let child = &paragraph.children[0];
+            assert_eq!(child.text.as_ref(), expected);
+            assert_eq!(
+                child.marks,
+                vec![(0..expected.len(), TextMark::default().bold())]
+            );
         }
     }
 }

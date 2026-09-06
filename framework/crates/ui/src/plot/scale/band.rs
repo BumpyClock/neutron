@@ -15,7 +15,18 @@ pub struct ScaleBand<T> {
 }
 
 impl<T> ScaleBand<T> {
-    pub fn new(domain: Vec<T>, range: Vec<f32>) -> Self {
+    /// Create a scale with one band per distinct value, in first-occurrence order.
+    pub fn new(domain: Vec<T>, range: Vec<f32>) -> Self
+    where
+        T: PartialEq,
+    {
+        let mut unique = Vec::with_capacity(domain.len());
+        for value in domain {
+            if !unique.contains(&value) {
+                unique.push(value);
+            }
+        }
+        let domain = unique;
         let len = domain.len() as f32;
         let range_diff = range
             .iter()
@@ -111,6 +122,45 @@ mod tests {
         assert_eq!(scale.tick(&2), Some(30.));
         assert_eq!(scale.tick(&3), Some(60.));
         assert_eq!(scale.band_width(), 30.);
+    }
+
+    #[test]
+    fn test_scale_band_dedup() {
+        let scale = ScaleBand::new(vec![3, 1, 3, 2, 1, 2], vec![0., 90.]);
+        assert_eq!(scale.tick(&3), Some(0.));
+        assert_eq!(scale.tick(&1), Some(30.));
+        assert_eq!(scale.tick(&2), Some(60.));
+        assert_eq!(scale.tick(&4), None);
+        assert_eq!(scale.band_width(), 30.);
+        assert_eq!(scale.least_index(-30.), 0);
+        assert_eq!(scale.least_index(30.), 1);
+        assert_eq!(scale.least_index(60.), 2);
+        assert_eq!(scale.least_index(150.), 2);
+    }
+
+    #[test]
+    fn test_scale_band_dedup_with_padding() {
+        let scale = ScaleBand::new(vec![3, 1, 3, 2, 1, 2], vec![0., 90.])
+            .padding_inner(0.5)
+            .padding_outer(0.5);
+        assert_eq!(scale.band_width(), 15.);
+        assert_eq!(scale.tick(&3), Some(15.));
+        assert_eq!(scale.tick(&1), Some(40.));
+        assert_eq!(scale.tick(&2), Some(65.));
+        assert_eq!(scale.least_index(15.), 0);
+        assert_eq!(scale.least_index(40.), 1);
+        assert_eq!(scale.least_index(65.), 2);
+    }
+
+    #[test]
+    fn test_scale_band_dedup_single_partial_eq_value() {
+        let scale = ScaleBand::new(vec![1.5_f32, 1.5, 1.5], vec![0., 90.]);
+        assert_eq!(scale.band_width(), 30.);
+        assert_eq!(scale.tick(&1.5), Some(30.));
+        assert_eq!(scale.tick(&2.5), None);
+        assert_eq!(scale.least_index(-30.), 0);
+        assert_eq!(scale.least_index(30.), 0);
+        assert_eq!(scale.least_index(150.), 0);
     }
 
     #[test]

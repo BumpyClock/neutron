@@ -1,10 +1,11 @@
 use std::rc::Rc;
 
 use gpui::{
-    AbsoluteLength, AnimationExt as _, AnyElement, App, ClickEvent, DefiniteLength, DismissEvent,
-    Edges, EventEmitter, FocusHandle, InteractiveElement as _, IntoElement, KeyBinding,
-    MouseButton, ParentElement, Pixels, RenderOnce, SharedString, StyleRefinement, Styled, Window,
-    WindowControlArea, anchored, div, point, prelude::FluentBuilder as _, px,
+    AbsoluteLength, AnimationExt as _, AnyElement, App, Bounds, ClickEvent, Decorations,
+    DefiniteLength, DismissEvent, Edges, EventEmitter, FocusHandle, InteractiveElement as _,
+    IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, RenderOnce, SharedString,
+    StyleRefinement, Styled, Window, WindowControlArea, anchored, div, point,
+    prelude::FluentBuilder as _, px,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,39 @@ use crate::{
 };
 
 const CONTEXT: &str = "Sheet";
+
+fn sheet_content_bounds(
+    viewport: gpui::Size<Pixels>,
+    decorations: Decorations,
+    mut insets: Edges<Pixels>,
+) -> Bounds<Pixels> {
+    match decorations {
+        Decorations::Server => insets = Edges::all(px(0.)),
+        Decorations::Client { tiling } => {
+            // WindowBorder adds a one-pixel border only on non-tiled client edges.
+            for (inset, tiled) in [
+                (&mut insets.top, tiling.top),
+                (&mut insets.right, tiling.right),
+                (&mut insets.bottom, tiling.bottom),
+                (&mut insets.left, tiling.left),
+            ] {
+                if tiled {
+                    *inset = px(0.);
+                } else {
+                    *inset += px(1.);
+                }
+            }
+        }
+    }
+    Bounds::new(
+        point(insets.left, insets.top),
+        gpui::size(
+            (viewport.width - insets.left - insets.right).max(px(0.)),
+            (viewport.height - insets.top - insets.bottom).max(px(0.)),
+        ),
+    )
+}
+
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("escape", Cancel, Some(CONTEXT))])
 }
@@ -139,12 +173,12 @@ impl Styled for Sheet {
 impl RenderOnce for Sheet {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let placement = self.placement;
-        let window_paddings = crate::window_border::window_paddings(window);
-        let size = window.viewport_size()
-            - gpui::size(
-                window_paddings.left + window_paddings.right,
-                window_paddings.top + window_paddings.bottom,
-            );
+        let content_bounds = sheet_content_bounds(
+            window.viewport_size(),
+            window.window_decorations(),
+            crate::window_border::window_paddings(window),
+        );
+        let size = content_bounds.size;
         let top = cx.theme().sheet.margin_top;
         let reduced_motion = crate::animation::reduced_motion(cx);
         let motion = &cx.theme().motion;
@@ -175,6 +209,7 @@ impl RenderOnce for Sheet {
         if let Some(pl) = self.style.padding.left {
             paddings.left = pl.to_pixels(base_size, rem_size);
         }
+
         if let Some(pr) = self.style.padding.right {
             paddings.right = pr.to_pixels(base_size, rem_size);
         }
@@ -186,10 +221,11 @@ impl RenderOnce for Sheet {
         }
 
         anchored()
-            .position(point(window_paddings.left, window_paddings.top))
+            .position(content_bounds.origin)
             .snap_to_window()
             .child(
                 div()
+                    .debug_selector(|| "sheet-frame".into())
                     .occlude()
                     .w(size.width)
                     .h(size.height)
@@ -201,7 +237,7 @@ impl RenderOnce for Sheet {
                         .on_any_mouse_down({
                             let on_close = self.on_close.clone();
                             move |event, window, cx| {
-                                if event.position.y < top {
+                                if event.position.y < content_bounds.top() + top {
                                     return;
                                 }
 
@@ -216,6 +252,7 @@ impl RenderOnce for Sheet {
                     .child(
                         v_flex()
                             .id("sheet")
+                            .debug_selector(|| "sheet-surface".into())
                             .key_context(CONTEXT)
                             .track_focus(&self.focus_handle)
                             .focus_trap("sheet", &self.focus_handle)
@@ -322,5 +359,103 @@ impl RenderOnce for Sheet {
                             }),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{AppContext as _, Empty, TestAppContext, Tiling, size};
+
+    #[gpui::test]
+    fn geometry_sheet_placements_stay_inside_root_frame(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let (root, cx) = cx.add_window_view(|window, cx| {
+            let content = cx.new(|_| Empty);
+            crate::Root::new(content, window, cx)
+        });
+        cx.simulate_resize(size(px(800.), px(600.)));
+        let top = cx.update(|_, cx| cx.theme().sheet.margin_top);
+        for placement in [
+            Placement::Top,
+            Placement::Right,
+            Placement::Bottom,
+            Placement::Left,
+        ] {
+            root.update_in(cx, |root, window, cx| {
+                root.open_sheet_at(placement, |sheet, _, _| sheet, window, cx);
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(
+                cx.debug_bounds("sheet-frame").unwrap(),
+                Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.))),
+            );
+            let surface = cx.debug_bounds("sheet-surface").unwrap();
+            let expected = match placement {
+                Placement::Top => Bounds::new(point(px(0.), top), size(px(800.), px(350.))),
+                Placement::Right => {
+                    Bounds::new(point(px(450.), top), size(px(350.), px(600.) - top))
+                }
+                Placement::Bottom => Bounds::new(point(px(0.), px(250.)), size(px(800.), px(350.))),
+                Placement::Left => Bounds::new(point(px(0.), top), size(px(350.), px(600.) - top)),
+            };
+            assert_eq!(surface, expected);
+        }
+    }
+
+    #[test]
+    fn geometry_sheet_matches_client_frame_for_every_tiled_edge() {
+        for mask in 0..16 {
+            let tiling = Tiling {
+                top: mask & 1 != 0,
+                right: mask & 2 != 0,
+                bottom: mask & 4 != 0,
+                left: mask & 8 != 0,
+            };
+            let bounds = sheet_content_bounds(
+                size(px(800.), px(600.)),
+                Decorations::Client { tiling },
+                Edges::all(px(12.)),
+            );
+            assert_eq!(bounds.top(), if tiling.top { px(0.) } else { px(13.) });
+            assert_eq!(bounds.left(), if tiling.left { px(0.) } else { px(13.) });
+            assert_eq!(
+                bounds.right(),
+                if tiling.right { px(800.) } else { px(787.) }
+            );
+            assert_eq!(
+                bounds.bottom(),
+                if tiling.bottom { px(600.) } else { px(587.) }
+            );
+        }
+    }
+
+    #[test]
+    fn geometry_sheet_server_frame_has_no_client_insets() {
+        assert_eq!(
+            sheet_content_bounds(
+                size(px(800.), px(600.)),
+                Decorations::Server,
+                Edges::all(px(12.)),
+            ),
+            Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.))),
+        );
+    }
+
+    #[test]
+    fn geometry_sheet_client_frame_without_shadow_retains_only_border() {
+        assert_eq!(
+            sheet_content_bounds(
+                size(px(800.), px(600.)),
+                Decorations::Client {
+                    tiling: Tiling::default()
+                },
+                Edges::all(px(0.)),
+            ),
+            Bounds::new(point(px(1.), px(1.)), size(px(798.), px(598.))),
+        );
     }
 }

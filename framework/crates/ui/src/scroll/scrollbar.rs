@@ -848,8 +848,6 @@ impl Element for Scrollbar {
 
                                         scroll_handle.start_drag();
                                         state.set(state.get().with_drag_pos(axis, pos));
-
-                                        cx.notify(view_id);
                                     } else {
                                         // click on the scrollbar, jump to the position
                                         // Set the thumb bar center to the click position
@@ -877,6 +875,7 @@ impl Element for Scrollbar {
                                             ));
                                         }
                                     }
+                                    cx.notify(view_id);
                                 }
                             }
                         });
@@ -986,5 +985,116 @@ impl Element for Scrollbar {
                 }
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{
+        AppContext as _, Context, Modifiers, MouseButton, ParentElement as _, Render, Styled as _,
+        TestAppContext, VisualTestContext, div,
+    };
+
+    #[derive(Clone, Default)]
+    struct TestScrollHandle {
+        offset: Rc<Cell<Point<Pixels>>>,
+        drag_starts: Rc<Cell<usize>>,
+    }
+
+    impl ScrollbarHandle for TestScrollHandle {
+        fn offset(&self) -> Point<Pixels> {
+            self.offset.get()
+        }
+
+        fn set_offset(&self, offset: Point<Pixels>) {
+            self.offset.set(offset);
+        }
+
+        fn content_size(&self) -> Size<Pixels> {
+            size(px(600.), px(600.))
+        }
+
+        fn start_drag(&self) {
+            self.drag_starts.set(self.drag_starts.get() + 1);
+        }
+    }
+
+    struct ScrollbarHarness {
+        handle: TestScrollHandle,
+        axis: Axis,
+    }
+
+    impl Render for ScrollbarHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().relative().size(px(200.)).child(
+                Scrollbar::new(&self.handle)
+                    .axis(self.axis)
+                    .scrollbar_show(ScrollbarShow::Always),
+            )
+        }
+    }
+
+    #[gpui::test]
+    fn scrollbar_track_and_thumb_clicks_notify_without_idle_repaints(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for axis in [Axis::Vertical, Axis::Horizontal] {
+            let handle = TestScrollHandle::default();
+            let window = cx.update(|cx| {
+                cx.open_window(Default::default(), |_, cx| {
+                    cx.new(|_| ScrollbarHarness {
+                        handle: handle.clone(),
+                        axis,
+                    })
+                })
+                .unwrap()
+            });
+            let mut visual_cx = VisualTestContext::from_window(window.into(), cx);
+            let harness = window.root(&mut visual_cx).unwrap();
+            let notifications = Rc::new(Cell::new(0));
+            let _subscription = visual_cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                let notifications = notifications.clone();
+                cx.observe(&harness, move |_, _| {
+                    notifications.set(notifications.get() + 1);
+                })
+            });
+            let position = |along| {
+                if axis.is_vertical() {
+                    point(px(190.), px(along))
+                } else {
+                    point(px(along), px(190.))
+                }
+            };
+
+            visual_cx.simulate_mouse_down(position(120.), MouseButton::Left, Modifiers::none());
+            let offset = handle.offset();
+            if axis.is_vertical() {
+                assert!(offset.y < px(0.));
+                assert_eq!(offset.x, px(0.));
+            } else {
+                assert!(offset.x < px(0.));
+                assert_eq!(offset.y, px(0.));
+            }
+            assert!(notifications.get() > 0, "a track jump must notify its view");
+            assert_eq!(handle.drag_starts.get(), 0);
+
+            visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+            let after_jump = notifications.get();
+            visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+            visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(notifications.get(), after_jump);
+
+            handle.set_offset(point(px(0.), px(0.)));
+            visual_cx.update(|window, cx| window.draw(cx).clear(cx));
+            notifications.set(0);
+            visual_cx.simulate_mouse_down(position(20.), MouseButton::Left, Modifiers::none());
+            assert_eq!(handle.drag_starts.get(), 1);
+            assert_eq!(handle.offset(), point(px(0.), px(0.)));
+            assert!(
+                notifications.get() > 0,
+                "a thumb press must notify its view"
+            );
+        }
     }
 }

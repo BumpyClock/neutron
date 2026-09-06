@@ -155,7 +155,7 @@ impl RenderOnce for ResizablePanelGroup {
             )
             .on_prepaint({
                 let state = state.clone();
-                move |bounds, _, cx| {
+                move |bounds, window, cx| {
                     state.update(cx, |state, cx| {
                         let size_changed =
                             state.bounds.size.along(self.axis) != bounds.size.along(self.axis);
@@ -164,6 +164,11 @@ impl RenderOnce for ResizablePanelGroup {
 
                         if size_changed {
                             state.adjust_to_container_size(cx);
+                            // Layout is complete. Notify after the draw to schedule one corrective frame.
+                            let state = cx.entity();
+                            window.defer(cx, move |_, cx| {
+                                state.update(cx, |_, cx| cx.notify());
+                            });
                         }
                     })
                 }
@@ -401,5 +406,109 @@ impl Element for ResizePanelGroupElement {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{TestAppContext, VisualTestContext, px};
+
+    struct GeometryHarness {
+        extent: Pixels,
+        axis: Axis,
+        state: Option<Entity<ResizableState>>,
+    }
+
+    impl Render for GeometryHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let mut group = ResizablePanelGroup::new("geometry").axis(self.axis);
+            if let Some(state) = &self.state {
+                group = group.with_state(state);
+            }
+            div()
+                .map(|this| match self.axis {
+                    Axis::Horizontal => this.w(self.extent).h(px(400.)),
+                    Axis::Vertical => this.h(self.extent).w(px(400.)),
+                })
+                .child(
+                    group
+                        .child(
+                            resizable_panel()
+                                .size(px(240.))
+                                .child(div().size_full().debug_selector(|| "fixed-panel".into())),
+                        )
+                        .child(resizable_panel().child(div().size_full())),
+                )
+        }
+    }
+
+    fn geometry_window(
+        cx: &mut TestAppContext,
+        axis: Axis,
+        caller_owned: bool,
+    ) -> (Entity<GeometryHarness>, &mut VisualTestContext) {
+        let state = caller_owned.then(|| cx.new(|_| ResizableState::default()));
+        let mut harness = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|_| GeometryHarness {
+                extent: px(800.),
+                axis,
+                state,
+            });
+            harness = Some(view.clone());
+            crate::Root::new(view, window, cx)
+        });
+        cx.simulate_resize(gpui::size(px(1400.), px(1400.)));
+        cx.run_until_parked();
+        (harness.unwrap(), cx)
+    }
+
+    fn assert_settles_after_resize(cx: &mut TestAppContext, caller_owned: bool) {
+        cx.update(crate::init);
+        let (view, cx) = geometry_window(cx, Axis::Horizontal, caller_owned);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        let before = cx.debug_bounds("fixed-panel").unwrap().size.width;
+
+        view.update(cx, |view, cx| {
+            view.extent = px(1200.);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let settled = cx.debug_bounds("fixed-panel").unwrap().size.width;
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let followup = cx.debug_bounds("fixed-panel").unwrap().size.width;
+
+        assert!(settled > before);
+        assert_eq!(settled, followup, "resize must not wait for another input");
+    }
+
+    #[gpui::test]
+    fn geometry_keyed_state_settles_after_resize(cx: &mut TestAppContext) {
+        assert_settles_after_resize(cx, false);
+    }
+
+    #[gpui::test]
+    fn geometry_caller_owned_state_settles_after_resize(cx: &mut TestAppContext) {
+        assert_settles_after_resize(cx, true);
+    }
+
+    #[gpui::test]
+    fn geometry_divider_keeps_one_pixel_on_both_axes(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for axis in [Axis::Horizontal, Axis::Vertical] {
+            let (_, cx) = geometry_window(cx, axis, true);
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let bounds = cx.debug_bounds("resize-divider").unwrap();
+            assert_eq!(bounds.size.along(axis), px(1.));
+            assert_eq!(
+                bounds.size.along(match axis {
+                    Axis::Horizontal => Axis::Vertical,
+                    Axis::Vertical => Axis::Horizontal,
+                }),
+                px(400.)
+            );
+        }
     }
 }

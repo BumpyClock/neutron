@@ -155,6 +155,8 @@ impl<T: 'static, E: 'static + Render> Element for ResizeHandle<T, E> {
                 })
                 .child(
                     div()
+                        .debug_selector(|| "resize-divider".into())
+                        .flex_none()
                         .bg(bg_color)
                         .group_hover("handle", move |this| this.bg(hover_color))
                         .when(axis.is_horizontal(), |this| this.h_full().w(HANDLE_SIZE))

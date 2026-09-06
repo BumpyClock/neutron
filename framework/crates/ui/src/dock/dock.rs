@@ -296,15 +296,24 @@ impl Dock {
         let axis = self.placement.axis();
         let view = cx.entity();
 
-        resize_handle("resize-handle", axis)
-            .placement(self.placement)
-            .on_drag(ResizePanel {}, move |info, _, _, cx| {
+        // Sibling docks share a stateful ancestor, but must not share drag state.
+        let id = match self.placement {
+            DockPlacement::Left => "resize-handle-left",
+            DockPlacement::Right => "resize-handle-right",
+            DockPlacement::Bottom => "resize-handle-bottom",
+            DockPlacement::Center => "resize-handle-center",
+        };
+
+        resize_handle(id, axis).placement(self.placement).on_drag(
+            ResizePanel {},
+            move |info, _, _, cx| {
                 cx.stop_propagation();
                 view.update(cx, |view, _| {
                     view.resizing = true;
                 });
                 cx.new(|_| info.deref().clone())
-            })
+            },
+        )
     }
     fn resize(&mut self, mouse_position: Point<Pixels>, _: &mut Window, cx: &mut Context<Self>) {
         if !self.resizing {
@@ -484,5 +493,56 @@ impl Element for DockElement {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Modifiers, MouseButton, TestAppContext, point, size};
+
+    #[gpui::test]
+    fn geometry_left_resize_does_not_capture_right_dock(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let mut area = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| DockArea::new("geometry", None, window, cx));
+            area = Some(view.clone());
+            crate::Root::new(view, window, cx)
+        });
+        let area = area.unwrap();
+        cx.simulate_resize(size(px(800.), px(600.)));
+        area.update_in(cx, |area, window, cx| {
+            let weak = cx.entity().downgrade();
+            let left = DockItem::tabs(vec![], &weak, window, cx);
+            let right = DockItem::tabs(vec![], &weak, window, cx);
+            area.set_left_dock(left, Some(px(200.)), true, window, cx);
+            area.set_right_dock(right, Some(px(200.)), true, window, cx);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.simulate_mouse_down(
+            point(px(198.5), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        for x in [204., 240.] {
+            cx.simulate_mouse_move(point(px(x), px(300.)), MouseButton::Left, Modifiers::none());
+        }
+        cx.simulate_mouse_up(
+            point(px(240.), px(300.)),
+            MouseButton::Left,
+            Modifiers::none(),
+        );
+        cx.run_until_parked();
+
+        area.read_with(cx, |area, cx| {
+            assert_eq!(area.left_dock.as_ref().unwrap().read(cx).size, px(240.));
+            assert_eq!(area.right_dock.as_ref().unwrap().read(cx).size, px(200.));
+            assert!(!area.left_dock.as_ref().unwrap().read(cx).resizing);
+            assert!(!area.right_dock.as_ref().unwrap().read(cx).resizing);
+        });
     }
 }

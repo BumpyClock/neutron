@@ -562,6 +562,50 @@ mod tests {
         });
     }
 
+    #[gpui::test]
+    fn menu_projection_replaces_and_clears_platform_snapshots(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(CommandRegistry::new());
+            let command = |label| {
+                RuntimeCommand::new(CommandId("tool"), label, CommandScope::App, A)
+                    .with_placement(super::super::MenuPlacement::new("Tools", 0, 0))
+            };
+            crate::commands::install_declared_commands(cx, vec![command("First")]).unwrap();
+            cx.global_mut::<CommandRegistry>()
+                .set_plan(menu::MenuPlan::from_keys(["Tools"]));
+            menus_invalidate(cx);
+            cx.global_mut::<CommandRegistry>().activate();
+
+            let initial = cx
+                .get_menus()
+                .expect("TestPlatform retains submitted menus");
+            assert_eq!(initial.len(), 1);
+            assert_eq!(initial[0].name.as_ref(), "Tools");
+            let gpui::OwnedMenuItem::Action { name, action, .. } = &initial[0].items[0] else {
+                panic!("expected the projected command");
+            };
+            assert_eq!(name, "First");
+            assert!(action.as_any().is::<A>());
+
+            crate::commands::replace_declared_command(cx, command("Second")).unwrap();
+            let replacement = cx.get_menus().unwrap();
+            let gpui::OwnedMenuItem::Action { name, action, .. } = &replacement[0].items[0] else {
+                panic!("expected the replacement command");
+            };
+            assert_eq!(name, "Second");
+            assert!(action.as_any().is::<A>());
+            let gpui::OwnedMenuItem::Action { name, .. } = &initial[0].items[0] else {
+                panic!("expected the original snapshot");
+            };
+            assert_eq!(name, "First");
+
+            cx.global_mut::<CommandRegistry>()
+                .set_plan(menu::MenuPlan::from_keys([]));
+            menus_invalidate(cx);
+            assert!(cx.get_menus().unwrap().is_empty());
+        });
+    }
+
     /// The chords currently bound to `action`, as rendered keystrokes.
     fn chords_bound_to(cx: &App, action: &dyn gpui::Action) -> Vec<String> {
         let keymap = cx.key_bindings();

@@ -94,6 +94,11 @@ impl TextViewState {
                     _ = weak_self.update(cx, |state, cx| {
                         if let Err(err) = &parsed_result {
                             state.parsed_error = Some(err.clone());
+                        } else {
+                            // A parse can change block heights without a different block count.
+                            state
+                                .list_state
+                                .remeasure_items(0..state.list_state.item_count());
                         }
                         state.clear_selection();
                         cx.notify();
@@ -433,7 +438,99 @@ fn selection_points(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{point, px};
+    use gpui::{Entity, TestAppContext, div, point, px, size};
+
+    struct MeasuredTextBlocks(ListState);
+
+    impl Render for MeasuredTextBlocks {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            gpui::list(self.0.clone(), |_, _, _| {
+                div().w_full().h(px(30.)).into_any_element()
+            })
+            .size_full()
+        }
+    }
+
+    async fn wait_for_source(state: &Entity<TextViewState>, source: &str, cx: &mut TestAppContext) {
+        let mut notifications = cx.notifications(state);
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "The parser debounce uses wall time. A simulated timeout can expire before it runs."
+        )]
+        let timeout = Timer::after(Duration::from_secs(3));
+        smol::future::race(
+            async {
+                loop {
+                    notifications.next().await.unwrap();
+                    if state.read_with(cx, |state, _| state.source().as_ref() == source) {
+                        return;
+                    }
+                }
+            },
+            async {
+                timeout.await;
+                panic!("text parse did not complete");
+            },
+        )
+        .await;
+    }
+
+    #[gpui::test]
+    async fn test_text_replacement_invalidates_measured_heights(cx: &mut TestAppContext) {
+        // The parser uses a wall-clock smol timer rather than the GPUI test clock.
+        cx.executor().allow_parking();
+        cx.update(crate::init);
+
+        for (format, short, tall, block_count) in [
+            (
+                TextViewFormat::Markdown,
+                "first\n\nsecond",
+                "longer first\n\nlonger second",
+                2,
+            ),
+            (
+                TextViewFormat::Html,
+                "<p>first</p><p>second</p>",
+                "<p>longer first</p><p>longer second</p>",
+                1,
+            ),
+        ] {
+            let state = cx.new(|cx| TextViewState::new(format, short, cx));
+            wait_for_source(&state, short, cx).await;
+            let list_state = state.read_with(cx, |state, _| state.list_state.clone());
+            state.read_with(cx, |state, _| {
+                assert_eq!(
+                    state.parsed_content.lock().unwrap().document.blocks.len(),
+                    block_count
+                );
+            });
+            list_state.reset(block_count);
+
+            let (_, window) = cx.add_window_view(|_, _| MeasuredTextBlocks(list_state.clone()));
+            window.simulate_resize(size(px(300.), px(100.)));
+            window.update(|window, cx| window.draw(cx).clear(cx));
+            for ix in 0..block_count {
+                assert!(list_state.bounds_for_item(ix).is_some());
+            }
+
+            state.update(cx, |state, cx| state.set_text(short, cx));
+            assert!(list_state.bounds_for_item(0).is_some());
+
+            state.update(cx, |state, cx| state.set_text(tall, cx));
+            wait_for_source(&state, tall, cx).await;
+
+            state.read_with(cx, |state, _| {
+                assert_eq!(
+                    state.parsed_content.lock().unwrap().document.blocks.len(),
+                    block_count
+                );
+                assert_eq!(state.list_state.item_count(), block_count);
+                for ix in 0..block_count {
+                    assert!(state.list_state.bounds_for_item(ix).is_none());
+                }
+            });
+        }
+    }
 
     #[test]
     fn test_text_view_state_selection_points() {

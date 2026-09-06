@@ -214,6 +214,8 @@ where
     }
 
     /// Set a specific list item for measurement.
+    ///
+    /// If absent, use the first row in the first nonempty section without changing this index.
     pub fn set_item_to_measure_index(
         &mut self,
         ix: IndexPath,
@@ -447,29 +449,43 @@ where
     }
 
     fn prepare_items_if_needed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let sections_count = self.delegate.sections_count(cx).max(1);
+        let sections_count = self.delegate.sections_count(cx);
         let mut measured_size = MeasuredEntrySize::default();
 
         // Measure the item_height and section header/footer height.
         let available_space = size(AvailableSpace::MinContent, AvailableSpace::MinContent);
-        measured_size.item_size = self
-            .render_list_item(self.item_to_measure_index, window, cx)
-            .into_any_element()
-            .layout_as_root(available_space, window, cx);
-
-        if let Some(mut el) = self
-            .delegate
-            .render_section_header(0, window, cx)
-            .map(|r| r.into_any_element())
+        let requested = self.item_to_measure_index;
+        let item_to_measure = if requested.section < sections_count
+            && requested.row < self.delegate.items_count(requested.section, cx)
         {
-            measured_size.section_header_size = el.layout_as_root(available_space, window, cx);
+            Some(requested)
+        } else {
+            (0..sections_count)
+                .find(|section| self.delegate.items_count(*section, cx) > 0)
+                .map(|section| IndexPath::default().section(section))
+        };
+        if let Some(index) = item_to_measure {
+            measured_size.item_size = self
+                .render_list_item(index, window, cx)
+                .into_any_element()
+                .layout_as_root(available_space, window, cx);
         }
-        if let Some(mut el) = self
-            .delegate
-            .render_section_footer(0, window, cx)
-            .map(|r| r.into_any_element())
-        {
-            measured_size.section_footer_size = el.layout_as_root(available_space, window, cx);
+
+        if sections_count > 0 {
+            if let Some(mut el) = self
+                .delegate
+                .render_section_header(0, window, cx)
+                .map(|r| r.into_any_element())
+            {
+                measured_size.section_header_size = el.layout_as_root(available_space, window, cx);
+            }
+            if let Some(mut el) = self
+                .delegate
+                .render_section_footer(0, window, cx)
+                .map(|r| r.into_any_element())
+            {
+                measured_size.section_footer_size = el.layout_as_root(available_space, window, cx);
+            }
         }
 
         self.rows_cache
@@ -795,5 +811,114 @@ where
             .size_full()
             .refine_style(&self.style)
             .child(self.state.clone())
+    }
+}
+
+#[cfg(test)]
+mod measurement_tests {
+    use super::*;
+    use crate::list::ListItem;
+    use gpui::TestAppContext;
+
+    struct MeasurementDelegate {
+        counts: Vec<usize>,
+        measured: Vec<IndexPath>,
+    }
+
+    impl ListDelegate for MeasurementDelegate {
+        type Item = ListItem;
+
+        fn sections_count(&self, _: &App) -> usize {
+            self.counts.len()
+        }
+
+        fn items_count(&self, section: usize, _: &App) -> usize {
+            self.counts[section]
+        }
+
+        fn set_selected_index(
+            &mut self,
+            _: Option<IndexPath>,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) {
+        }
+
+        fn render_item(
+            &mut self,
+            index: IndexPath,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) -> Option<ListItem> {
+            assert!(index.row < self.counts[index.section]);
+            self.measured.push(index);
+            Some(ListItem::new(index.row).h(px(if index.row == 0 { 36. } else { 48. })))
+        }
+    }
+
+    #[gpui::test]
+    fn list_measurement_uses_existing_rows_and_preserves_requested_index(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        cx.draw(
+            gpui::point(px(0.), px(0.)),
+            size(px(300.), px(300.)),
+            |window, cx| {
+                let state = cx.new(|cx| {
+                    ListState::new(
+                        MeasurementDelegate {
+                            counts: vec![0, 2],
+                            measured: Vec::new(),
+                        },
+                        window,
+                        cx,
+                    )
+                });
+                state.update(cx, |list, cx| {
+                    let first = IndexPath::new(0).section(1);
+                    let second = IndexPath::new(1).section(1);
+                    for (requested, expected, height) in [
+                        (IndexPath::default(), first, 36.),
+                        (second, second, 48.),
+                        (IndexPath::new(99).section(1), first, 36.),
+                        (IndexPath::new(0).section(99), first, 36.),
+                    ] {
+                        list.delegate.measured.clear();
+                        list.set_item_to_measure_index(requested, window, cx);
+                        list.prepare_items_if_needed(window, cx);
+                        assert_eq!(list.delegate.measured, vec![expected]);
+                        let position = list.rows_cache.position_of(&first).unwrap();
+                        assert_eq!(list.rows_cache.entries_sizes[position].height, px(height));
+                        assert_eq!(list.item_to_measure_index, requested);
+                    }
+
+                    list.set_item_to_measure_index(second, window, cx);
+                    for (counts, expected) in [
+                        (vec![0, 1], Some(first)),
+                        (vec![0, 0], None),
+                        (vec![], None),
+                        (vec![0, 2], Some(second)),
+                    ] {
+                        list.delegate.counts = counts;
+                        list.delegate.measured.clear();
+                        list.prepare_items_if_needed(window, cx);
+                        assert_eq!(
+                            list.delegate.measured,
+                            expected.into_iter().collect::<Vec<_>>()
+                        );
+                        if expected.is_none() {
+                            assert_eq!(list.rows_cache.items_count(), 0);
+                            assert!(list.rows_cache.entries_sizes.is_empty());
+                        } else {
+                            let position = list.rows_cache.position_of(&first).unwrap();
+                            let height = if expected == Some(second) { 48. } else { 36. };
+                            assert_eq!(list.rows_cache.entries_sizes[position].height, px(height));
+                        }
+                        assert_eq!(list.item_to_measure_index, second);
+                    }
+                });
+                div()
+            },
+        );
     }
 }

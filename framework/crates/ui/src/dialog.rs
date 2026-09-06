@@ -637,6 +637,7 @@ impl RenderOnce for Dialog {
                                 let right = (paddings.right - px(10.)).max(px(8.));
 
                                 Button::new("close")
+                                    .tooltip(t!("Dock.Close"))
                                     .absolute()
                                     .top(top)
                                     .right(right)
@@ -1137,6 +1138,58 @@ mod tests {
 
         assert_eq!(cancel_count.get(), 0);
         assert!(cx.update(|window, cx| window.has_active_dialog(cx)));
+    }
+
+    #[gpui::test]
+    fn dialog_close_button_has_accessible_name_and_action(cx: &mut TestAppContext) {
+        let closes = Rc::new(std::cell::Cell::new(0));
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let host = cx.new(|_| DialogLayerHost);
+                cx.new(|cx| Root::new(host, window, cx))
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let close_id = cx.update(|window, cx| {
+            let closes = closes.clone();
+            window.open_dialog(cx, move |dialog, _, _| {
+                let closes = closes.clone();
+                dialog.animate(false).on_close(move |_, _, _| {
+                    closes.set(closes.get() + 1);
+                })
+            });
+            window.set_a11y_active_for_test(true);
+            window.draw(cx).clear(cx);
+            let label = t!("Dock.Close");
+            let (id, node) = window
+                .last_a11y_tree_for_test()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| {
+                    node.role() == Role::Button && node.label() == Some(label.as_ref())
+                })
+                .expect("dialog close button must have an accessible name");
+            assert!(node.supports_action(gpui::AccessibleAction::Click));
+            *id
+        });
+
+        cx.update(|window, cx| {
+            window.handle_a11y_action_for_test(
+                gpui::accesskit::ActionRequest {
+                    action: gpui::AccessibleAction::Click,
+                    target_tree: gpui::accesskit::TreeId::ROOT,
+                    target_node: close_id,
+                    data: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(closes.get(), 1);
+        assert!(!cx.update(|window, cx| window.has_active_dialog(cx)));
     }
 
     /// An animating dialog already stays mounted for its exit; `defer_close` is

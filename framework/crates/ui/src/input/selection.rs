@@ -70,8 +70,14 @@ impl InputState {
     ///
     /// The offset is the UTF-8 offset.
     pub(super) fn select_word(&mut self, offset: usize, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(range) = TextSelector::word_range(&self.text, offset) else {
-            return;
+        // Select the whole masked value to keep hidden word boundaries out of the highlight.
+        let range = if self.masked {
+            0..self.text.len()
+        } else {
+            let Some(range) = TextSelector::word_range(&self.text, offset) else {
+                return;
+            };
+            range
         };
 
         self.selected_range = (range.start..range.end).into();

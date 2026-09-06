@@ -12,12 +12,15 @@ use crate::{
     v_flex,
 };
 use gpui::{
-    AppContext, Axis, Bounds, ClickEvent, Context, Div, DragMoveEvent, EventEmitter, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, ListSizingBehavior, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Point, Render, ScrollStrategy, SharedString, Stateful,
+    AppContext, Axis, Bounds, ClickEvent, Context, Div, DragMoveEvent, ElementId, EventEmitter,
+    FocusHandle, Focusable, InteractiveElement, IntoElement, ListSizingBehavior, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Point, Render, ScrollStrategy, SharedString, Stateful,
     StatefulInteractiveElement as _, Styled, Task, UniformListScrollHandle, Window, div,
     prelude::FluentBuilder, px, uniform_list,
 };
+
+const HANDLE_SIZE: Pixels = px(2.);
+const HANDLE_PADDING: Pixels = px(4.);
 
 use super::{
     navigation::{
@@ -135,6 +138,7 @@ pub struct TableState<D: TableDelegate> {
 
     pub vertical_scroll_handle: UniformListScrollHandle,
     pub horizontal_scroll_handle: VirtualListScrollHandle,
+    pending_scroll_to_col: Option<usize>,
 
     selected_row: Option<usize>,
     selection_mode: SelectionMode,
@@ -165,6 +169,7 @@ where
             delegate,
             col_groups: Vec::new(),
             horizontal_scroll_handle: VirtualListScrollHandle::new(),
+            pending_scroll_to_col: None,
             vertical_scroll_handle: UniformListScrollHandle::new(),
             selection_mode: SelectionMode::Row,
             selected_row: None,
@@ -258,11 +263,40 @@ where
 
     // Scroll to the column at the given index.
     pub fn scroll_to_col(&mut self, col_ix: usize, cx: &mut Context<Self>) {
-        let col_ix = col_ix.saturating_sub(self.fixed_left_cols_count());
+        self.pending_scroll_to_col = None;
+        let fixed_count = self.fixed_left_cols_count();
+        if col_ix < fixed_count || col_ix >= self.col_groups.len() {
+            return;
+        }
 
-        self.horizontal_scroll_handle
-            .scroll_to_item(col_ix, ScrollStrategy::Top);
+        // Header and rows must consume the same offset before either enters prepaint.
+        if let Some(offset_x) = self.horizontal_offset_for_col(col_ix - fixed_count) {
+            let mut offset = self.horizontal_scroll_handle.offset();
+            offset.x = offset_x;
+            self.horizontal_scroll_handle.set_offset(offset);
+        } else {
+            self.pending_scroll_to_col = Some(col_ix);
+        }
         cx.notify();
+    }
+
+    fn horizontal_offset_for_col(&self, col_ix: usize) -> Option<Pixels> {
+        let viewport_width = self.horizontal_scroll_handle.bounds().size.width;
+        if viewport_width <= px(0.) {
+            return None;
+        }
+        let cols = self.col_groups.get(self.fixed_left_cols_count()..)?;
+        let col_left: Pixels = cols.get(..col_ix)?.iter().map(|col| col.width).sum();
+        let col_right = col_left + cols.get(col_ix)?.width;
+        let offset_x = self.horizontal_scroll_handle.offset().x;
+
+        Some(if col_left + offset_x < px(0.) {
+            -col_left
+        } else if col_right + offset_x > viewport_width {
+            viewport_width - col_right
+        } else {
+            offset_x
+        })
     }
 
     /// Returns the selected row index.
@@ -906,7 +940,7 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if col_ix == to_ix {
+        if col_ix == to_ix || !self.can_move_column(col_ix, to_ix) {
             return;
         }
 
@@ -916,6 +950,13 @@ where
 
         cx.emit(TableEvent::MoveColumn(col_ix, to_ix));
         cx.notify();
+    }
+
+    fn can_move_column(&self, from: usize, to: usize) -> bool {
+        let fixed_count = self.fixed_left_cols_count();
+        from < self.col_groups.len()
+            && to < self.col_groups.len()
+            && (from < fixed_count) == (to < fixed_count)
     }
 
     /// Dispatch delegate's `load_more` method when the visible range is near the end.
@@ -1031,34 +1072,48 @@ where
         }
     }
 
+    fn render_leading_resize_handle(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(prev) = ix.checked_sub(1).filter(|ix| self.is_col_resizable(*ix)) else {
+            return div().into_any_element();
+        };
+
+        self.resize_handle_band(prev, ("resizable-handle-leading", ix).into(), cx)
+            .debug_selector(|| format!("resize-leading-{ix}"))
+            .absolute()
+            .top_0()
+            .left_0()
+            .h_full()
+            .w(HANDLE_PADDING)
+            .into_any_element()
+    }
+
+    fn is_col_resizable(&self, ix: usize) -> bool {
+        self.col_resizable
+            && self
+                .col_groups
+                .get(ix)
+                .map(|col| col.is_resizable())
+                .unwrap_or(false)
+    }
+
     fn render_resize_handle(
         &self,
         ix: usize,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        const HANDLE_SIZE: Pixels = px(2.);
-
-        let resizable = self.col_resizable
-            && self
-                .col_groups
-                .get(ix)
-                .map(|col| col.is_resizable())
-                .unwrap_or(false);
-        if !resizable {
+        if !self.is_col_resizable(ix) {
             return div().into_any_element();
         }
 
         let group_id = SharedString::from(format!("resizable-handle:{}", ix));
 
-        h_flex()
-            .id(("resizable-handle", ix))
+        self.resize_handle_band(ix, ("resizable-handle", ix).into(), cx)
+            .debug_selector(|| format!("resize-trailing-{ix}"))
             .group(group_id.clone())
-            .occlude()
-            .cursor_col_resize()
             .h_full()
-            .w(HANDLE_SIZE)
-            .ml(-(HANDLE_SIZE))
+            .w(HANDLE_PADDING)
+            .ml(-HANDLE_PADDING)
             .justify_end()
             .items_center()
             .child(
@@ -1069,6 +1124,21 @@ where
                     .group_hover(&group_id, |this| this.bg(cx.theme().border).h_full())
                     .w(px(1.)),
             )
+            .into_any_element()
+    }
+
+    // Each half paints after its own header cell, so resize wins over column reorder.
+    fn resize_handle_band(
+        &self,
+        ix: usize,
+        id: ElementId,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        h_flex()
+            .id(id)
+            .flex_shrink_0()
+            .occlude()
+            .cursor_col_resize()
             .on_drag_move(
                 cx.listener(move |view, e: &DragMoveEvent<ResizeColumn>, window, cx| {
                     match e.drag(cx) {
@@ -1123,7 +1193,6 @@ where
                     cx.notify();
                 }),
             )
-            .into_any_element()
     }
 
     fn render_sort_icon(
@@ -1180,8 +1249,13 @@ where
         let movable = self.col_movable && col_group.column.movable;
         let paddings = col_group.column.paddings;
         let name = col_group.column.name.clone();
+        let fixed_count = self.fixed_left_cols_count();
+        let columns_count = self.col_groups.len();
 
         h_flex()
+            .relative()
+            .w(col_group.width)
+            .flex_shrink_0()
             .h_full()
             .child(
                 self.render_cell(None, col_ix, window, cx)
@@ -1216,11 +1290,18 @@ where
                                 cx.new(|_| drag.clone())
                             },
                         )
-                        .drag_over::<DragColumn>(|this, _, _, cx| {
-                            this.rounded_l_none()
-                                .border_l_2()
-                                .border_r_0()
-                                .border_color(cx.theme().drag_border)
+                        .drag_over::<DragColumn>(move |this, drag, _, cx| {
+                            if drag.entity_id == entity_id
+                                && drag.col_ix < columns_count
+                                && (drag.col_ix < fixed_count) == (col_ix < fixed_count)
+                            {
+                                this.rounded_l_none()
+                                    .border_l_2()
+                                    .border_r_0()
+                                    .border_color(cx.theme().drag_border)
+                            } else {
+                                this
+                            }
                         })
                         .on_drop(cx.listener(
                             move |table, drag: &DragColumn, window, cx| {
@@ -1236,6 +1317,7 @@ where
             )
             // resize handle
             .child(self.render_resize_handle(col_ix, window, cx))
+            .child(self.render_leading_resize_handle(col_ix, cx))
             // to save the bounds of this col.
             .on_prepaint({
                 let view = cx.entity();
@@ -1275,6 +1357,7 @@ where
                 this.child(
                     h_flex()
                         .relative()
+                        .flex_shrink_0()
                         .h_full()
                         .bg(cx.theme().table_head)
                         .children({
@@ -1318,6 +1401,8 @@ where
                     .child(
                         h_flex()
                             .relative()
+                            .flex_shrink_0()
+                            .h_full()
                             .children({
                                 let col_indices: Vec<usize> =
                                     (left_columns_count..self.col_groups.len()).collect();
@@ -1922,7 +2007,18 @@ where
             })
             .on_prepaint({
                 let state = cx.entity();
-                move |bounds, _, cx| state.update(cx, |state, _| state.bounds = bounds)
+                move |bounds, window, cx| {
+                    state.update(cx, |state, cx| {
+                        state.bounds = bounds;
+                        if state.horizontal_scroll_handle.bounds().size.width > px(0.)
+                            && let Some(col_ix) = state.pending_scroll_to_col.take()
+                        {
+                            cx.defer_in(window, move |state, _, cx| {
+                                state.scroll_to_col(col_ix, cx);
+                            });
+                        }
+                    })
+                }
             })
             .when(!window.is_inspector_picking(cx), |this| {
                 this.child(
@@ -1946,17 +2042,22 @@ where
 mod tests {
     use super::*;
     use crate::table::Column;
-    use gpui::{TestAppContext, VisualTestContext, div};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, div, point, size};
 
     #[derive(Clone)]
     struct TestDelegate {
         rows: usize,
         cols: usize,
+        moves: Vec<(usize, usize)>,
     }
 
     impl TestDelegate {
         fn new(rows: usize, cols: usize) -> Self {
-            Self { rows, cols }
+            Self {
+                rows,
+                cols,
+                moves: Vec::new(),
+            }
         }
     }
 
@@ -1976,11 +2077,197 @@ mod tests {
         fn render_td(
             &mut self,
             _row_ix: usize,
-            _col_ix: usize,
+            col_ix: usize,
             _: &mut Window,
             _: &mut Context<TableState<Self>>,
         ) -> impl IntoElement {
             div()
+                .size_full()
+                .debug_selector(|| format!("body-{col_ix}"))
+        }
+
+        fn render_th(
+            &mut self,
+            col_ix: usize,
+            _: &mut Window,
+            _: &mut Context<TableState<Self>>,
+        ) -> impl IntoElement {
+            div()
+                .size_full()
+                .debug_selector(|| format!("head-{col_ix}"))
+        }
+
+        fn move_column(
+            &mut self,
+            from: usize,
+            to: usize,
+            _: &mut Window,
+            _: &mut Context<TableState<Self>>,
+        ) {
+            self.moves.push((from, to));
+        }
+    }
+
+    struct GeometryTable(Entity<TableState<TestDelegate>>);
+
+    impl Render for GeometryTable {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(320.)).h(px(240.)).child(
+                Table::new(&self.0)
+                    .bordered(false)
+                    .scrollbar_visible(false, false),
+            )
+        }
+    }
+
+    fn geometry_table(
+        cx: &mut TestAppContext,
+        initial_col: Option<usize>,
+    ) -> (Entity<TableState<TestDelegate>>, &mut VisualTestContext) {
+        let mut state = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let table = cx.new(|cx| {
+                let mut table = TableState::new(TestDelegate::new(1, 6), window, cx);
+                if let Some(col_ix) = initial_col {
+                    table.scroll_to_col(col_ix, cx);
+                }
+                table
+            });
+            state = Some(table.clone());
+            let view = cx.new(|_| GeometryTable(table));
+            crate::Root::new(view, window, cx)
+        });
+        cx.simulate_resize(size(px(320.), px(240.)));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        (state.unwrap(), cx)
+    }
+
+    #[gpui::test]
+    fn geometry_column_navigation_updates_header_and_body_together(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (state, cx) = geometry_table(cx, None);
+        state.update(cx, |state, cx| {
+            state.scroll_to_col(4, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(-180.));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let header = cx.debug_bounds("head-4").unwrap();
+        let body = cx.debug_bounds("body-4").unwrap();
+        assert_eq!(header.left(), body.left());
+        assert_eq!(header.right(), body.right());
+        assert_eq!(header.size.height, body.size.height);
+
+        state.update(cx, |state, cx| {
+            state.scroll_to_col(3, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(-180.));
+            state.scroll_to_col(0, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(0.));
+        });
+    }
+
+    #[gpui::test]
+    fn geometry_column_navigation_before_layout_is_applied(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (state, cx) = geometry_table(cx, Some(5));
+        state.read_with(cx, |state, _| {
+            assert!(state.pending_scroll_to_col.is_none());
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(-280.));
+        });
+        assert_eq!(
+            cx.debug_bounds("head-5").unwrap().left(),
+            cx.debug_bounds("body-5").unwrap().left()
+        );
+    }
+
+    #[gpui::test]
+    fn geometry_column_navigation_respects_fixed_and_reordered_widths(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (state, cx) = geometry_table(cx, None);
+        state.update_in(cx, |state, window, cx| {
+            state.col_groups[0].column.fixed = Some(ColumnFixed::Left);
+            state.col_groups[1].width = px(80.);
+            state.col_groups[2].width = px(140.);
+            state.move_column(2, 1, window, cx);
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        state.update(cx, |state, cx| {
+            assert_eq!(state.horizontal_scroll_handle.bounds().size.width, px(220.));
+            state.scroll_to_col(3, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(-100.));
+            state.scroll_to_col(0, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(-100.));
+            state.scroll_to_col(1, cx);
+            assert_eq!(state.horizontal_scroll_handle.offset().x, px(0.));
+        });
+    }
+
+    #[gpui::test]
+    fn geometry_column_reorder_preserves_fixed_regions_and_indices(cx: &mut TestAppContext) {
+        let (_window, mut cx, state) = new_table_state(cx, 1, 4);
+        state.update_in(&mut cx, |state, window, cx| {
+            state.col_groups[0].column.fixed = Some(ColumnFixed::Left);
+            state.col_groups[1].column.fixed = Some(ColumnFixed::Left);
+            state.move_column(0, 3, window, cx);
+            state.move_column(3, 0, window, cx);
+            assert!(state.delegate.moves.is_empty());
+            assert_eq!(state.col_groups[0].column.key.as_ref(), "col-0");
+            assert_eq!(state.col_groups[3].column.key.as_ref(), "col-3");
+
+            state.move_column(0, 1, window, cx);
+            state.move_column(3, 2, window, cx);
+            assert_eq!(state.delegate.moves, [(0, 1), (3, 2)]);
+            let keys: Vec<&str> = state
+                .col_groups
+                .iter()
+                .map(|group| group.column.key.as_ref())
+                .collect();
+            assert_eq!(keys, ["col-1", "col-0", "col-3", "col-2"]);
+
+            state.col_fixed = false;
+            state.move_column(0, 3, window, cx);
+            assert_eq!(state.delegate.moves.last(), Some(&(0, 3)));
+        });
+    }
+
+    #[gpui::test]
+    fn geometry_resize_target_catches_both_sides_without_reorder(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for grab_offset in [-3., 3.] {
+            let (state, cx) = geometry_table(cx, None);
+            let boundary = state.read_with(cx, |state, _| state.col_groups[0].bounds.right());
+            let trailing = cx.debug_bounds("resize-trailing-0").unwrap();
+            let leading = cx.debug_bounds("resize-leading-1").unwrap();
+            assert_eq!(trailing.size.width, px(4.));
+            assert_eq!(leading.size.width, px(4.));
+            assert_eq!(trailing.right(), boundary);
+            assert_eq!(leading.left(), boundary);
+            let y = state.read_with(cx, |state, _| state.col_groups[0].bounds.center().y);
+            let start = point(boundary + px(grab_offset), y);
+            cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+            cx.simulate_mouse_move(
+                point(start.x + px(8.), y),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            cx.simulate_mouse_move(
+                point(boundary + px(32.), y),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            cx.simulate_mouse_up(
+                point(boundary + px(32.), y),
+                MouseButton::Left,
+                Modifiers::none(),
+            );
+            cx.run_until_parked();
+            state.read_with(cx, |state, _| {
+                assert_eq!(state.col_groups[0].width, px(130.));
+                assert_eq!(state.col_groups[1].width, px(100.));
+                assert!(state.delegate.moves.is_empty());
+                assert_eq!(state.col_groups[0].column.key.as_ref(), "col-0");
+            });
         }
     }
 

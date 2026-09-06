@@ -980,6 +980,11 @@ impl InputState {
 
     /// Return the start offset of the previous word.
     pub(super) fn previous_start_of_word(&mut self) -> usize {
+        // The mask hides word boundaries, so word actions treat the value as one word.
+        if self.masked {
+            return 0;
+        }
+
         let offset = self.selected_range.start;
         let offset = self.offset_from_utf16(self.offset_to_utf16(offset));
         // FIXME: Avoid to_string
@@ -993,6 +998,10 @@ impl InputState {
 
     /// Return the next end offset of the next word.
     pub(super) fn next_end_of_word(&mut self) -> usize {
+        if self.masked {
+            return self.text.len();
+        }
+
         let offset = self.cursor();
         let offset = self.offset_from_utf16(self.offset_to_utf16(offset));
         let right_part = self.text.slice(offset..self.text.len()).to_string();
@@ -1505,8 +1514,12 @@ impl InputState {
         window.show_character_palette();
     }
 
+    pub(super) fn is_copyable(&self) -> bool {
+        !self.masked && !self.selected_range.is_empty()
+    }
+
     pub(super) fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
+        if !self.is_copyable() {
             return;
         }
 
@@ -1515,7 +1528,7 @@ impl InputState {
     }
 
     pub(super) fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
+        if !self.is_copyable() {
             return;
         }
 
@@ -2372,6 +2385,155 @@ mod tests {
         let visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
         let input = input_slot.borrow_mut().take().unwrap();
         (window, visual_cx, input)
+    }
+
+    struct InputCommandTestView {
+        input: Entity<InputState>,
+    }
+
+    impl Render for InputCommandTestView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            crate::input::Input::new(&self.input)
+        }
+    }
+
+    fn new_command_input(
+        cx: &mut TestAppContext,
+        value: &'static str,
+    ) -> (Entity<InputState>, gpui::VisualTestContext) {
+        let input_slot = Rc::new(RefCell::new(None));
+        let input_for_root = input_slot.clone();
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
+                input_for_root.replace(Some(input.clone()));
+                let view = cx.new(|_| InputCommandTestView { input });
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .unwrap()
+        });
+        let input = input_slot.borrow_mut().take().unwrap();
+        let mut cx = gpui::VisualTestContext::from_window(window.into(), cx);
+        input.update_in(&mut cx, |input, window, cx| input.focus(window, cx));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        (input, cx)
+    }
+
+    #[gpui::test]
+    fn test_masked_input_clipboard_commands(cx: &mut TestAppContext) {
+        let (input, cx) = &mut new_command_input(cx, "sécret two");
+        input.update_in(cx, |input, window, cx| {
+            input.set_masked(true, window, cx);
+            cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));
+        });
+        cx.dispatch_action(SelectAll);
+        assert_eq!(
+            input.read_with(cx, |input, _| input.selected_range),
+            (0..11).into()
+        );
+
+        let copy_key = if cfg!(target_os = "macos") {
+            "cmd-c"
+        } else {
+            "ctrl-c"
+        };
+        let cut_key = if cfg!(target_os = "macos") {
+            "cmd-x"
+        } else {
+            "ctrl-x"
+        };
+        for key in [copy_key, cut_key] {
+            cx.simulate_keystrokes(key);
+            assert_eq!(
+                cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+                Some("sentinel".into())
+            );
+            input.read_with(cx, |input, _| {
+                assert_eq!(input.value(), "sécret two");
+                assert_eq!(input.selected_range, (0..11).into());
+            });
+        }
+
+        // Direct actions must enforce the same policy as keyboard shortcuts.
+        cx.dispatch_action(Copy);
+        cx.dispatch_action(Cut);
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+            Some("sentinel".into())
+        );
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "sécret two");
+
+        input.update_in(cx, |input, window, cx| input.set_masked(false, window, cx));
+        cx.simulate_keystrokes(copy_key);
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+            Some("sécret two".into())
+        );
+        cx.update(|_, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string("sentinel".into()));
+        });
+        cx.simulate_keystrokes(cut_key);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "");
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text())),
+            Some("sécret two".into())
+        );
+
+        input.update_in(cx, |input, window, cx| input.set_masked(true, window, cx));
+        cx.dispatch_action(Paste);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "sécret two");
+    }
+
+    #[gpui::test]
+    fn test_masked_input_word_commands(cx: &mut TestAppContext) {
+        let (input, cx) = &mut new_command_input(cx, "éé bbb ccc");
+        input.update_in(cx, |input, window, cx| {
+            input.set_masked(true, window, cx);
+            input.move_to(8, None, cx);
+        });
+
+        cx.dispatch_action(MoveToPreviousWord);
+        assert_eq!(input.read_with(cx, |input, _| input.cursor()), 0);
+        cx.dispatch_action(MoveToNextWord);
+        assert_eq!(input.read_with(cx, |input, _| input.cursor()), 12);
+
+        input.update_in(cx, |input, _, cx| input.move_to(8, None, cx));
+        cx.dispatch_action(SelectToPreviousWordStart);
+        assert_eq!(
+            input.read_with(cx, |input, _| input.selected_range),
+            (0..8).into()
+        );
+        input.update_in(cx, |input, _, cx| input.move_to(5, None, cx));
+        cx.dispatch_action(SelectToNextWordEnd);
+        assert_eq!(
+            input.read_with(cx, |input, _| input.selected_range),
+            (5..12).into()
+        );
+
+        input.update_in(cx, |input, _, cx| input.move_to(8, None, cx));
+        cx.dispatch_action(DeleteToPreviousWordStart);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), " ccc");
+        assert_eq!(
+            input.read_with(cx, |input, _| input.selected_range),
+            (0..0).into()
+        );
+        cx.dispatch_action(DeleteToNextWordEnd);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "");
+
+        input.update_in(cx, |input, window, cx| {
+            input.set_value("éé bbb ccc", window, cx);
+            input.select_word(6, window, cx);
+            assert_eq!(input.selected_range, (0..12).into());
+            input.set_masked(false, window, cx);
+            input.select_word(6, window, cx);
+            assert_eq!(input.selected_range, (5..8).into());
+            input.move_to(8, None, cx);
+        });
+        cx.dispatch_action(DeleteToPreviousWordStart);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "éé  ccc");
+        cx.dispatch_action(DeleteToNextWordEnd);
+        assert_eq!(input.read_with(cx, |input, _| input.value()), "éé ");
     }
 
     #[gpui::test]

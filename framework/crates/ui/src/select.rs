@@ -1,11 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
 use gpui::{
-    AbsoluteLength, Anchor, AnyElement, App, Bounds, ClickEvent, Context, DefiniteLength,
-    DismissEvent, Edges, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
+    AbsoluteLength, AccessibleAction, Anchor, AnyElement, App, Bounds, ClickEvent, Context,
+    DefiniteLength, DismissEvent, Edges, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Length, ParentElement, Pixels, Render, RenderOnce,
-    SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Task, WeakEntity, Window,
-    anchored, deferred, div, point, prelude::FluentBuilder, px, rems,
+    Role, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Task, WeakEntity,
+    Window, anchored, deferred, div, point, prelude::FluentBuilder, px, rems,
 };
 use rust_i18n::t;
 
@@ -70,9 +70,11 @@ pub(crate) fn init(cx: &mut App) {
 pub trait SelectItem: Clone {
     type Value: Clone;
 
+    /// Return the readable title, also exposed as the committed accessible value.
     fn title(&self) -> SharedString;
 
     /// Customize the display title used for the selected item in the Select input.
+    /// This affects presentation only. Accessibility uses [`Self::title`].
     fn display_title(&self) -> Option<AnyElement> {
         None
     }
@@ -397,6 +399,7 @@ struct SelectOptions {
     icon: Option<Icon>,
     cleanable: bool,
     placeholder: Option<SharedString>,
+    accessibility_label: Option<SharedString>,
     title_prefix: Option<SharedString>,
     search_placeholder: Option<SharedString>,
     empty: Option<Box<dyn Fn(&mut Window, &App) -> Option<AnyElement> + 'static>>,
@@ -413,6 +416,7 @@ impl Default for SelectOptions {
             icon: None,
             cleanable: false,
             placeholder: None,
+            accessibility_label: None,
             title_prefix: None,
             empty: None,
             menu_width: Length::Auto,
@@ -429,6 +433,7 @@ pub struct SelectState<D: SelectDelegate + 'static> {
     searchable: bool,
     icon: Option<Icon>,
     title_prefix: Option<SharedString>,
+    accessibility_label: Option<SharedString>,
 }
 
 /// A Select element.
@@ -472,6 +477,9 @@ where
                             .collect::<Vec<_>>();
 
                         let new_selection = weak_confirm.update(cx, |this, cx| {
+                            if this.state.disabled {
+                                return this.state.selection.clone();
+                            }
                             this.state.selection = selection;
                             let value = this
                                 .state
@@ -504,9 +512,9 @@ where
                         });
 
                         list_state.set_selected_index(committed_ix, window, cx);
+                        let list_focused = list_state.is_focused(window, cx);
                         _ = weak_cancel.update(cx, |this, cx| {
-                            this.state.open = false;
-                            this.focus(window, cx);
+                            this.close_menu(list_focused, window, cx);
                         });
                     }
                 });
@@ -531,6 +539,7 @@ where
             searchable: false,
             icon: None,
             title_prefix: None,
+            accessibility_label: None,
         }
     }
 
@@ -561,6 +570,7 @@ where
             _ => vec![],
         };
         self.state.sync_snapshot(cx);
+        cx.notify();
     }
 
     /// Set selected value for the select.
@@ -679,13 +689,19 @@ where
     }
 
     fn toggle_menu(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.disabled {
+            cx.propagate();
+            return;
+        }
         cx.stop_propagation();
 
-        self.state.open = !self.state.open;
         if self.state.open {
+            self.dismiss_menu(window, cx);
+        } else {
+            self.state.open = true;
             self.state.list.focus_handle(cx).focus(window, cx);
+            cx.notify();
         }
-        cx.notify();
     }
 
     fn escape(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
@@ -695,15 +711,54 @@ where
         }
 
         cx.stop_propagation();
+        self.dismiss_menu(window, cx);
+    }
+
+    fn dismiss_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let committed_ix = self.state.selection.first().map(|(ix, _)| *ix);
+        let list_focused = self.state.list.update(cx, |list, cx| {
+            list.set_selected_index(committed_ix, window, cx);
+            list.is_focused(window, cx)
+        });
+        self.close_menu(list_focused, window, cx);
+    }
+
+    // Deferred cancellation holds the list's mutable borrow, so the caller supplies its focus state.
+    fn close_menu(&mut self, list_focused: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.state.open = false;
-        self.focus(window, cx);
+        if self.state.disabled {
+            if self.state.focus_handle.contains_focused(window, cx) || list_focused {
+                window.blur();
+            }
+        } else {
+            self.focus(window, cx);
+        }
         cx.notify();
     }
 
     fn clean(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.disabled {
+            cx.propagate();
+            return;
+        }
         cx.stop_propagation();
         self.set_selected_index(None, window, cx);
         cx.emit(SelectEvent::Confirm(None));
+    }
+
+    fn accessibility_value(&self) -> SharedString {
+        let Some((_, item)) = self.state.selection.first() else {
+            return self
+                .state
+                .placeholder
+                .clone()
+                .unwrap_or_else(|| t!("Select.placeholder").into());
+        };
+
+        match &self.title_prefix {
+            Some(prefix) => format!("{}{}", prefix, item.title()).into(),
+            None => item.title(),
+        }
     }
 
     /// Returns the title element for the select input.
@@ -791,6 +846,23 @@ where
         });
 
         div()
+            .id("select")
+            .role(Role::ComboBox)
+            .aria_expanded(self.state.open)
+            .aria_disabled(self.state.disabled)
+            .aria_value(self.accessibility_value())
+            .when_some(self.accessibility_label.clone(), |this, label| {
+                this.aria_label(label)
+            })
+            .when(!self.state.disabled, |this| {
+                let state = cx.entity();
+                this.track_focus(&self.state.focus_handle.clone().tab_stop(true))
+                    .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                        state.update(cx, |state, cx| {
+                            state.toggle_menu(&ClickEvent::default(), window, cx);
+                        });
+                    })
+            })
             .size_full()
             .relative()
             .child(
@@ -970,6 +1042,12 @@ where
         self
     }
 
+    /// Set the accessible name without changing the placeholder or selected value.
+    pub fn accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.options.accessibility_label = Some(label.into());
+        self
+    }
+
     /// Set the right icon for the select input, instead of the default arrow icon.
     pub fn icon(mut self, icon: impl Into<Icon>) -> Self {
         self.options.icon = Some(icon.into());
@@ -1072,9 +1150,8 @@ where
 {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let disabled = self.options.disabled;
-        let focus_handle = self.state.read(cx).state.focus_handle.clone();
         let options = self.options;
-        self.state.update(cx, |this, _| {
+        self.state.update(cx, |this, cx| {
             this.state.style = options.style;
             this.state.size = options.size;
             this.state.cleanable = options.cleanable;
@@ -1085,18 +1162,16 @@ where
             this.state.appearance = options.appearance;
             this.icon = options.icon;
             this.title_prefix = options.title_prefix;
+            this.accessibility_label = options.accessibility_label;
             this.state.empty = options.empty;
-            if disabled {
-                this.state.open = false;
+            if disabled && this.state.open {
+                this.dismiss_menu(window, cx);
             }
         });
 
         div()
             .id(self.id.clone())
             .key_context(CONTEXT)
-            .when(!disabled, |this| {
-                this.track_focus(&focus_handle.tab_stop(true))
-            })
             .on_action(window.listener_for(&self.state, SelectState::up))
             .on_action(window.listener_for(&self.state, SelectState::down))
             .on_action(window.listener_for(&self.state, SelectState::enter))
@@ -1111,13 +1186,394 @@ mod tests {
     use std::{cell::Cell, rc::Rc, time::Duration};
 
     use super::*;
-    use gpui::{AppContext, TestAppContext, VisualTestContext, size};
+    use gpui::{AppContext, TestAppContext, VisualTestContext, accesskit, size};
 
     use crate::list::ListDelegate;
 
     struct SelectEscapeHarness {
         state: Entity<SelectState<Vec<&'static str>>>,
         parent_cancels: Rc<Cell<usize>>,
+    }
+
+    struct SelectAccessibilityHarness {
+        state: Entity<SelectState<Vec<&'static str>>>,
+        disabled: bool,
+    }
+
+    impl Render for SelectAccessibilityHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            Select::new(&self.state)
+                .accessibility_label("Language")
+                .placeholder("Choose a language")
+                .disabled(self.disabled)
+        }
+    }
+
+    struct SelectDisableFocusHarness {
+        state: Entity<SelectState<Vec<&'static str>>>,
+        destination: Entity<crate::input::InputState>,
+        disabled: bool,
+    }
+
+    impl Render for SelectDisableFocusHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            v_flex()
+                .child(
+                    div()
+                        .h(px(32.))
+                        .child(Select::new(&self.state).disabled(self.disabled)),
+                )
+                .child(crate::input::Input::new(&self.destination))
+        }
+    }
+
+    #[gpui::test]
+    fn select_disable_preserves_external_focus_and_clears_owned_focus(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for searchable in [false, true] {
+            for focus_destination in [false, true] {
+                let window = cx.update(|cx| {
+                    cx.open_window(Default::default(), |window, cx| {
+                        let state = cx.new(|cx| {
+                            SelectState::new(
+                                vec!["Rust", "Go"],
+                                Some(IndexPath::new(0)),
+                                window,
+                                cx,
+                            )
+                            .searchable(searchable)
+                        });
+                        let destination = cx.new(|cx| crate::input::InputState::new(window, cx));
+                        cx.new(|_| SelectDisableFocusHarness {
+                            state,
+                            destination,
+                            disabled: false,
+                        })
+                    })
+                    .unwrap()
+                });
+                let mut cx = VisualTestContext::from_window(window.into(), cx);
+                let harness = window.root(&mut cx).unwrap();
+                let (state, destination) = harness.read_with(&cx, |harness, _| {
+                    (harness.state.clone(), harness.destination.clone())
+                });
+                let confirms = Rc::new(Cell::new(0));
+                let _subscription = cx.update(|_, cx| {
+                    let confirms = confirms.clone();
+                    cx.subscribe(&state, move |_, _: &SelectEvent<Vec<&'static str>>, _| {
+                        confirms.set(confirms.get() + 1);
+                    })
+                });
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    state.update(cx, |state, cx| {
+                        state.toggle_menu(&ClickEvent::default(), window, cx);
+                    });
+                    window.draw(cx).clear(cx);
+                });
+                cx.update(|window, cx| {
+                    assert!(state.read(cx).state.open);
+                    assert!(state.read(cx).state.list.read(cx).is_focused(window, cx));
+                    state.update(cx, |state, cx| {
+                        state.state.list.update(cx, |list, cx| {
+                            list.select_item_on_hover(IndexPath::new(1), window, cx);
+                        });
+                    });
+                    harness.update(cx, |harness, cx| {
+                        harness.disabled = true;
+                        cx.notify();
+                    });
+                    if focus_destination {
+                        destination.focus_handle(cx).focus(window, cx);
+                    }
+                    // Draw before blur callbacks can close the popup and conceal focus theft.
+                    assert!(state.read(cx).state.open);
+                    window.draw(cx).clear(cx);
+                    assert!(!state.read(cx).state.open);
+                    assert_eq!(state.read(cx).selected_index(cx), Some(IndexPath::new(0)));
+                    if focus_destination {
+                        assert!(destination.focus_handle(cx).is_focused(window));
+                    } else {
+                        assert!(window.focused(cx).is_none());
+                    }
+                });
+                cx.run_until_parked();
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    if focus_destination {
+                        assert!(destination.focus_handle(cx).is_focused(window));
+                    } else {
+                        assert!(window.focused(cx).is_none());
+                    }
+                });
+                assert_eq!(confirms.get(), 0);
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn select_queued_cancel_after_disable_preserves_external_focus(cx: &mut TestAppContext) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let state = cx.new(|cx| {
+                    SelectState::new(vec!["Rust", "Go"], Some(IndexPath::new(0)), window, cx)
+                        .searchable(true)
+                });
+                let destination = cx.new(|cx| crate::input::InputState::new(window, cx));
+                cx.new(|_| SelectDisableFocusHarness {
+                    state,
+                    destination,
+                    disabled: false,
+                })
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let harness = window.root(&mut cx).unwrap();
+        let (state, destination) = harness.read_with(&cx, |harness, _| {
+            (harness.state.clone(), harness.destination.clone())
+        });
+        let confirms = Rc::new(Cell::new(0));
+        let _subscription = cx.update(|_, cx| {
+            let confirms = confirms.clone();
+            cx.subscribe(&state, move |_, _: &SelectEvent<Vec<&'static str>>, _| {
+                confirms.set(confirms.get() + 1);
+            })
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            state.update(cx, |state, cx| {
+                state.toggle_menu(&ClickEvent::default(), window, cx);
+            });
+            window.draw(cx).clear(cx);
+        });
+        cx.update(|window, cx| {
+            assert!(state.read(cx).state.open);
+            let list = state.read(cx).state.list.clone();
+            list.update(cx, |list, cx| {
+                list.select_item_on_hover(IndexPath::new(1), window, cx);
+                list.delegate_mut().cancel(window, cx);
+            });
+            assert!(state.read(cx).state.open, "cancellation must remain queued");
+
+            harness.update(cx, |harness, cx| {
+                harness.disabled = true;
+                cx.notify();
+            });
+            destination.focus_handle(cx).focus(window, cx);
+            // Apply disabled state before the deferred callback acquires the list again.
+            window.draw(cx).clear(cx);
+            assert!(state.read(cx).state.disabled);
+            assert!(destination.focus_handle(cx).is_focused(window));
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert!(destination.focus_handle(cx).is_focused(window));
+            let state = state.read(cx);
+            assert!(!state.state.open);
+            assert_eq!(state.selected_index(cx), Some(IndexPath::new(0)));
+            assert_eq!(state.selected_value(), Some(&"Rust"));
+        });
+        assert_eq!(confirms.get(), 0);
+    }
+
+    fn select_accessibility_node(
+        cx: &mut VisualTestContext,
+    ) -> (accesskit::NodeId, accesskit::Node) {
+        cx.update(|window, cx| {
+            window.set_a11y_active_for_test(true);
+            window.draw(cx).clear(cx);
+            window
+                .last_a11y_tree_for_test()
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|(_, node)| node.role() == Role::ComboBox)
+                .cloned()
+                .expect("Select must expose a combobox node")
+        })
+    }
+
+    fn activate_select(cx: &mut VisualTestContext, target: accesskit::NodeId) {
+        cx.update(|window, cx| {
+            window.handle_a11y_action_for_test(
+                accesskit::ActionRequest {
+                    action: AccessibleAction::Click,
+                    target_tree: accesskit::TreeId::ROOT,
+                    target_node: target,
+                    data: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn select_accessible_activation_preserves_committed_value_and_dismisses(
+        cx: &mut TestAppContext,
+    ) {
+        let window = cx.update(|cx| {
+            crate::init(cx);
+            cx.open_window(Default::default(), |window, cx| {
+                let state = cx.new(|cx| {
+                    SelectState::new(vec!["Rust", "Go"], Some(IndexPath::new(0)), window, cx)
+                });
+                cx.new(|_| SelectAccessibilityHarness {
+                    state,
+                    disabled: false,
+                })
+            })
+            .unwrap()
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        let harness = window.root(&mut cx).unwrap();
+        let state = harness.read_with(&cx, |harness, _| harness.state.clone());
+        let confirms = Rc::new(RefCell::new(Vec::new()));
+        let _subscription = cx.update(|_, cx| {
+            let confirms = confirms.clone();
+            cx.subscribe(
+                &state,
+                move |_, event: &SelectEvent<Vec<&'static str>>, _| {
+                    let SelectEvent::Confirm(value) = event;
+                    confirms.borrow_mut().push(*value);
+                },
+            )
+        });
+
+        let (id, node) = select_accessibility_node(&mut cx);
+        assert_eq!(node.label(), Some("Language"));
+        assert_eq!(node.value(), Some("Rust"));
+        assert_eq!(node.is_expanded(), Some(false));
+        assert!(node.supports_action(AccessibleAction::Click));
+        assert!(node.supports_action(AccessibleAction::Focus));
+        activate_select(&mut cx, id);
+        cx.update(|window, cx| {
+            assert!(state.read(cx).state.list.read(cx).is_focused(window, cx));
+        });
+
+        state.update_in(&mut cx, |state, window, cx| {
+            state.state.list.update(cx, |list, cx| {
+                list.select_item_on_hover(IndexPath::new(1), window, cx);
+            });
+        });
+        let (open_id, node) = select_accessibility_node(&mut cx);
+        assert_eq!(id, open_id);
+        assert_eq!(node.is_expanded(), Some(true));
+        assert_eq!(node.value(), Some("Rust"));
+        activate_select(&mut cx, open_id);
+        cx.update(|window, cx| {
+            let state = state.read(cx);
+            assert!(!state.state.open);
+            assert_eq!(state.selected_index(cx), Some(IndexPath::new(0)));
+            assert_eq!(state.selected_value(), Some(&"Rust"));
+            assert!(state.state.focus_handle.is_focused(window));
+        });
+        assert!(
+            confirms.borrow().is_empty(),
+            "dismissal must not commit the cursor"
+        );
+        let (_, node) = select_accessibility_node(&mut cx);
+        assert_eq!(node.is_expanded(), Some(false));
+
+        activate_select(&mut cx, id);
+        state.update_in(&mut cx, |state, window, cx| {
+            state.state.list.update(cx, |list, cx| {
+                list.set_selected_index(Some(IndexPath::new(1)), window, cx);
+                list.delegate_mut().confirm(false, window, cx);
+            });
+        });
+        cx.run_until_parked();
+        assert_eq!(*confirms.borrow(), vec![Some("Go")]);
+        let (_, node) = select_accessibility_node(&mut cx);
+        assert_eq!(node.value(), Some("Go"));
+
+        activate_select(&mut cx, id);
+        state.update_in(&mut cx, |state, window, cx| {
+            state.state.list.update(cx, |list, cx| {
+                list.select_item_on_hover(IndexPath::new(0), window, cx);
+            });
+        });
+        harness.update(&mut cx, |harness, cx| {
+            harness.disabled = true;
+            cx.notify();
+        });
+        let (disabled_id, node) = select_accessibility_node(&mut cx);
+        assert!(node.is_disabled());
+        assert_eq!(node.is_expanded(), Some(false));
+        assert!(!node.supports_action(AccessibleAction::Click));
+        assert!(!node.supports_action(AccessibleAction::Focus));
+        activate_select(&mut cx, disabled_id);
+        state.update_in(&mut cx, |state, window, cx| {
+            state.toggle_menu(&ClickEvent::default(), window, cx);
+            state.clean(&ClickEvent::default(), window, cx);
+            assert!(!state.state.open);
+            assert_eq!(state.selected_index(cx), Some(IndexPath::new(1)));
+            assert_eq!(state.selected_value(), Some(&"Go"));
+        });
+        assert_eq!(*confirms.borrow(), vec![Some("Go")]);
+    }
+
+    #[gpui::test]
+    fn select_accessibility_value_ignores_query_and_custom_display(cx: &mut TestAppContext) {
+        #[derive(Clone)]
+        struct RichItem(&'static str);
+
+        impl SelectItem for RichItem {
+            type Value = &'static str;
+
+            fn title(&self) -> SharedString {
+                self.0.into()
+            }
+
+            fn value(&self) -> &Self::Value {
+                &self.0
+            }
+
+            fn display_title(&self) -> Option<AnyElement> {
+                Some(div().child("Custom presentation").into_any_element())
+            }
+        }
+
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            let state = cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec![RichItem("Rust"), RichItem("Go")]),
+                    None,
+                    window,
+                    cx,
+                )
+                .searchable(true)
+            });
+            _ = Select::new(&state)
+                .placeholder("Choose a language")
+                .accessibility_label("Language")
+                .title_prefix("Selected: ")
+                .render(window, cx);
+            assert_eq!(state.read(cx).accessibility_value(), "Choose a language");
+            state.update(cx, |state, cx| {
+                state.set_selected_value(&"Rust", window, cx);
+            });
+            let list = state.read(cx).state.list.clone();
+            list.update(cx, |list, cx| list.set_query("Go", window, cx));
+            assert_eq!(list.read(cx).delegate().delegate.items_count(0), 1);
+            assert_eq!(state.read(cx).accessibility_value(), "Selected: Rust");
+            state.update(cx, |state, cx| state.set_selected_index(None, window, cx));
+            assert_eq!(state.read(cx).accessibility_value(), "Choose a language");
+            assert_eq!(
+                state.read(cx).accessibility_label.as_deref(),
+                Some("Language")
+            );
+            _ = Select::new(&state).render(window, cx);
+            assert_eq!(
+                state.read(cx).accessibility_value(),
+                t!("Select.placeholder").to_string()
+            );
+        });
     }
 
     struct SelectEmptyHarness {
